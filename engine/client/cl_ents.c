@@ -139,10 +139,6 @@ void CL_FreeDlights(void)
 			if (cl_dlights[i].worldshadowmesh)
 				SH_FreeShadowMesh(cl_dlights[i].worldshadowmesh);
 
-#ifdef GLQUAKE
-			if (cl_dlights[i].coronaocclusionquery)
-				qglDeleteQueriesARB(1, &cl_dlights[i].coronaocclusionquery);
-#endif
 		}
 #endif
 

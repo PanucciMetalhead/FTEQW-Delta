@@ -8,6 +8,16 @@
 #ifdef _WIN32
 #include <windows.h>
 #endif
+/* Standalone image tools do not link the engine's common.c. */
+short ShortSwap(short value) { unsigned short x = value; return (x >> 8) | (x << 8); }
+int LongSwap(int value) {
+    unsigned int x = value;
+    return (x >> 24) | ((x >> 8) & 0xff00u) | ((x << 8) & 0xff0000u) | (x << 24);
+}
+qint64_t I64Swap(qint64_t value) {
+    quint64_t x = value;
+    return ((quint64_t)(unsigned int)LongSwap((unsigned int)x) << 32) | (unsigned int)LongSwap(x >> 32);
+}
 static qboolean verbose;
 void VARGS Sys_Error (const char *fmt, ...)
 {
@@ -3049,7 +3059,9 @@ showhelp:
 }
 
 #ifdef FTE_SDL
-#include <SDL.h>
+#define SDL_MAIN_HANDLED
+#include <SDL3/SDL.h>
+#include <SDL3/SDL_main.h>
 
 struct sdlwindow_s
 {
@@ -3069,98 +3081,39 @@ struct sdlwindow_s
 		SDL_Texture *t;
 	} *tex;
 };
-static struct
-{
-	qboolean inited;
-	qboolean tried;
-	size_t windowcount;
-
-	int				(SDLCALL *Init)				(Uint32 flags);
-	SDL_Window *	(SDLCALL *CreateWindow)		(const char *title, int x, int y, int w, int h, Uint32 flags);
-	void *			(SDLCALL *SetWindowData)	(SDL_Window * window, const char *name, void *userdata);
-	void *			(SDLCALL *GetWindowData)	(SDL_Window * window, const char *name);
-	void			(SDLCALL *SetWindowTitle)	(SDL_Window * window, const char *title);
-	void			(SDLCALL *SetWindowSize)	(SDL_Window * window, int w, int h);
-	Uint32			(SDLCALL *GetWindowFlags)	(SDL_Window * window);
-	SDL_Renderer *	(SDLCALL *CreateRenderer)	(SDL_Window * window, int index, Uint32 flags);
-	int				(SDLCALL *GetRendererInfo)	(SDL_Renderer * renderer, SDL_RendererInfo * info);
-	SDL_Texture *	(SDLCALL *CreateTexture)	(SDL_Renderer * renderer, Uint32 format, int access, int w, int h);
-	int				(SDLCALL *UpdateTexture)	(SDL_Texture * texture, const SDL_Rect * rect, const void *pixels, int pitch);
-	int				(SDLCALL *RenderCopy)		(SDL_Renderer * renderer, SDL_Texture * texture, const SDL_Rect * srcrect, const SDL_Rect * dstrect);
-	void			(SDLCALL *RenderPresent)	(SDL_Renderer * renderer);
-	int				(SDLCALL *WaitEvent)		(SDL_Event * event);
-	int				(SDLCALL *PollEvent)		(SDL_Event * event);
-	SDL_Window *	(SDLCALL *GetWindowFromID)	(Uint32 id);
-	void			(SDLCALL *DestroyTexture)	(SDL_Texture * texture);
-	void			(SDLCALL *DestroyRenderer)	(SDL_Renderer * renderer);
-	void			(SDLCALL *DestroyWindow)	(SDL_Window * window);
-	void			(SDLCALL *Quit)				(void);
-
-	struct sdlwindow_s *texview;
+static struct {
+    qboolean inited, tried;
+    size_t windowcount;
+    struct sdlwindow_s *texview;
 } sdl;
 static qboolean SDLL_Setup(void)
 {
-	static dllfunction_t funcs[] =
-	{
-		{(void**)&sdl.Init,				"SDL_Init"},
-		{(void**)&sdl.CreateWindow,		"SDL_CreateWindow"},
-		{(void**)&sdl.SetWindowData,	"SDL_SetWindowData"},
-		{(void**)&sdl.GetWindowData,	"SDL_GetWindowData"},
-		{(void**)&sdl.SetWindowTitle,	"SDL_SetWindowTitle"},
-		{(void**)&sdl.SetWindowSize,	"SDL_SetWindowSize"},
-		{(void**)&sdl.GetWindowFlags,	"SDL_GetWindowFlags"},
-		{(void**)&sdl.CreateRenderer,	"SDL_CreateRenderer"},
-		{(void**)&sdl.GetRendererInfo,	"SDL_GetRendererInfo"},
-		{(void**)&sdl.CreateTexture,	"SDL_CreateTexture"},
-		{(void**)&sdl.UpdateTexture,	"SDL_UpdateTexture"},
-		{(void**)&sdl.RenderCopy,		"SDL_RenderCopy"},
-		{(void**)&sdl.RenderPresent,	"SDL_RenderPresent"},
-		{(void**)&sdl.WaitEvent,		"SDL_WaitEvent"},
-		{(void**)&sdl.PollEvent,		"SDL_PollEvent"},
-		{(void**)&sdl.GetWindowFromID,	"SDL_GetWindowFromID"},
-		{(void**)&sdl.DestroyTexture,	"SDL_DestroyTexture"},
-		{(void**)&sdl.DestroyRenderer,	"SDL_DestroyRenderer"},
-		{(void**)&sdl.DestroyWindow,	"SDL_DestroyWindow"},
-		{(void**)&sdl.Quit,				"SDL_Quit"},
-		{NULL,NULL}
-	};
-
-	if (!sdl.tried)
-	{
-		sdl.tried = true;
-
-#ifdef _WIN32
-		if (!Sys_LoadLibrary("SDL2.dll", funcs))
-#else
-		if (!Sys_LoadLibrary("libSDL2-2.0.so.0", funcs))
-		if (!Sys_LoadLibrary("libSDL2-2.0.so", funcs))
-		if (!Sys_LoadLibrary("libSDL2-2.so", funcs))
-		if (!Sys_LoadLibrary("libSDL2.so", funcs))
-		if (!Sys_LoadLibrary("SDL2.so", funcs))
-#endif
-		{
-			printf("Unable to load SDL2 library\n");
-			return sdl.inited;
-		}
-
-		sdl.Init(SDL_INIT_VIDEO);
-		sdl.inited = true;
-	}
-	return sdl.inited;
+    if (!sdl.tried) {
+        sdl.tried = true;
+        SDL_SetMainReady();
+        sdl.inited = SDL_Init(SDL_INIT_VIDEO);
+        if (!sdl.inited) printf("Unable to initialize SDL3: %s\n", SDL_GetError());
+    }
+    return sdl.inited;
+}
+static struct sdlwindow_s *SDLL_Window(Uint32 id)
+{
+    SDL_Window *window = SDL_GetWindowFromID(id);
+    return window ? SDL_GetPointerProperty(SDL_GetWindowProperties(window), "fte.imgtool.window", NULL) : NULL;
 }
 static void SDLL_KillWindow(struct sdlwindow_s *wc)
 {
 	while (wc->texcount --> 0)
 	{
 		if (wc->tex[wc->texcount].t)
-			sdl.DestroyTexture(wc->tex[wc->texcount].t);
+			SDL_DestroyTexture(wc->tex[wc->texcount].t);
 		BZ_Free(wc->tex[wc->texcount].name);
 	}
 	BZ_Free(wc->tex);
 	if (wc->r)
-		sdl.DestroyRenderer(wc->r);
+		SDL_DestroyRenderer(wc->r);
 	if (wc->w)
-		sdl.DestroyWindow(wc->w);
+		SDL_DestroyWindow(wc->w);
 	Z_Free(wc);
 	sdl.windowcount--;
 	if (sdl.texview == wc)
@@ -3170,17 +3123,17 @@ static void SDLL_RepaintWindow(struct sdlwindow_s *wc)
 {
 	if (wc->texshown < wc->texcount)
 	{
-		SDL_Rect dest;
+		SDL_FRect dest;
 		dest.x=dest.y=0;
 		dest.w=dest.h=1;
-		sdl.RenderCopy(wc->r, wc->tex[wc->texshown].t, &dest, NULL);
+		SDL_RenderTexture(wc->r, wc->tex[wc->texshown].t, &dest, NULL);
 
 		dest.w = wc->tex[wc->texshown].w*wc->scale;
 		dest.h = wc->tex[wc->texshown].h*wc->scale;
 		dest.x = (wc->width - dest.w)/2;
 		dest.y = (wc->height - dest.h)/2;
-		sdl.RenderCopy(wc->r, wc->tex[wc->texshown].t, NULL, &dest);
-		sdl.RenderPresent(wc->r);
+		SDL_RenderTexture(wc->r, wc->tex[wc->texshown].t, NULL, &dest);
+		SDL_RenderPresent(wc->r);
 	}
 }
 static void SDLL_Change(struct sdlwindow_s *wc, size_t newshown)
@@ -3194,7 +3147,7 @@ static void SDLL_Change(struct sdlwindow_s *wc, size_t newshown)
 			snprintf(title, sizeof(title), "%s %s", wc->tex[wc->texshown].name, Image_FormatName(wc->tex[wc->texshown].fmt));
 		else
 			snprintf(title, sizeof(title), "[%u/%u] %s %s", 1+(unsigned int)newshown, (unsigned int)wc->texcount, wc->tex[wc->texshown].name, Image_FormatName(wc->tex[wc->texshown].fmt));
-		sdl.SetWindowTitle(wc->w, title);
+		SDL_SetWindowTitle(wc->w, title);
 
 		w = wc->tex[wc->texshown].w * wc->scale;
 		h = wc->tex[wc->texshown].h * wc->scale;
@@ -3203,11 +3156,11 @@ static void SDLL_Change(struct sdlwindow_s *wc, size_t newshown)
 		if (h > 768)
 			h = 768;
 		if (wc->width < w || wc->height < h)
-			if (!(sdl.GetWindowFlags(wc->w) & (SDL_WINDOW_MAXIMIZED|SDL_WINDOW_FULLSCREEN)))	//SetWindowSize seems to bug out on linux when its maximized.
+			if (!(SDL_GetWindowFlags(wc->w) & (SDL_WINDOW_MAXIMIZED|SDL_WINDOW_FULLSCREEN)))	//SetWindowSize seems to bug out on linux when its maximized.
 			{
 				wc->width = w;
 				wc->height = h;
-				sdl.SetWindowSize(wc->w, w, h);
+				SDL_SetWindowSize(wc->w, w, h);
 			}
 		SDLL_RepaintWindow(wc);
 	}
@@ -3217,13 +3170,13 @@ static void SDLL_Event(SDL_Event *ev)
 	struct sdlwindow_s *wc;
 	switch (ev->type)
 	{
-	case SDL_KEYDOWN:
-		wc = sdl.GetWindowData(sdl.GetWindowFromID(ev->key.windowID), "uptr");
+	case SDL_EVENT_KEY_DOWN:
+		wc = SDLL_Window(ev->key.windowID);
 		if (!wc) break;
-		switch(ev->key.keysym.sym)
+		switch(ev->key.key)
 		{
 		case SDLK_ESCAPE:
-		case SDLK_q:
+		case SDLK_Q:
 			SDLL_KillWindow(wc);
 			break;
 		case SDLK_LEFT:
@@ -3248,23 +3201,22 @@ static void SDLL_Event(SDL_Event *ev)
 			break;
 		}
 		break;
-	case SDL_WINDOWEVENT:
-		wc = sdl.GetWindowData(sdl.GetWindowFromID(ev->window.windowID), "uptr");
-		if (!wc) break;
-		switch (ev->window.event)
-		{
-		case SDL_WINDOWEVENT_CLOSE:
-			SDLL_KillWindow(wc);
-			break;
-		case SDL_WINDOWEVENT_SIZE_CHANGED:
-			wc->width = ev->window.data1;
-			wc->height = ev->window.data2;
-			break;
-		case SDL_WINDOWEVENT_EXPOSED:
-			SDLL_RepaintWindow(wc);
-			break;
-		}
-		break;
+    case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
+        wc = SDLL_Window(ev->window.windowID);
+        if (wc) SDLL_KillWindow(wc);
+        break;
+    case SDL_EVENT_WINDOW_RESIZED:
+        wc = SDLL_Window(ev->window.windowID);
+        if (wc) {
+            wc->width = ev->window.data1;
+            wc->height = ev->window.data2;
+            SDLL_RepaintWindow(wc);
+        }
+        break;
+    case SDL_EVENT_WINDOW_EXPOSED:
+        wc = SDLL_Window(ev->window.windowID);
+        if (wc) SDLL_RepaintWindow(wc);
+        break;
 	//don't bother with SDL_QUIT, it doesn't get sent if we kill the last window via a keypress. just count live windows instead.
 	default:
 //		printf("event type %x\n", ev->type);
@@ -3280,15 +3232,15 @@ static void SDLL_Loop(void)
 	if (sdl.texview)
 		SDLL_Change(sdl.texview, sdl.texview->texshown);
 
-	while (sdl.windowcount && sdl.WaitEvent(&ev))
+	while (sdl.windowcount && SDL_WaitEvent(&ev))
 		SDLL_Event(&ev);
 
-	sdl.Quit();
+	SDL_Quit();
 }
 static void ImgTool_View(const char *inname, struct pendingtextureinfo *in)
 {
 	unsigned int sdlfmt;
-	SDL_RendererInfo rinfo;
+	const SDL_PixelFormat *formats;
 	int s;
 	qboolean outformats[PTI_MAX] = {false};
 	struct sdlwindow_s *wc;
@@ -3305,7 +3257,7 @@ static void ImgTool_View(const char *inname, struct pendingtextureinfo *in)
 		return;
 	}
 
-	while (sdl.windowcount>=64 && sdl.WaitEvent(&ev))
+	while (sdl.windowcount>=64 && SDL_WaitEvent(&ev))
 		SDLL_Event(&ev);
 
 	if (sdl.texview)
@@ -3319,14 +3271,14 @@ static void ImgTool_View(const char *inname, struct pendingtextureinfo *in)
 		while (	 (in->mip[0].width*s < 256 && in->mip[0].height*s < 512)||
 				 (in->mip[0].height*s < 256 && in->mip[0].width*s < 512))
 			s<<=1;
-		wc->w = sdl.CreateWindow("textureview", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 64, 64, SDL_WINDOW_RESIZABLE);
+		wc->w = SDL_CreateWindow("textureview", 64, 64, SDL_WINDOW_RESIZABLE);
 		sdl.windowcount++;
 		if (wc->w)
 		{
-			sdl.SetWindowData(wc->w, "uptr", wc);
+			SDL_SetPointerProperty(SDL_GetWindowProperties(wc->w), "fte.imgtool.window", wc);
 
 			//needs a rendering context too
-			wc->r = sdl.CreateRenderer(wc->w, -1, SDL_RENDERER_SOFTWARE);
+			wc->r = SDL_CreateRenderer(wc->w, "software");
 			if (!wc->r)
 			{
 				printf("Unable to create rendering context\n");
@@ -3338,10 +3290,10 @@ static void ImgTool_View(const char *inname, struct pendingtextureinfo *in)
 	if (wc->r)
 	{
 		//figure out which formats we can pass to sdl
-		sdl.GetRendererInfo(wc->r, &rinfo);
-		while (rinfo.num_texture_formats --> 0)
+		formats = SDL_GetPointerProperty(SDL_GetRendererProperties(wc->r), SDL_PROP_RENDERER_TEXTURE_FORMATS_POINTER, NULL);
+		for (; formats && *formats; ++formats)
 		{
-			switch(rinfo.texture_formats[rinfo.num_texture_formats])
+			switch(*formats)
 			{
 			//packed formats use hex ordering in both apis.
 			case SDL_PIXELFORMAT_RGB565:		outformats[PTI_RGB565] = true;	break;
@@ -3356,8 +3308,8 @@ static void ImgTool_View(const char *inname, struct pendingtextureinfo *in)
 			//these sdl aliases are for explicit byte orders, rather than packed.
 			case SDL_PIXELFORMAT_RGBA32:		outformats[PTI_RGBA8] = true;	break;
 			case SDL_PIXELFORMAT_BGRA32:		outformats[PTI_BGRA8] = true;	break;
-			case SDL_PIXELFORMAT_BGR24:			outformats[PTI_RGB8] = true;	break;
-			case SDL_PIXELFORMAT_RGB24:			outformats[PTI_BGR8] = true;	break;
+			case SDL_PIXELFORMAT_RGB24:			outformats[PTI_RGB8] = true;	break;
+			case SDL_PIXELFORMAT_BGR24:			outformats[PTI_BGR8] = true;	break;
 //			case SDL_PIXELFORMAT_ARGB32:		outformats[PTI_ARGB8] = true;	break;
 //			case SDL_PIXELFORMAT_ABGR32:		outformats[PTI_ABGR8] = true;	break;
 /*#if SDL_BYTEORDER == SDL_BIG_ENDIAN
@@ -3408,14 +3360,14 @@ static void ImgTool_View(const char *inname, struct pendingtextureinfo *in)
 		wc->tex[wc->texcount].w = in->mip[0].width;
 		wc->tex[wc->texcount].h = in->mip[0].height;
 		wc->tex[wc->texcount].fmt = origencoding;
-		wc->tex[wc->texcount].t = sdl.CreateTexture(wc->r, sdlfmt, SDL_TEXTUREACCESS_STATIC, in->mip[0].width, in->mip[0].height);	//which needs a texture...
+		wc->tex[wc->texcount].t = SDL_CreateTexture(wc->r, sdlfmt, SDL_TEXTUREACCESS_STATIC, in->mip[0].width, in->mip[0].height);	//which needs a texture...
 		if (wc->tex[wc->texcount].t)
 		{
-			sdl.UpdateTexture(wc->tex[wc->texcount].t, NULL, in->mip[0].data, in->mip[0].datasize/in->mip[0].height);				//with our image data
+			SDL_UpdateTexture(wc->tex[wc->texcount].t, NULL, in->mip[0].data, in->mip[0].datasize/in->mip[0].height);				//with our image data
 			if (!wc->texcount++)
 				SDLL_Change(wc, 0);
 
-			while (sdl.PollEvent(&ev))
+			while (SDL_PollEvent(&ev))
 				SDLL_Event(&ev);
 		}
 		else

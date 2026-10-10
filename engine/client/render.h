@@ -390,9 +390,6 @@ typedef struct {
 	glRect_t	rectchange;
 	qbyte		*lightmaps;	//[pixbytes*LMBLOCK_WIDTH*LMBLOCK_HEIGHT];
 	stmap		*stainmaps;	//[3*LMBLOCK_WIDTH*LMBLOCK_HEIGHT];	//rgb no a. added to lightmap for added (hopefully) speed.
-#ifdef GLQUAKE
-	int			pbo_handle;	//when set, lightmaps is a persistently mapped write-only pbo for us to scribble data into, ready to be copied to the actual texture without waiting for glTexSubImage to complete.
-#endif
 } lightmapinfo_t;
 extern lightmapinfo_t **lightmap;
 extern int numlightmaps;
@@ -405,22 +402,6 @@ void R_SkyShutdown(void);
 void R_SetSky(const char *skyname);
 texid_t R_GetDefaultEnvmap(void);
 
-#if defined(GLQUAKE)
-void GLR_Init (void);
-void GLR_InitTextures (void);
-void GLR_InitEfrags (void);
-void GLR_RenderView (void);		// must set r_refdef first
-								// called whenever r_refdef or vid change
-void GLR_DrawPortal(struct batch_s *batch, struct batch_s **blist, struct batch_s *depthmasklist[2], int portaltype);
-
-void GLR_PushDlights (void);
-void GLR_DrawWaterSurfaces (void);
-
-void GLVID_DeInit (void);
-void GLR_DeInit (void);
-void GLSCR_DeInit (void);
-void GLVID_Console_Resize(void);
-#endif
 int R_LightPoint (vec3_t p);
 void R_RenderDlights (void);
 
@@ -807,10 +788,5 @@ extern int rquant[RQUANT_MAX];
 #define RSpeedMark() double rsp = (r_speeds.ival>1)?Sys_DoubleTime()*1000000:0
 #define RSpeedRemark() rsp = (r_speeds.ival>1)?Sys_DoubleTime()*1000000:0
 
-#if defined(_WIN32) && defined(GLQUAKE)
-extern void (_stdcall *qglFinish) (void);
-#define RSpeedEnd(spt) do {if(r_speeds.ival > 1){if(r_speeds.ival > 2 && qglFinish)qglFinish(); rspeeds[spt] += (double)(Sys_DoubleTime()*1000000) - rsp;}}while (0)
-#else
 #define RSpeedEnd(spt) rspeeds[spt] += (r_speeds.ival>1)?Sys_DoubleTime()*1000000 - rsp:0
-#endif
 #endif

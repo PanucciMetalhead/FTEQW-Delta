@@ -23,9 +23,6 @@
 #define GAME_DEFAULTPORT	23000
 #define ENGINEWEBSITE "https://www.vera-visions.com/"
 
-#ifndef GLQUAKE
-#define GLQUAKE
-#endif
 
 /*
 #ifndef VKQUAKE

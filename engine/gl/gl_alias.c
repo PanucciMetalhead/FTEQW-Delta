@@ -1300,63 +1300,6 @@ static void R_ProjectShadowVolume(mesh_t *mesh, vec3_t lightpos)
 
 static void R_DrawShadowVolume(mesh_t *mesh)
 {
-#ifdef GLQUAKE
-	int t;
-	vec3_t *proj = ProjectedShadowVerts;
-	vecV_t *verts = mesh->xyz_array;
-	index_t *indexes = mesh->indexes;
-	int *neighbours = mesh->trneighbors;
-	int numtris = mesh->numindexes/3;
-
-	qglBegin(GL_TRIANGLES);
-	for (t = 0; t < numtris; t++)
-	{
-		if (triangleFacing[t])
-		{
-			//draw front
-			qglVertex3fv(verts[indexes[t*3+0]]);
-			qglVertex3fv(verts[indexes[t*3+1]]);
-			qglVertex3fv(verts[indexes[t*3+2]]);
-
-			//draw back
-			qglVertex3fv(proj[indexes[t*3+1]]);
-			qglVertex3fv(proj[indexes[t*3+0]]);
-			qglVertex3fv(proj[indexes[t*3+2]]);
-
-			//draw side caps
-			if (neighbours[t*3+0] < 0 || !triangleFacing[neighbours[t*3+0]])
-			{
-				qglVertex3fv(verts[indexes[t*3+1]]);
-				qglVertex3fv(verts[indexes[t*3+0]]);
-				qglVertex3fv(proj [indexes[t*3+0]]);
-				qglVertex3fv(verts[indexes[t*3+1]]);
-				qglVertex3fv(proj [indexes[t*3+0]]);
-				qglVertex3fv(proj [indexes[t*3+1]]);
-			}
-
-			if (neighbours[t*3+1] < 0 || !triangleFacing[neighbours[t*3+1]])
-			{
-				qglVertex3fv(verts[indexes[t*3+2]]);
-				qglVertex3fv(verts[indexes[t*3+1]]);
-				qglVertex3fv(proj [indexes[t*3+1]]);
-				qglVertex3fv(verts[indexes[t*3+2]]);
-				qglVertex3fv(proj [indexes[t*3+1]]);
-				qglVertex3fv(proj [indexes[t*3+2]]);
-			}
-
-			if (neighbours[t*3+2] < 0 || !triangleFacing[neighbours[t*3+2]])
-			{
-				qglVertex3fv(verts[indexes[t*3+0]]);
-				qglVertex3fv(verts[indexes[t*3+2]]);
-				qglVertex3fv(proj [indexes[t*3+2]]);
-				qglVertex3fv(verts[indexes[t*3+0]]);
-				qglVertex3fv(proj [indexes[t*3+2]]);
-				qglVertex3fv(proj [indexes[t*3+0]]);
-			}
-		}
-	}
-	qglEnd();
-#endif
 }
 #endif
 

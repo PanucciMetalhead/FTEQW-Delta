@@ -1,107 +1,37 @@
 # Dependencies
 
-Here is a list of dependencies required for building FTEQW on several platforms.
+The desktop fork requires:
 
-## Debian / Raspbian
+- SDL 3.4 or newer, including its CMake package.
+- CMake 3.16 or newer and a C11/C++ compiler.
+- A Vulkan-capable driver on Windows/Linux, or Metal-capable hardware on macOS.
 
-### Base
+SDL 3.4 is required for selecting layers of depth render targets used by the
+shadow cubemap array. The SDL2 compatibility library is not used. GPU and native
+shader requirements are documented by [SDL](https://wiki.libsdl.org/SDL3/CategoryGPU).
 
-	apt-get install libgl-dev gnutls-dev
+Optional libraries retain upstream functionality: zlib/bzip2 for compressed
+packages, libpng/libjpeg for images and screenshots, FreeType/fontconfig for
+fonts, libvorbisfile for music, and GnuTLS for encrypted networking. Plugin
+requirements are detected by CMake. Python 3 enables portable plugin metadata
+packaging and the integration test tools; Pillow is needed for screenshot checks.
 
-### SDL2
+On macOS with Homebrew:
 
-	apt-get install libsdl2-dev
+```sh
+brew install cmake ninja sdl3 libpng jpeg-turbo freetype fontconfig libvorbis gnutls
+```
 
-### GLX / X11 (part of libsdl2-dev)
+On Linux, install your distribution's SDL3 development package if its version is
+at least 3.4, together with the development packages for the optional libraries.
+Otherwise build SDL from an official SDL 3.4 release and set `CMAKE_PREFIX_PATH`
+to its installation prefix. SDL itself supplies window/audio platform backends;
+the engine does not link an OpenGL context library.
 
-	apt-get install libx11-dev libxcursor-dev libxrender-dev
+On Windows, use the SDL3 development package for your compiler, or build SDL3
+with CMake and point `SDL3_DIR` at the installed package. Put `SDL3.dll` beside
+`fteqw.exe` when using shared SDL. Optional library DLLs must also be available.
+The Vulkan loader and GPU driver are supplied by the system/driver installation.
 
-### Plugin: ODE
-
-	apt-get install autoconf automake libtool
-
-### Plugin: FFMPEG
-
-	apt-get install libavformat-dev libswscale-dev
-
-## OpenBSD
-
-### SDL2
-
-	pkg_add sdl2
-
-### Plugin: FFMPEG
-
-	pkg_add ffmpeg
-
-## Arch Linux
-
-### Base
-
-	pacman -S make gcc Xorg
-
-### Plugin: ODE
-
-	pacman -S zip automake autoconf
-
-### Plugin: FFMPEG
-
-	pacman -S ffmpeg4.4
-
-You must pass these flags to compile the plugin:
-
-	make plugins-rel NATIVE_PLUGINS="ffmpeg" AV_BASE=/usr/include/ffmpeg4.4/ AV_LDFLAGS="-l:libavcodec.so.58 -l:libavformat.so.58 -l:libavutil.so.56 -l:libswscale.so.5"
-
-### SDL2
-
-	pacman -S sdl2
-
-## OpenSUSE
-
-### Base
-
-	zypper in make gcc gcc-c++ mesa-libGL-devel libgnutls-devel alsa-devel libopus-devel speex-devel libvorbis-devel
-
-### SDL2
-
-	zypper in libSDL2-devel
-
-### GLX / X11
-
-	zypper in libX11-devel libXcursor-devel libXrandr-devel
-
-### Plugin: ODE
-
-	zypper in autoconf automake libtool zip
-
-### Plugin: FFMPEG
-
-	zypper in ffmpeg-4-libavformat-devel ffmpeg-4-libswscale-devel
-
-## Fedora
-
-	dnf install make gcc gcc-c++ mesa-libGL-devel gnutls-devel alsa-devel libopus-devel speex-devel libvorbis-devel
-
-### SDL2
-
-	dnf install SDL2-devel
-
-### GLX / X11 (part of libsdl2-dev)
-
-	dnf install libX11-devel libXcursor-devel libXrender-devel
-
-### Plugin: ODE
-
-	dnf install autoconf automake libtool zip
-
-### Plugin: FFMPEG
-
-You need to install the RPM Fusion repo if you don't have it. We recommend reading their official guide: https://rpmfusion.org/Configuration
-
-Then you can install the required version of FFMPEG:
-
-	dnf install compat-ffmpeg4-devel
-
-Finally, you must pass these flags to compile the plugin:
-
-	make plugins-rel NATIVE_PLUGINS="ffmpeg" AV_BASE=/usr/include/compat-ffmpeg4 AV_LDFLAGS="-l:libavcodec.so.58 -l:libavformat.so.58 -l:libavutil.so.56 -l:libswscale.so.5"
+Shader development additionally needs the Khronos glslang and SPIR-V tools:
+`glslangValidator` and `spirv-val`. Ordinary engine builds use the embedded shaders.

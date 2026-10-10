@@ -131,36 +131,13 @@ static image_t *imagelist;
 		#define STBIW_ONLY_JPEG
 		#undef IMAGEFMT_JPG
 	#endif
-	#if defined(IMAGEFMT_BMP) && 0 //use our own implementation, giving .ico too
-		#define STBI_ONLY_BMP
-		#define STBIW_ONLY_BMP
-		#undef IMAGEFMT_BMP
-	#endif
-	#if defined(IMAGEFMT_PSD) && 0 //use our own implementation
-		#define STBI_ONLY_PSD
-		#undef IMAGEFMT_PSD
-	#endif
-	#if defined(IMAGEFMT_TGA) && 0 //use our own implementation, giving htga and some twiddles.
-		#define STBI_ONLY_TGA
-		#define STBIW_ONLY_TGA
-		#undef IMAGEFMT_TGA
-	#endif
 	#if defined(IMAGEFMT_GIF) //&& 0
 		#define STBI_ONLY_GIF
 		#undef IMAGEFMT_GIF
 	#endif
-	#if defined(IMAGEFMT_HDR) && 0 //use our own implementation, we're not using the stbi_loadf stuff anyway
-		#define STBI_ONLY_HDR
-		#define STBIW_ONLY_HDR
-		#undef IMAGEFMT_HDR
-	#endif
 	#if defined(IMAGEFMT_PIC) //&& 0
 		#define STBI_ONLY_PIC
 		#undef IMAGEFMT_PIC
-	#endif
-	#if defined(IMAGEFMT_PBM) && 0 //use our own implementation, giving pfm.pbm.pam too
-		#define STBI_ONLY_PNM
-		#undef IMAGEFMT_PBM
 	#endif
 
 	//now we know whether we need stbi or not, pull in the right stuff.
@@ -15217,29 +15194,6 @@ void Image_Formats_f(void)
 	float bpp;
 	int blockbytes, blockwidth, blockheight, blockdepth;
 
-#ifdef GLQUAKE
-	if (qrenderer == QR_OPENGL)
-	{
-		Con_Printf("OpenGL info:\n");
-		Con_Printf("OpenGL Version: %s%g\n", gl_config.gles?"ES ":"", gl_config.glversion);
-		Con_Printf("OpenGLSL Version: %i\n", gl_config.maxglslversion);
-		Con_Printf("OpenGLSL Attributes: %u\n", gl_config.maxattribs);
-
-		Con_Printf("arb_texture_env_combine: %u\n", gl_config.arb_texture_env_combine);
-		Con_Printf("arb_texture_env_dot3: %u\n", gl_config.arb_texture_env_dot3);
-		Con_Printf("arb_texture_compression: %u\n", gl_config.arb_texture_compression);
-		Con_Printf("geometryshaders: %u\n", gl_config.geometryshaders);
-		Con_Printf("ext_framebuffer_objects: %u\n", gl_config.ext_framebuffer_objects);
-		Con_Printf("arb_framebuffer_srgb: %u\n", gl_config.arb_framebuffer_srgb);
-		Con_Printf("arb_shader_objects: %u\n", gl_config.arb_shader_objects);
-		Con_Printf("arb_shadow: %u\n", gl_config.arb_shadow);
-		Con_Printf("arb_depth_texture: %u\n", gl_config.arb_depth_texture);
-		Con_Printf("ext_stencil_wrap: %u\n", gl_config.ext_stencil_wrap);
-		Con_Printf("ext_packed_depth_stencil: %u\n", gl_config.ext_packed_depth_stencil);
-		Con_Printf("arb_depth_clamp: %u\n", gl_config.arb_depth_clamp);
-		Con_Printf("ext_texture_filter_anisotropic: %u\n", gl_config.ext_texture_filter_anisotropic);
-	}
-#endif
 
 	Con_Printf(		"            Programs: "S_COLOR_GREEN"%s\n", sh_config.progs_supported?va(sh_config.progpath, "*"):S_COLOR_RED"Unsupported");
 	if (sh_config.progs_supported)

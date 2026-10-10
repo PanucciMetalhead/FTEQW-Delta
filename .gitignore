@@ -1,4 +1,6 @@
 #misc build artifacts
+__pycache__/
+*.py[cod]
 build
 *.o
 *.o.d
@@ -44,3 +46,19 @@ engine/droid/project.properties
 
 # Flatpak build artifacts
 .flatpak-builder
+
+# local desktop and compiled output
+.DS_Store
+/build-deps/
+*.obj
+*.a
+*.so
+*.dll
+*.dylib
+*.exe
+*.pdb
+*.dSYM/
+/fteqw
+/fteqw-sv
+/fteqcc
+/imgtool

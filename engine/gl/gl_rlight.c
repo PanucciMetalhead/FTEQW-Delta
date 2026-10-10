@@ -451,83 +451,8 @@ void R_RenderDlights (void)
 			case 0:
 				break;
 			case 3:
-#ifdef GLQUAKE
-				if (qrenderer == QR_OPENGL)
-				{
-					float depth;
-					vec3_t out;
-					float v[4], tempv[4];
-					float mvp[16];
-
-					v[0] = l->origin[0];
-					v[1] = l->origin[1];
-					v[2] = l->origin[2];
-					v[3] = 1;
-
-					Matrix4_Multiply(r_refdef.m_projection_std, r_refdef.m_view, mvp);
-					Matrix4x4_CM_Transform4(mvp, v, tempv);
-
-					tempv[0] /= tempv[3];
-					tempv[1] /= tempv[3];
-					tempv[2] /= tempv[3];
-
-					out[0] = (1+tempv[0])/2;
-					out[1] = (1+tempv[1])/2;
-					out[2] = (1+tempv[2])/2;
-
-					out[0] = out[0]*r_refdef.pxrect.width + r_refdef.pxrect.x;
-					out[1] = out[1]*r_refdef.pxrect.height + r_refdef.pxrect.y;
-					if (tempv[3] < 0)
-						out[2] *= -1;
-
-					if (out[2] < 0)
-						continue;
-
-					//FIXME: in terms of performance, mixing reads+draws is BAD BAD BAD. SERIOUSLY BAD
-					//it would be an improvement to calculate all of these at once.
-					qglReadPixels(out[0], out[1], 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &depth);
-					if (depth < out[2])
-						continue;
-					break;
-				}
-#endif
 				//other renderers fall through
 			case 4:
-#ifdef GLQUAKE
-				if (qrenderer == QR_OPENGL && qglGenQueriesARB)
-				{
-					GLuint res;
-					qboolean requery = true;
-					if (r_refdef.recurse)
-						requery = false;
-					else if (l->coronaocclusionquery)
-					{
-						qglGetQueryObjectuivARB(l->coronaocclusionquery, GL_QUERY_RESULT_AVAILABLE_ARB, &res);
-						if (res)
-							qglGetQueryObjectuivARB(l->coronaocclusionquery, GL_QUERY_RESULT_ARB, &l->coronaocclusionresult);
-						else if (!l->coronaocclusionresult)
-							continue;	//query still running, nor currently visible.
-						else
-							requery = false;
-					}
-					else
-					{
-						qglGenQueriesARB(1, &l->coronaocclusionquery);
-					}
-
-					if (requery)
-					{
-						qglBeginQueryARB(GL_SAMPLES_PASSED_ARB, l->coronaocclusionquery);
-						R_BuildDlightMesh (l, intensity*10, cscale*.1, coronastyle);
-						BE_DrawMesh_Single(occluded_shader, &flashblend_mesh, NULL, beflags);
-						qglEndQueryARB(GL_SAMPLES_PASSED_ARB);
-					}
-
-					if (!l->coronaocclusionresult)
-						continue;
-					break;
-				}
-#endif
 				//other renderers fall through
 			default:
 			case 1:	//bsp-only

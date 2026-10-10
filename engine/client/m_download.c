@@ -98,10 +98,6 @@ void CL_StartCinematicOrMenu(void);
 
 #if defined(SERVERONLY)
 #	define ENGINE_RENDERER "sv"
-#elif defined(GLQUAKE) && (defined(VKQUAKE) || defined(D3DQUAKE) || defined(SWQUAKE))
-#	define ENGINE_RENDERER "m"
-#elif defined(GLQUAKE)
-#	define ENGINE_RENDERER "gl"
 #elif defined(VKQUAKE)
 #	define ENGINE_RENDERER "vk"
 #elif defined(D3DQUAKE)

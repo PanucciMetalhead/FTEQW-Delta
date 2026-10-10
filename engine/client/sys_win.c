@@ -301,9 +301,6 @@ int Sys_EnumerateFiles (const char *gpath, const char *match, int (QDECL *func)(
 
 #else
 
-#if defined(GLQUAKE)
-#define PRINTGLARRAYS
-#endif
 
 #if defined(_DEBUG) || defined(DEBUG)
 #if !defined(_MSC_VER) || _MSC_VER > 1200
@@ -725,10 +722,6 @@ DWORD CrashExceptionHandler (qboolean iswatchdog, DWORD exceptionCode, LPEXCEPTI
 	hKernel = LoadLibrary ("kernel32");
 	pIsDebuggerPresent = (void*)GetProcAddress(hKernel, "IsDebuggerPresent");
 
-#ifdef GLQUAKE
-	//restores gamma
-	GLVID_Crashed();
-#endif
 
 	if (!iswatchdog && pIsDebuggerPresent && pIsDebuggerPresent ())
 	{
@@ -808,9 +801,7 @@ DWORD CrashExceptionHandler (qboolean iswatchdog, DWORD exceptionCode, LPEXCEPTI
 #else
 	#define BUILDMINIMAL ""
 #endif
-#if defined(GLQUAKE) && !defined(D3DQUAKE) && !defined(VKQUAKE)
-	#define BUILDTYPE "GL"
-#elif !defined(GLQUAKE) && defined(D3DQUAKE) && !defined(VKQUAKE)
+#if   !defined(GLQUAKE) && defined(D3DQUAKE) && !defined(VKQUAKE)
 	#define BUILDTYPE "D3D"
 #elif !defined(GLQUAKE) && !defined(D3DQUAKE) && defined(VKQUAKE)
 	#define BUILDTYPE "VK"
@@ -2934,14 +2925,6 @@ static BOOL microsoft_accessU(LPCSTR pszFolder, DWORD dwAccessDesired)
 
 		#if defined(SERVERONLY)
 			#define EXETYPE "qwsv"	//not gonna happen, but whatever.
-		#elif defined(GLQUAKE) && defined(D3DQUAKE)
-			#define EXETYPE "qw"
-		#elif defined(GLQUAKE)
-			#ifdef MINIMAL
-				#define EXETYPE "minglqw"
-			#else
-				#define EXETYPE "glqw"
-			#endif
 		#elif defined(D3DQUAKE)
 			#define EXETYPE "d3dqw"
 		#elif defined(SWQUAKE)

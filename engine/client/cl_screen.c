@@ -21,9 +21,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // cl_screen.c -- master for refresh, status bar, console, chat, notify, etc
 
 #include "quakedef.h"
-#ifdef GLQUAKE
-#include "glquake.h"//would prefer not to have this
-#endif
 #include "shader.h"
 #include "gl_draw.h"
 #include "fs.h"
@@ -2713,10 +2710,6 @@ void *SCR_ScreenShot_Capture(int fbwidth, int fbheight, int *stride, enum upload
 
 	if (fbwidth == vid.fbpwidth && fbheight == vid.fbpheight && qrenderer != QR_VULKAN)
 		usefbo = false;
-#ifdef GLQUAKE
-	else if (qrenderer == QR_OPENGL && gl_config.ext_framebuffer_objects)
-		usefbo = true;
-#endif
 	else
 		return NULL;
 

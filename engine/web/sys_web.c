@@ -483,12 +483,12 @@ void Sys_SaveClipboard(clipboardtype_t cbt, const char *text)
 }*/
 
 #ifdef MULTITHREAD
-#include <SDL_thread.h>	//FIXME: swap this out for sys_linux_threads.c (our pthreads code)
+#include <SDL3/SDL.h>
 /* Thread creation calls */
 void *Sys_CreateThread(char *name, int (*func)(void *), void *args, int priority, int stacksize)
 {
-	// SDL threads do not support setting thread stack size
-	return (void *)SDL_CreateThread(func, args);
+	// The desktop fork uses the same SDL3 thread API in this legacy host.
+	return (void *)SDL_CreateThread(func, name, args);
 }
 
 void Sys_WaitOnThread(void *thread)
@@ -498,7 +498,7 @@ void Sys_WaitOnThread(void *thread)
 
 
 /* Mutex calls */
-// SDL mutexes don't have try-locks for mutexes in the spec so we stick with 1-value semaphores
+// A one-value semaphore supports non-blocking acquisition.
 void *Sys_CreateMutex(void)
 {
 	return (void *)SDL_CreateSemaphore(1);
@@ -506,17 +506,19 @@ void *Sys_CreateMutex(void)
 
 qboolean Sys_TryLockMutex(void *mutex)
 {
-	return !SDL_SemTryWait(mutex);
+	return SDL_TryWaitSemaphore(mutex);
 }
 
 qboolean Sys_LockMutex(void *mutex)
 {
-	return !SDL_SemWait(mutex);
+	SDL_WaitSemaphore(mutex);
+	return true;
 }
 
 qboolean Sys_UnlockMutex(void *mutex)
 {
-	return !SDL_SemPost(mutex);
+	SDL_SignalSemaphore(mutex);
+	return true;
 }
 
 void Sys_DestroyMutex(void *mutex)
@@ -527,22 +529,22 @@ void Sys_DestroyMutex(void *mutex)
 /* Conditional wait calls */
 typedef struct condvar_s
 {
-	SDL_mutex *mutex;
-	SDL_cond *cond;
+	SDL_Mutex *mutex;
+	SDL_Condition *cond;
 } condvar_t;
 
 void *Sys_CreateConditional(void)
 {
 	condvar_t *condv;
-	SDL_mutex *mutex;
-	SDL_cond *cond;
+	SDL_Mutex *mutex;
+	SDL_Condition *cond;
 	
 	condv = (condvar_t *)malloc(sizeof(condvar_t));
 	if (!condv)
 		return NULL;
 		
 	mutex = SDL_CreateMutex();
-	cond = SDL_CreateCond();
+	cond = SDL_CreateCondition();
 	
 	if (mutex)
 	{
@@ -563,34 +565,39 @@ void *Sys_CreateConditional(void)
 
 qboolean Sys_LockConditional(void *condv)
 {
-	return !SDL_mutexP(((condvar_t *)condv)->mutex);
+	SDL_LockMutex(((condvar_t *)condv)->mutex);
+	return true;
 }
 
 qboolean Sys_UnlockConditional(void *condv)
 {
-	return !SDL_mutexV(((condvar_t *)condv)->mutex);
+	SDL_UnlockMutex(((condvar_t *)condv)->mutex);
+	return true;
 }
 
 qboolean Sys_ConditionWait(void *condv)
 {
-	return !SDL_CondWait(((condvar_t *)condv)->cond, ((condvar_t *)condv)->mutex);
+	SDL_WaitCondition(((condvar_t *)condv)->cond, ((condvar_t *)condv)->mutex);
+	return true;
 }
 
 qboolean Sys_ConditionSignal(void *condv)
 {
-	return !SDL_CondSignal(((condvar_t *)condv)->cond);
+	SDL_SignalCondition(((condvar_t *)condv)->cond);
+	return true;
 }
 
 qboolean Sys_ConditionBroadcast(void *condv)
 {
-	return !SDL_CondBroadcast(((condvar_t *)condv)->cond);
+	SDL_BroadcastCondition(((condvar_t *)condv)->cond);
+	return true;
 }
 
 void Sys_DestroyConditional(void *condv)
 {
 	condvar_t *cv = (condvar_t *)condv;
 	
-	SDL_DestroyCond(cv->cond);
+	SDL_DestroyCondition(cv->cond);
 	SDL_DestroyMutex(cv->mutex);
 	free(cv);
 }

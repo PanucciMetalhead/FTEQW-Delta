@@ -73,9 +73,6 @@ plugcorefuncs_t *plugfuncs;
 plugcvarfuncs_t *cvarfuncs;
 plugcmdfuncs_t *cmdfuncs;
 
-#ifdef GLQUAKE
-#include "glquake.h"
-#endif
 #include "com_mesh.h"
 #include "shader.h"
 

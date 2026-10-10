@@ -624,7 +624,7 @@ qboolean NET_DNSLookup_SRV(const char *host, char *out, int outlen)
 	int len, i;
 	qbyte *msg, *eom;
 
-	len = res_query(host, C_IN, T_SRV, answer, sizeof(answer));
+	len = res_query(host, ns_c_in, ns_t_srv, answer, sizeof(answer));
 	if (len < 12)
 	{
 		Con_Printf("srv lookup failed for %s\n", host);

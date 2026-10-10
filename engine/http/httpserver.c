@@ -126,7 +126,7 @@ void checknatpmp(int port)
 typedef enum {HTTP_WAITINGFORREQUEST,HTTP_SENDING} http_mode_t;
 
 
-#ifndef _WIN32
+#ifdef HAVE_EPOLL
 static qboolean HTTP_DoAccepts(int epfd);
 struct http_epoll_ctx
 {
@@ -222,7 +222,7 @@ qboolean HTTP_ServerInit(int epfd, int port)
 	httpserverfailed = false;
 	httpserverport = port;
 
-#ifndef _WIN32
+#ifdef HAVE_EPOLL
 	if (epfd >= 0)
 	{
 		static struct http_epoll_ctx ctx;
@@ -248,7 +248,7 @@ void HTTP_ServerShutdown(void)
 }
 
 typedef struct HTTP_active_connections_s {
-#ifndef _WIN32
+#ifdef HAVE_EPOLL
 	struct epollctx_s pub;
 	int epfd;
 #endif
@@ -827,7 +827,7 @@ void HTTP_RunExisting (void)
 	}
 }
 
-#ifndef _WIN32
+#ifdef HAVE_EPOLL
 static void HTTP_ClientEPolled(struct epollctx_s *pubctx, unsigned int ev)
 {
 	HTTP_active_connections_t *cl = (HTTP_active_connections_t *)pubctx;
@@ -896,7 +896,7 @@ static qboolean HTTP_DoAccepts(int epfd)
 
 	cl->datasock = clientsock;
 
-#ifndef _WIN32
+#ifdef HAVE_EPOLL
 	if (epfd >= 0)
 	{
 		struct epoll_event ev;

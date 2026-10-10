@@ -41,9 +41,6 @@ static int rand(void)
 }
 #endif
 
-#ifdef GLQUAKE
-#include "glquake.h"//hack
-#endif
 #include "shader.h"
 
 #include "renderque.h"

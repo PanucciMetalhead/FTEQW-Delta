@@ -47,10 +47,8 @@ fte_inlinebody float M_LinearToSRGB(float x, float mag);
 #ifdef AVAIL_ZLIB
 	#include <zlib.h>
 #endif
-#if defined(FTE_SDL3)
+#if defined(FTE_SDL)
 	#include <SDL3/SDL.h>
-#elif defined(FTE_SDL)
-	#include <SDL.h>
 #endif
 
 const usercmd_t nullcmd; // guarenteed to be zero
@@ -231,127 +229,6 @@ qboolean VARGS Q_snprintfz (char *dest, size_t size, const char *fmt, ...)
 }
 
 
-#if 0
-void Q_memset (void *dest, int fill, int count)
-{
-	int		i;
-
-	if ( (((long)dest | count) & 3) == 0)
-	{
-		count >>= 2;
-		fill = fill | (fill<<8) | (fill<<16) | (fill<<24);
-		for (i=0 ; i<count ; i++)
-			((int *)dest)[i] = fill;
-	}
-	else
-		for (i=0 ; i<count ; i++)
-			((qbyte *)dest)[i] = fill;
-}
-
-void Q_memcpy (void *dest, void *src, int count)
-{
-	int		i;
-
-	if (( ( (long)dest | (long)src | count) & 3) == 0 )
-	{
-		count>>=2;
-		for (i=0 ; i<count ; i++)
-			((int *)dest)[i] = ((int *)src)[i];
-	}
-	else
-		for (i=0 ; i<count ; i++)
-			((qbyte *)dest)[i] = ((qbyte *)src)[i];
-}
-
-int Q_memcmp (void *m1, void *m2, int count)
-{
-	while(count)
-	{
-		count--;
-		if (((qbyte *)m1)[count] != ((qbyte *)m2)[count])
-			return -1;
-	}
-	return 0;
-}
-
-void Q_strcpy (char *dest, char *src)
-{
-	while (*src)
-	{
-		*dest++ = *src++;
-	}
-	*dest++ = 0;
-}
-
-void Q_strncpy (char *dest, char *src, int count)
-{
-	while (*src && count--)
-	{
-		*dest++ = *src++;
-	}
-	if (count)
-		*dest++ = 0;
-}
-
-int Q_strlen (char *str)
-{
-	int		count;
-
-	count = 0;
-	while (str[count])
-		count++;
-
-	return count;
-}
-
-char *Q_strrchr(char *s, char c)
-{
-	int len = Q_strlen(s);
-	s += len;
-	while (len--)
-		if (*--s == c) return s;
-	return 0;
-}
-
-void Q_strcat (char *dest, char *src)
-{
-	dest += Q_strlen(dest);
-	Q_strcpy (dest, src);
-}
-
-int Q_strcmp (char *s1, char *s2)
-{
-	while (1)
-	{
-		if (*s1 != *s2)
-			return -1;		// strings not equal
-		if (!*s1)
-			return 0;		// strings are equal
-		s1++;
-		s2++;
-	}
-
-	return -1;
-}
-
-int Q_strncmp (char *s1, char *s2, int count)
-{
-	while (1)
-	{
-		if (!count--)
-			return 0;
-		if (*s1 != *s2)
-			return -1;		// strings not equal
-		if (!*s1)
-			return 0;		// strings are equal
-		s1++;
-		s2++;
-	}
-
-	return -1;
-}
-
-#endif
 
 //case comparisons are specific to ascii only, so this should be 'safe' for utf-8 strings too.
 int Q_strncasecmp (const char *s1, const char *s2, int n)
@@ -1303,48 +1180,20 @@ void MSG_WriteSize16 (sizebuf_t *sb, unsigned int sz)
 }
 void COM_DecodeSize(int solid, float *mins, float *maxs)
 {
-#if 0
-	//q2e 32bit-encoding
-	int x,y,d,u;
-	x = (solid>>0)&0xff;
-	y = (solid>>8)&0xff;
-	d = (solid>>16)&0xff;
-	u = (solid>>24)&0xff;
-
-	mins[0] = -x; maxs[0] = x;
-	mins[1] = -y; maxs[1] = y;
-	mins[2] = -d; maxs[2] = u - 32;
-#elif 1
 	//r1q2/q2pro 32bit-encoding
 	maxs[0] = maxs[1] = solid & 255;
 	mins[0] = mins[1] = -maxs[0];
 	mins[2] = -((solid>>8) & 255);
 	maxs[2] = ((solid>>16) & 65535) - 32768;
-#else
-	//classic q2 16-bit encoding.
-	maxs[0] = maxs[1] = 8*(solid & 31);
-	mins[0] = mins[1] = -maxs[0];
-	mins[2] = -8*((solid>>5) & 31);
-	maxs[2] = 8*((solid>>10) & 63) - 32;
-#endif
 }
 int COM_EncodeSize(const float *mins, const float *maxs)
 {
 	int solid;
-#if 1
 	solid = bound(0, (int)-mins[0], 255);
 	solid |= bound(0, (int)-mins[2], 255)<<8;
 	solid |= bound(0, (int)((maxs[2]+32768)), 65535)<<16;	/*up can be negative*/;
 	if (solid == 0x80000000)
 		solid = 0;	//point sized stuff should just be non-solid. you'll thank me for splitscreens.
-#else
-	//vanilla q2
-	solid = bound(0, (int)-mins[0]/8, 31);
-	solid |= bound(0, (int)-mins[2]/8, 31)<<5;
-	solid |= bound(0, (int)((maxs[2]+32)/8), 63)<<10;	/*up can be negative*/;
-	if (solid == 4096)
-		solid = 0;	//point sized stuff should just be non-solid. you'll thank me for splitscreens.
-#endif
 	return solid;
 }
 
@@ -2505,13 +2354,11 @@ void MSG_ReadPos (float *pos)
 	pos[2] = MSG_ReadCoord();
 }
 
-#if 1//defined(Q2SERVER) || !defined(SERVERONLY)
 #define Q2NUMVERTEXNORMALS	162
 vec3_t	bytedirs[Q2NUMVERTEXNORMALS] =
 {
 #include "../client/q2anorms.h"
 };
-#endif
 #ifdef HAVE_CLIENT
 void MSG_ReadDir (float *dir)
 {
@@ -2526,7 +2373,6 @@ void MSG_ReadDir (float *dir)
 	VectorCopy (bytedirs[b], dir);
 }
 #endif
-#if 1//def Q2SERVER
 void MSG_WriteDir (sizebuf_t *sb, float dir[3])
 {
 	int		i, best;
@@ -2551,7 +2397,6 @@ void MSG_WriteDir (sizebuf_t *sb, float dir[3])
 	}
 	MSG_WriteByte (sb, best);
 }
-#endif
 
 float MSG_ReadAngle16 (void)
 {
@@ -3190,34 +3035,6 @@ unsigned int utf8_decode(int *error, const void *in, char const**out)
 		else *error = 1;
 	}
 	//0xfe and 0xff, while plausable leading bytes, are not permitted.
-#if 0
-	else if ((*str & 0xff) == 0xfe)
-	{
-		if ((str[1] & 0xc0) == 0x80 && (str[2] & 0xc0) == 0x80 && (str[3] & 0xc0) == 0x80 && (str[4] & 0xc0) == 0x80)
-		{
-			l = 7;
-			uc = 0 | ((str[1] & 0x3f)<<30) | ((str[2] & 0x3f)<<24) | ((str[3] & 0x3f)<<18) | ((str[4] & 0x3f)<<12) | ((str[5] & 0x3f)<<6) | ((str[6] & 0x3f)<<0);
-			if (uc >= (1u<<31))
-				*error = 0;
-			else
-				*error = 2;
-		}
-		else *error = 1;
-	}
-	else if ((*str & 0xff) == 0xff)
-	{
-		if ((str[1] & 0xc0) == 0x80 && (str[2] & 0xc0) == 0x80 && (str[3] & 0xc0) == 0x80 && (str[4] & 0xc0) == 0x80)
-		{
-			l = 8;
-			uc = 0 | ((str[1] & 0x3f)<<36) | ((str[2] & 0x3f)<<30) | ((str[3] & 0x3f)<<24) | ((str[4] & 0x3f)<<18) | ((str[5] & 0x3f)<<12) | ((str[6] & 0x3f)<<6) | ((str[7] & 0x3f)<<0);
-			if (uc >= (1llu<<36))
-				*error = false;
-			else
-				*error = 2;
-		}
-		else *error = 1;
-	}
-#endif
 	else if (*str & 0x80)
 	{
 		//sequence error
@@ -3238,7 +3055,6 @@ unsigned int utf8_decode(int *error, const void *in, char const**out)
 		//try to deal with surrogates by decoding the low if we see a high.
 		if (uc >= 0xd800u && uc < 0xdc00u)
 		{
-#if 1
 			//cesu-8
 			const char *lowend;
 			unsigned int lowsur = utf8_decode(error, str + l, &lowend);
@@ -3249,7 +3065,6 @@ unsigned int utf8_decode(int *error, const void *in, char const**out)
 				*error = false;
 			}
 			else
-#endif
 			{
 				*error = 3;	//bad - lead surrogate without tail.
 			}
@@ -4106,14 +3921,6 @@ conchar_t *COM_ParseFunString(conchar_t defaultflags, const char *str, conchar_t
 		return out;
 	//then outsize is decremented then checked before each write, so the trailing null has space
 
-#if 0
-	while(*str)
-	{
-		*out++ = CON_WHITEMASK|(unsigned char)*str++;
-	}
-	*out = 0;
-	return out;
-#endif
 
 	if (*str == 1 || *str == 2
 #ifdef HAVE_LEGACY
@@ -5710,8 +5517,7 @@ static void COM_Version_f (void)
 		int ver = SDL_GetVersion();
 		Con_Printf("^3SDL version:^9 %d.%d.%d -> ^7%d.%d.%d\n", SDL_MAJOR_VERSION, SDL_MINOR_VERSION, SDL_MICRO_VERSION, SDL_VERSIONNUM_MAJOR(ver), SDL_VERSIONNUM_MINOR(ver), SDL_VERSIONNUM_MICRO(ver));
 	}
-#elif defined(FTE_SDL)
-	Con_Printf("^3SDL version:^7 %d.%d.%d\n", SDL_MAJOR_VERSION, SDL_MINOR_VERSION, SDL_PATCHLEVEL);
+
 #endif
 
 // Don't print both as a 64bit MinGW built client
@@ -5817,20 +5623,6 @@ static void COM_Version_f (void)
 
 #ifdef HAVE_CLIENT
 	Con_Printf("^3Renderers:^7");
-#ifdef GLQUAKE
-#ifdef GLESONLY
-	#ifdef FTE_TARGET_WEB	//shuld we be just asking the video code for a list?...
-		Con_Printf(" WebGL");
-	#else
-		Con_Printf(" OpenGLES");
-	#endif
-#else
-	Con_Printf(" OpenGL");
-#endif
-#ifdef GLSLONLY
-	Con_Printf("(GLSL)");
-#endif
-#endif
 #ifdef VKQUAKE
 	Con_Printf(" Vulkan");
 #endif
@@ -8595,57 +8387,6 @@ static qbyte chktbl[1024 + 4] = {
 0x00,0x00,0x00,0x00
 };
 
-#if 0
-
-static qbyte chkbuf[16 + 60 + 4];
-
-static unsigned last_mapchecksum = 0;
-
-
-/*
-====================
-COM_BlockSequenceCheckByte
-
-For proxy protecting
-====================
-*/
-qbyte	COM_BlockSequenceCheckByte (qbyte *base, int length, int sequence, unsigned mapchecksum)
-{
-	int		checksum;
-	qbyte	*p;
-
-	if (last_mapchecksum != mapchecksum) {
-		last_mapchecksum = mapchecksum;
-		chktbl[1024] = (mapchecksum & 0xff000000) >> 24;
-		chktbl[1025] = (mapchecksum & 0x00ff0000) >> 16;
-		chktbl[1026] = (mapchecksum & 0x0000ff00) >> 8;
-		chktbl[1027] = (mapchecksum & 0x000000ff);
-
-		Com_BlockFullChecksum (chktbl, sizeof(chktbl), chkbuf);
-	}
-
-	p = chktbl + (sequence % (sizeof(chktbl) - 8));
-
-	if (length > 60)
-		length = 60;
-	memcpy (chkbuf + 16, base, length);
-
-	length += 16;
-
-	chkbuf[length] = (sequence & 0xff) ^ p[0];
-	chkbuf[length+1] = p[1];
-	chkbuf[length+2] = ((sequence>>8) & 0xff) ^ p[2];
-	chkbuf[length+3] = p[3];
-
-	length += 4;
-
-	checksum = LittleLong(Com_BlockChecksum (chkbuf, length));
-
-	checksum &= 0xff;
-
-	return checksum;
-}
-#endif
 
 /*
 ====================

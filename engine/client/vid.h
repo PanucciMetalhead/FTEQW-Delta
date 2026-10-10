@@ -27,7 +27,8 @@ typedef qbyte pixel_t;
 
 typedef enum
 {
-	QR_NONE,		//server-style operation (no rendering).
+	QR_NONE,
+	QR_SDLGPU,		//SDL3 GPU: native Metal / Vulkan		//server-style operation (no rendering).
 	QR_HEADLESS,	//no window/rendering at all (system tray only)
 	QR_OPENGL,		//gl+gles+etc.
 	QR_DIRECT3D9,	//

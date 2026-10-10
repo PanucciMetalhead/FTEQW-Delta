@@ -3,9 +3,6 @@
 //should rename to m_media.c
 #include "quakedef.h"
 
-#ifdef GLQUAKE
-#include "glquake.h"
-#endif
 #ifdef VKQUAKE
 #include "../vk/vkrenderer.h"
 #endif
@@ -2893,9 +2890,6 @@ qboolean capturingfbo;
 texid_t	capturetexture;
 qboolean captureframeforce;
 
-#if defined(GLQUAKE) && !defined(GLESONLY)
-#define GLQUAKE_PBOS
-#endif
 struct
 {
 #ifdef GLQUAKE_PBOS
@@ -3470,36 +3464,6 @@ void Media_RecordFrame (void)
 		if (y > vid.height-8)
 			y = vid.height-8;
 
-#ifdef GLQUAKE
-		if (capturingfbo && qrenderer == QR_OPENGL)
-		{
-			shader_t *pic;
-			GLBE_FBO_Pop(captureoldfbo);
-			vid.framebuffer = NULL;
-			GL_Set2D(false);
-
-			pic = R_RegisterShader("capturdemofeedback", SUF_NONE,
-						"{\n"
-							"program default2d\n"
-							"{\n"
-								"map $diffuse\n"
-							"}\n"
-						"}\n");
-			pic->defaulttextures->base = capturetexture;
-			//pulse green slightly, so its a bit more obvious
-			R2D_ImageColours(1, 1+0.2*sin(realtime), 1, 1);
-			R2D_Image(0, 0, vid.width, vid.height, 0, 1, 1, 0, pic);
-			R2D_ImageColours(1, 1, 1, 1);
-			Draw_FunString(0, 0, S_COLOR_RED"PAUSED");
-			if (R2D_Flush)
-				R2D_Flush();
-
-			captureoldfbo = GLBE_FBO_Push(&capturefbo);
-			vid.framebuffer = capturetexture;
-			GL_Set2D(false);
-		}
-		else
-#endif
 			Draw_FunString((strlen(capturemessage.string)+1)*8, y, S_COLOR_RED "PAUSED");
 
 		if (captureframeforce)
@@ -3651,36 +3615,6 @@ skipframe:
 	if (y > vid.height-8)
 		y = vid.height-8;
 
-#ifdef GLQUAKE
-	if (capturingfbo && qrenderer == QR_OPENGL)
-	{
-		shader_t *pic;
-		GLBE_FBO_Pop(captureoldfbo);
-		vid.framebuffer = NULL;
-		GL_Set2D(false);
-
-		pic = R_RegisterShader("capturdemofeedback", SUF_NONE,
-					"{\n"
-						"program default2d\n"
-						"{\n"
-							"map $diffuse\n"
-						"}\n"
-					"}\n");
-		pic->defaulttextures->base = capturetexture;
-		//pulse green slightly, so its a bit more obvious
-		R2D_ImageColours(1, 1+0.2*sin(realtime), 1, 1);
-		R2D_Image(0, 0, vid.width, vid.height, 0, 1, 1, 0, pic);
-		R2D_ImageColours(1, 1, 1, 1);
-		Draw_FunString(0, 0, va(S_COLOR_RED"RECORDING OFFSCREEN %g", capturelastvideotime));
-		if (R2D_Flush)
-			R2D_Flush();
-
-		captureoldfbo = GLBE_FBO_Push(&capturefbo);
-		vid.framebuffer = capturetexture;
-		GL_Set2D(false);
-	}
-	else
-#endif
 		Draw_FunString((strlen(capturemessage.string)+1)*8, y, S_COLOR_RED"RECORDING");
 }
 }
@@ -3885,14 +3819,6 @@ static void Media_FlushCapture(void)
 	}
 #endif
 
-#ifdef GLQUAKE
-	if (capturingfbo && qrenderer == QR_OPENGL)
-	{
-		GLBE_FBO_Pop(captureoldfbo);
-		GLBE_FBO_Destroy(&capturefbo);
-		vid.framebuffer = NULL;
-	}
-#endif
 }
 
 void Media_StopRecordFilm_f (void)
@@ -3922,19 +3848,6 @@ void Media_VideoRestarting(void)
 }
 void Media_VideoRestarted(void)
 {
-#ifdef GLQUAKE
-	if (capturingfbo && qrenderer == QR_OPENGL && gl_config.ext_framebuffer_objects)
-	{	//restore it how it was, if we can.
-		int w = capturefbo.rb_size[0], h = capturefbo.rb_size[1];
-		capturingfbo = true;
-		capturetexture = R2D_RT_Configure("$democapture", w, h, TF_BGRA32, RT_IMAGEFLAGS);
-		captureoldfbo = GLBE_FBO_Update(&capturefbo, FBO_RB_DEPTH|(Sh_StencilShadowsActive()?FBO_RB_STENCIL:0), &capturetexture, 1, r_nulltex, capturetexture->width, capturetexture->height, 0);
-		vid.fbpwidth = capturetexture->width;
-		vid.fbpheight = capturetexture->height;
-		vid.framebuffer = capturetexture;
-	}
-	else
-#endif
 		capturingfbo = false;
 
 	if (capturingfbo)
@@ -4022,17 +3935,6 @@ static void Media_RecordFilm (char *recordingname, qboolean demo)
 	vid.fbpheight = vid.pixelheight;
 	if (demo && capturewidth.ival && captureheight.ival)
 	{
-#ifdef GLQUAKE
-		if (qrenderer == QR_OPENGL && gl_config.ext_framebuffer_objects)
-		{
-			capturingfbo = true;
-			capturetexture = R2D_RT_Configure("$democapture", capturewidth.ival, captureheight.ival, TF_BGRA32, RT_IMAGEFLAGS);
-			captureoldfbo = GLBE_FBO_Update(&capturefbo, FBO_RB_DEPTH|(Sh_StencilShadowsActive()?FBO_RB_STENCIL:0), &capturetexture, 1, r_nulltex, capturewidth.ival, captureheight.ival, 0);
-			vid.fbpwidth = capturetexture->width;
-			vid.fbpheight = capturetexture->height;
-			vid.framebuffer = capturetexture;
-		}
-#endif
 	}
 
 	offscreen_format = TF_INVALID;

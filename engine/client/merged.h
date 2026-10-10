@@ -249,15 +249,15 @@ typedef struct image_s
 	union
 	{
 		int nosyntaxerror;
+#ifdef SDL_GPUQUAKE
+		struct gpu_image_s *gpuimage;
+#endif
 #if defined(D3DQUAKE) || defined(SWQUAKE)
 		struct
 		{
 			void *ptr;	//texture
 			void *ptr2;	//view
 		};
-#endif
-#ifdef GLQUAKE
-		int num;
 #endif
 #ifdef VKQUAKE
 		struct
@@ -336,13 +336,6 @@ typedef struct
 typedef union vboarray_s
 {
 	void *sysptr;
-#ifdef GLQUAKE
-	struct
-	{
-		int vbo;
-		void *addr;
-	} gl;
-#endif
 #if defined(D3D8QUAKE) || defined(D3D9QUAKE) || defined(D3D11QUAKE)
 	struct
 	{

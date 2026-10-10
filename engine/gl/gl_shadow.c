@@ -86,14 +86,6 @@ flushes textures so they can be regenerated at the real size
 */
 void Sh_Reset(void)
 {
-#ifdef GLQUAKE
-	if (crepuscular_texture_id)
-	{
-		Image_DestroyTexture(crepuscular_texture_id);
-		crepuscular_texture_id = r_nulltex;
-	}
-	GLBE_FBO_Destroy(&crepuscular_fbo);
-#endif
 }
 void Sh_Shutdown(void)
 {
@@ -141,10 +133,6 @@ typedef struct shadowmesh_s
 
 #ifdef VKQUAKE
 	struct vk_shadowbuffer *vkbuffer;
-#endif
-#ifdef GLQUAKE
-	GLuint vefbo[3];
-	qboolean havefaceebo;
 #endif
 #ifdef D3D9QUAKE
 	IDirect3DVertexBuffer9	*d3d9_vbuffer;
@@ -406,16 +394,6 @@ static void SH_FreeShadowMesh_(shadowmesh_t *sm)
 	default:
 		break;
 
-#ifdef GLQUAKE
-	case QR_OPENGL:
-		if (qglDeleteBuffersARB)
-			qglDeleteBuffersARB(3, sm->vefbo);
-		sm->vefbo[0] = 0;
-		sm->vefbo[1] = 0;
-		sm->vefbo[2] = 0;
-		sm->havefaceebo = false;
-		break;
-#endif
 #ifdef VKQUAKE
 	case QR_VULKAN:
 		VKBE_DestroyShadowBuffer(sm->vkbuffer);
@@ -531,9 +509,6 @@ static void SHM_BeginShadowMesh(dlight_t *dl, int type)
 			sh_shmesh->litleaves = Z_Malloc(lb);
 		}
 	}
-#ifdef GLQUAKE
-	sh_shmesh->havefaceebo = false;
-#endif
 	sh_shmesh->maxverts = 0;
 	sh_shmesh->numverts = 0;
 	sh_shmesh->maxindicies = 0;
@@ -565,46 +540,6 @@ static void SHM_BeginShadowMesh(dlight_t *dl, int type)
 		sh_shmesh->batches[i].faceidxcount = 0;
 	}
 }
-#ifdef GLQUAKE
-static size_t SHM_GenWorldFaceIndexes(index_t **outindexes)
-{
-	size_t count = 0, b, m, i;
-	index_t *out = *outindexes = NULL;
-	mesh_t *surf;
-	shadowmeshbatch_t *batch;
-	size_t tmp;
-
-	if (sh_shmesh == &sh_tempshmesh)
-	{
-		for (b = 0; b < sh_shmesh->numbatches; b++)
-			sh_shmesh->batches[b].faceidxcount = 0;
-
-		*outindexes = 0;
-		return 0;
-	}
-
-	for (b = 0; b < sh_shmesh->numbatches; b++)
-		count+= sh_shmesh->batches[b].faceidxcount;
-	out = *outindexes = (void*fte_restrict)BZ_Malloc(count * sizeof(*out));
-
-	for (b = 0, batch = sh_shmesh->batches; b < sh_shmesh->numbatches; b++, batch++)
-	{
-		batch->faceidxfirst = out-*outindexes;
-		for (m = 0; m < batch->count; m++)
-		{
-			surf = batch->s[m];
-			for (i = 0; i < surf->numindexes; i++)
-			{
-				tmp = surf->vbofirstvert + surf->indexes[i];
-				if (tmp > MAX_INDICIES)
-					Sys_Error("Too many indexes\n");
-				*out++ = surf->vbofirstvert + surf->indexes[i];
-			}
-		}
-	}
-	return count;
-}
-#endif
 static struct shadowmesh_s *SHM_FinishShadowMesh(dlight_t *dl)
 {
 	if (sh_shmesh != &sh_tempshmesh || 1)
@@ -616,34 +551,6 @@ static struct shadowmesh_s *SHM_FinishShadowMesh(dlight_t *dl)
 		default:
 			break;
 
-#ifdef GLQUAKE
-		case QR_OPENGL:
-			if (!qglGenBuffersARB)
-				return sh_shmesh;
-			{	//generate a per-face buffer.
-				index_t *faceindexes;
-				size_t faceindexcount = SHM_GenWorldFaceIndexes(&faceindexes);
-
-				if (!sh_shmesh->vefbo[0])
-					qglGenBuffersARB(3, sh_shmesh->vefbo);
-
-				GL_DeselectVAO();
-				GL_SelectVBO(sh_shmesh->vefbo[0]);
-				qglBufferDataARB(GL_ARRAY_BUFFER_ARB, sizeof(*sh_shmesh->verts) * sh_shmesh->numverts, sh_shmesh->verts, GL_STATIC_DRAW_ARB);
-
-				if (faceindexes)
-				{
-					GL_SelectEBO(sh_shmesh->vefbo[2]);
-					qglBufferDataARB(GL_ELEMENT_ARRAY_BUFFER_ARB, sizeof(*faceindexes) * faceindexcount, faceindexes, GL_STATIC_DRAW_ARB);
-					BZ_Free(faceindexes);
-					sh_shmesh->havefaceebo = true;
-				}
-
-				GL_SelectEBO(sh_shmesh->vefbo[1]);
-				qglBufferDataARB(GL_ELEMENT_ARRAY_BUFFER_ARB, sizeof(*sh_shmesh->indicies) * sh_shmesh->numindicies, sh_shmesh->indicies, GL_STATIC_DRAW_ARB);
-			}
-			break;
-#endif
 #ifdef VKQUAKE
 		case QR_VULKAN:
 			VKBE_DestroyShadowBuffer(sh_shmesh->vkbuffer);
@@ -2473,16 +2380,6 @@ static void Sh_GenShadowFace(dlight_t *l, vec3_t axis[3], int lighttype, shadowm
 
 	switch(qrenderer)
 	{
-#ifdef GLQUAKE
-	case QR_OPENGL:
-		GL_ViewportUpdate();
-		if (lighttype & LSHADER_ORTHO)
-			qglEnable(GL_DEPTH_CLAMP_ARB);
-		GL_CullFace(SHADER_CULL_FRONT);
-		if (smesh)
-			GLBE_RenderShadowBuffer(smesh->numverts, smesh->vefbo[0], smesh->verts, smesh->numindicies, smesh->vefbo[1], smesh->indicies);
-		break;
-#endif
 #ifdef VKQUAKE
 	case QR_VULKAN:
 		//FIXME: generate a single commandbuffer (requires full separation of viewprojection matrix)
@@ -2520,14 +2417,6 @@ static void Sh_GenShadowFace(dlight_t *l, vec3_t axis[3], int lighttype, shadowm
 	{
 	default:
 		break;
-#ifdef GLQUAKE
-	case QR_OPENGL:
-		GLBE_BaseEntTextures(lightpvs, NULL);
-
-		if (lighttype & LSHADER_ORTHO)
-			qglDisable(GL_DEPTH_CLAMP_ARB);
-		break;
-#endif
 #ifdef D3D9QUAKE
 	case QR_DIRECT3D9:
 		D3D9BE_BaseEntTextures(lightpvs, NULL);
@@ -2686,12 +2575,6 @@ qboolean Sh_GenShadowMap (dlight_t *l, int lighttype, vec3_t axis[3], qbyte *lvi
 	{
 	default:
 		return false;
-#ifdef GLQUAKE
-	case QR_OPENGL:
-		if (!GLBE_BeginShadowMap(smapidx, twidth, theight, fmt, &restorefbo))
-			return false;
-		break;
-#endif
 #ifdef D3D11QUAKE
 	case QR_DIRECT3D11:
 		if (!D3D11_BeginShadowMap(smapidx, twidth, theight))
@@ -2732,13 +2615,6 @@ qboolean Sh_GenShadowMap (dlight_t *l, int lighttype, vec3_t axis[3], qbyte *lvi
 
 	switch(qrenderer)
 	{
-#ifdef GLQUAKE
-	case QR_OPENGL:
-		/*end framebuffer*/
-		GLBE_EndShadowMap(restorefbo);
-		GL_ViewportUpdate();
-		break;
-#endif
 #ifdef D3D11QUAKE
 	case QR_DIRECT3D11:
 		D3D11_EndShadowMap();
@@ -2822,11 +2698,6 @@ qboolean Sh_GenerateShadowMap(dlight_t *l, int lighttype)
 
 	switch(qrenderer)
 	{
-#ifdef GLQUAKE
-	case QR_OPENGL:
-		GLBE_SetupForShadowMap(l, texwidth, texheight, (smsize-4) / (float)SHADOWMAP_SIZE);
-		break;
-#endif
 #ifdef D3D11QUAKE
 	case QR_DIRECT3D11:
 		D3D11BE_SetupForShadowMap(l, texwidth, texheight, (smsize-4) / (float)SHADOWMAP_SIZE);
@@ -2926,11 +2797,6 @@ void Sh_GenerateFakeShadows(void)	//generates shadowmaps and selects the dlight,
 
 	switch(qrenderer)
 	{
-#ifdef GLQUAKE
-	case QR_OPENGL:
-		GLBE_SetupForShadowMap(l, texwidth, texheight, (smsize) / (float)texwidth);
-		break;
-#endif
 #ifdef D3D11QUAKE
 	case QR_DIRECT3D11:
 		D3D11BE_SetupForShadowMap(l, texwidth, texheight, (smsize) / (float)texwidth);
@@ -3052,11 +2918,6 @@ static void Sh_DrawShadowMapLight(dlight_t *l, vec3_t colour, vec3_t axis[3], qb
 
 	switch(qrenderer)
 	{
-#ifdef GLQUAKE
-	case QR_OPENGL:
-		GLBE_SetupForShadowMap(l, texwidth, texheight, (smsize-4) / (float)SHADOWMAP_SIZE);
-		break;
-#endif
 #ifdef D3D11QUAKE
 	case QR_DIRECT3D11:
 		D3D11BE_SetupForShadowMap(l, texwidth, texheight, (smsize-4) / (float)SHADOWMAP_SIZE);
@@ -3119,23 +2980,6 @@ static void Sh_DrawEntLighting(dlight_t *light, vec3_t colour, qbyte *pvs)
 			if (shader->flags & (SHADER_NODLIGHT|SHADER_NODRAW|SHADER_SKY))
 				continue;
 			//FIXME: it should be worth building a dedicated ebo, for static ones
-#ifdef GLQUAKE
-			if (qrenderer == QR_OPENGL && sm->batches[tno].faceidxcount && !(shader->flags & SHADER_NEEDSARRAYS) && sm->havefaceebo)
-			{
-				mesh_t unimesh = {0};
-				mesh_t *unimeshptr = &unimesh;
-				vboarray_t oldidx = cl.worldmodel->shadowbatches[tno].vbo->indicies;
-				unimesh.numindexes = sm->batches[tno].faceidxcount;
-				unimesh.numvertexes = cl.worldmodel->shadowbatches[tno].vbo->vertcount;
-				unimesh.vbofirstelement = sm->batches[tno].faceidxfirst;
-				cl.worldmodel->shadowbatches[tno].vbo->indicies.gl.vbo = sm->vefbo[2];
-				cl.worldmodel->shadowbatches[tno].vbo->indicies.gl.addr = NULL;
-
-				BE_DrawMesh_List(shader, 1, &unimeshptr, cl.worldmodel->shadowbatches[tno].vbo, NULL, 0);
-				cl.worldmodel->shadowbatches[tno].vbo->indicies = oldidx;
-			}
-			else
-#endif
 				BE_DrawMesh_List(shader, sm->batches[tno].count, sm->batches[tno].s, cl.worldmodel->shadowbatches[tno].vbo, NULL, 0);
 			RQuantAdd(RQUANT_LITFACES, sm->batches[tno].count);
 		}
@@ -3144,11 +2988,6 @@ static void Sh_DrawEntLighting(dlight_t *light, vec3_t colour, qbyte *pvs)
 		{
 		default:
 			break;
-#ifdef GLQUAKE
-		case QR_OPENGL:
-			GLBE_BaseEntTextures(pvs, NULL);
-			break;
-#endif
 #ifdef VKQUAKE
 		case QR_VULKAN:
 			VKBE_BaseEntTextures(pvs, NULL);
@@ -3168,125 +3007,6 @@ static void Sh_DrawEntLighting(dlight_t *light, vec3_t colour, qbyte *pvs)
 	}
 }
 
-#ifdef GLQUAKE
-/*Fixme: this is brute forced*/
-#ifdef warningmsg
-#pragma warningmsg("brush shadows are bruteforced")
-#endif
-static void Sh_DrawBrushModelShadow(dlight_t *dl, entity_t *e)
-{
-	int v;
-	float *v1, *v2;
-	vec3_t v3, v4;
-	vec3_t lightorg;
-
-	int i;
-	model_t *model;
-	msurface_t *surf;
-
-	if (qrenderer != QR_OPENGL)
-		return;
-
-	if (BE_LightCullModel(e->origin, e->model))
-		return;
-
-	RotateLightVector((void *)e->axis, e->origin, dl->origin, lightorg);
-
-	BE_SelectEntity(e);
-
-	GL_DeselectVAO();
-	GL_SelectVBO(0);
-	GL_SelectEBO(0);
-	qglEnableClientState(GL_VERTEX_ARRAY);
-
-#ifdef BEF_PUSHDEPTH
-	GLBE_PolyOffsetStencilShadow(r_pushdepth);
-#else
-	GLBE_PolyOffsetStencilShadow();
-#endif
-
-	model = e->model;
-	surf = model->surfaces+model->firstmodelsurface;
-	for (i = 0; i < model->nummodelsurfaces; i++, surf++)
-	{
-		if (surf->flags & SURF_PLANEBACK)
-		{//inverted normal.
-			if (DotProduct(surf->plane->normal, lightorg)-surf->plane->dist >= -0.1)
-				continue;
-		}
-		else
-		{
-			if (DotProduct(surf->plane->normal, lightorg)-surf->plane->dist <= 0.1)
-				continue;
-		}
-
-		if (surf->flags & (SURF_DRAWALPHA | SURF_DRAWTILED))
-		{	// no shadows
-			continue;
-		}
-
-		if (!surf->mesh)
-			continue;
-
-		//front face
-		qglVertexPointer(3, GL_FLOAT, sizeof(vecV_t), surf->mesh->xyz_array);
-		qglDrawArrays(GL_POLYGON, 0, surf->mesh->numvertexes);
-//		qglDrawRangeElements(GL_TRIANGLES, 0, surf->mesh->numvertexes-1, surf->mesh->numindexes, GL_INDEX_TYPE, surf->mesh->indexes);
-		RQuantAdd(RQUANT_SHADOWINDICIES, surf->mesh->numvertexes);
-
-		for (v = 0; v < surf->mesh->numvertexes; v++)
-		{
-		//border
-			v1 = surf->mesh->xyz_array[v];
-			v2 = surf->mesh->xyz_array[( v+1 )%surf->mesh->numvertexes];
-
-			//get positions of v3 and v4 based on the light position
-			v3[0] = ( v1[0]-lightorg[0] );
-			v3[1] = ( v1[1]-lightorg[1] );
-			v3[2] = ( v1[2]-lightorg[2] );
-			VectorNormalizeFast(v3);
-			VectorScale(v3, PROJECTION_DISTANCE, v3);
-
-			v4[0] = ( v2[0]-lightorg[0] );
-			v4[1] = ( v2[1]-lightorg[1] );
-			v4[2] = ( v2[2]-lightorg[2] );
-			VectorNormalizeFast(v4);
-			VectorScale(v4, PROJECTION_DISTANCE, v4);
-
-			//Now draw the quad from the two verts to the projected light
-			//verts
-			qglBegin( GL_QUAD_STRIP );
-				qglVertex3fv(v1);
-				qglVertex3f	(v1[0]+v3[0], v1[1]+v3[1], v1[2]+v3[2]);
-				qglVertex3fv(v2);
-				qglVertex3f (v2[0]+v4[0], v2[1]+v4[1], v2[2]+v4[2]);
-			qglEnd();
-		}
-
-//back
-			//the same applies as earlier
-		qglBegin(GL_POLYGON);
-		for (v = surf->mesh->numvertexes-1; v >=0; v--)
-		{
-			v1 = surf->mesh->xyz_array[v];
-			v3[0] = (v1[0]-lightorg[0]);
-			v3[1] = (v1[1]-lightorg[1]);
-			v3[2] = (v1[2]-lightorg[2]);
-			VectorNormalizeFast(v3);
-			VectorScale(v3, PROJECTION_DISTANCE, v3);
-
-			qglVertex3f(v1[0]+v3[0], v1[1]+v3[1], v1[2]+v3[2]);
-		}
-		qglEnd();
-	}
-
-#ifdef BEF_PUSHDEPTH
-	GLBE_PolyOffsetStencilShadow(false);
-#else
-	GLBE_PolyOffsetStencilShadow();
-#endif
-}
-#endif
 
 #if defined(GLQUAKE) || defined(D3D9QUAKE)
 /*when this is called, the gl state has been set up to draw the stencil volumes using whatever extensions we have
@@ -3295,19 +3015,10 @@ if secondside is set, then the gpu sucks and we're drawing stuff the slow 2-pass
 static void Sh_DrawStencilLightShadows(dlight_t *dl, qbyte *lvis, qbyte *vvis, qboolean secondside)
 {
 	struct shadowmesh_s *sm;
-#ifdef GLQUAKE
-	extern cvar_t gl_part_flame;
-	int		i;
-	entity_t *ent;
-	model_t *emodel;
-#endif
 
 	sm = SHM_BuildShadowMesh(dl, lvis, SMT_STENCILVOLUME);
 	if (!sm)
 	{
-#ifdef GLQUAKE
-		Sh_DrawBrushModelShadow(dl, &r_worldentity);
-#endif
 	}
 	else
 	{
@@ -3328,11 +3039,6 @@ static void Sh_DrawStencilLightShadows(dlight_t *dl, qbyte *lvis, qbyte *vvis, q
 			D3D9BE_RenderShadowBuffer(sm->numverts, sm->d3d9_vbuffer, sm->numindicies, sm->d3d9_ibuffer);
 			break;
 #endif
-#ifdef GLQUAKE
-		case QR_OPENGL:
-			GLBE_RenderShadowBuffer(sm->numverts, sm->vefbo[0], sm->verts, sm->numindicies, sm->vefbo[1], sm->indicies);
-			break;
-#endif
 #ifdef VKQUAKE
 //		case QR_VULKAN:
 //			VKBE_RenderShadowBuffer(sm->numverts, sm->vebo[0], sm->verts, sm->numindicies, sm->vebo[1], sm->indicies);
@@ -3343,72 +3049,6 @@ static void Sh_DrawStencilLightShadows(dlight_t *dl, qbyte *lvis, qbyte *vvis, q
 	if (!r_drawentities.value)
 		return;
 
-#ifdef GLQUAKE
-	if (qrenderer != QR_OPENGL)
-		return;	//FIXME: still uses glBegin specifics.
-	if (gl_config_nofixedfunc)
-		return;	/*too lazy to use shaders*/
-	if (gl_config_gles)
-		return;	//FIXME: uses glBegin
-
-	// draw sprites seperately, because of alpha blending
-	for (i=r_refdef.firstvisedict ; i<cl_numvisedicts ; i++)
-	{
-		ent = &cl_visedicts[i];
-
-		if (ent->rtype != RT_MODEL)
-			continue;
-
-		if (ent->flags & (RF_NOSHADOW|Q2RF_BEAM))
-			continue;
-
-		if (ent->keynum == dl->key && ent->keynum)
-			continue;
-
-		emodel = ent->model;
-		if (!emodel)
-			continue;
-
-		if (cls.allow_anyparticles)	//allowed or static
-		{
-			if (emodel->engineflags & MDLF_EMITREPLACE)
-			{
-				if (gl_part_flame.value)
-					continue;
-			}
-		}
-
-		if (emodel->loadstate == MLS_NOTLOADED)
-		{
-			if (!Mod_LoadModel(emodel, MLV_WARN))
-				continue;
-		}
-		if (emodel->loadstate != MLS_LOADED)
-			continue;
-
-		switch (emodel->type)
-		{
-		case mod_alias:
-			if (r_drawentities.ival == 3)
-				continue;
-			R_DrawGAliasShadowVolume (ent, dl->origin, dl->radius);
-			break;
-
-		case mod_brush:
-			if (r_drawentities.ival == 2)
-				continue;
-			Sh_DrawBrushModelShadow (dl, ent);
-			break;
-
-		case mod_sprite:	//never any shadows on sprites, it doesn't really make sense.
-			break;
-
-		default:
-			break;
-		}
-	}
-	BE_SelectEntity(&r_worldentity);
-#endif
 }
 
 //draws a light using stencil shadows.
@@ -3482,133 +3122,6 @@ static qboolean Sh_DrawStencilLight(dlight_t *dl, vec3_t colour, vec3_t axis[3],
 	default:
 		(void)sref;
 		break;
-#ifdef GLQUAKE
-	case QR_OPENGL:
-		{
-			int sfrontfail;
-			int sbackfail;
-			qglEnable(GL_STENCIL_TEST);
-
-			//FIXME: is it practical to test to see if scissors allow not clearing the stencil buffer?
-
-			/*we don't need all that much stencil buffer depth, and if we don't get enough or have dodgy volumes, wrap if we can*/
-		#ifdef I_LIVE_IN_A_FREE_COUNTRY
-			sref = 0;
-			sbackfail = GL_INCR;
-			sfrontfail = GL_DECR;
-			if (gl_config.ext_stencil_wrap)
-			{	//minimise damage...
-				sbackfail = GL_INCR_WRAP_EXT;
-				sfrontfail = GL_DECR_WRAP_EXT;
-			}
-		#else
-			sref = (1<<sh_config.stencilbits)-1; /*this is halved for two-sided stencil support, just in case there's no wrap support*/
-			sbackfail = GL_DECR;
-			sfrontfail = GL_INCR;
-			if (gl_config.ext_stencil_wrap)
-			{	//minimise damage...
-				sbackfail = GL_DECR_WRAP_EXT;
-				sfrontfail = GL_INCR_WRAP_EXT;
-			}
-		#endif
-			//our stencil writes.
-			if (gl_config.arb_depth_clamp && r_refdef.maxdist != 0)
-				qglEnable(GL_DEPTH_CLAMP_ARB);
-
-		#if 0 //def _DEBUG
-		//	if (r_shadows.value == 666)	//testing (visible shadow volumes)
-			{
-				qglColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-				qglColor4f(dl->color[0], dl->color[1], dl->color[2], 1);
-				qglDisable(GL_STENCIL_TEST);
-//				qglEnable(GL_POLYGON_OFFSET_FILL);
-//				qglPolygonOffset(-1, -1);
-			//	qglPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-				Sh_DrawStencilLightShadows(dl, lvis, vvis, false);
-//				qglDisable(GL_POLYGON_OFFSET_FILL);
-//				qglPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-			}
-		#endif
-
-			if (qglStencilOpSeparate)
-			{
-				//ATI/GLES/ARB method
-				sref/=2;
-				qglClearStencil(sref);
-				qglClear(GL_STENCIL_BUFFER_BIT);
-				GL_CullFace(0);
-
-				qglStencilFunc(GL_ALWAYS, 0, ~0);
-
-				qglStencilOpSeparate(GL_BACK, GL_KEEP, sbackfail, GL_KEEP);
-				qglStencilOpSeparate(GL_FRONT, GL_KEEP, sfrontfail, GL_KEEP);
-
-				Sh_DrawStencilLightShadows(dl, lvis, vvis, false);
-				qglStencilOpSeparate(GL_FRONT_AND_BACK, GL_KEEP, GL_KEEP, GL_KEEP);
-
-				GL_CullFace(SHADER_CULL_FRONT);
-
-				qglStencilFunc(GL_EQUAL, sref, ~0);
-			}
-			else if (qglActiveStencilFaceEXT)
-			{
-				//Nvidia-specific method.
-				sref/=2;
-				qglClearStencil(sref);
-				qglClear(GL_STENCIL_BUFFER_BIT);
-				GL_CullFace(0);
-
-				qglEnable(GL_STENCIL_TEST_TWO_SIDE_EXT);
-
-				qglActiveStencilFaceEXT(GL_BACK);	
-				qglStencilOp(GL_KEEP, sbackfail, GL_KEEP);
-				qglStencilFunc(GL_ALWAYS, 0, ~0 );
-
-				qglActiveStencilFaceEXT(GL_FRONT);
-				qglStencilOp(GL_KEEP, sfrontfail, GL_KEEP);
-				qglStencilFunc(GL_ALWAYS, 0, ~0 );
-
-				Sh_DrawStencilLightShadows(dl, lvis, vvis, false);
-
-				qglActiveStencilFaceEXT(GL_BACK);
-				qglStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
-				qglStencilFunc(GL_ALWAYS, 0, ~0 );
-
-				qglActiveStencilFaceEXT(GL_FRONT);
-				qglStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
-				qglStencilFunc(GL_EQUAL, sref, ~0 );
-
-				qglDisable(GL_STENCIL_TEST_TWO_SIDE_EXT);
-			}
-			else //your graphics card sucks and lacks efficient stencil shadow techniques.
-			{	//centered around 0. Will only be increased then decreased less.
-				qglClearStencil(sref);
-				qglClear(GL_STENCIL_BUFFER_BIT);
-
-				qglStencilFunc(GL_ALWAYS, 0, ~0);
-
-				GL_CullFace(SHADER_CULL_BACK);
-				qglStencilOp(GL_KEEP, sbackfail, GL_KEEP);
-				Sh_DrawStencilLightShadows(dl, lvis, vvis, false);
-
-				GL_CullFace(SHADER_CULL_FRONT);
-				qglStencilOp(GL_KEEP, sfrontfail, GL_KEEP);
-				Sh_DrawStencilLightShadows(dl, lvis, vvis, true);
-
-				qglStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
-				qglStencilFunc(GL_EQUAL, sref, ~0);
-			}
-			if (gl_config.arb_depth_clamp)
-				qglDisable(GL_DEPTH_CLAMP_ARB);
-			//end stencil writing.
-
-			BE_SelectMode(BEM_LIGHT);
-			Sh_DrawEntLighting(dl, colour, vvis);
-			qglDisable(GL_STENCIL_TEST);
-			qglStencilFunc( GL_ALWAYS, 0, ~0 );
-		}
-		break;
-#endif
 #ifdef D3D9QUAKE
 	case QR_DIRECT3D9:
 		sref = (1<<8)-1;
@@ -3766,94 +3279,6 @@ static void Sh_DrawShadowlessLight(dlight_t *dl, vec3_t colour, vec3_t axis[3], 
 
 void Sh_DrawCrepuscularLight(dlight_t *dl, float *colours)
 {
-#ifdef GLQUAKE
-	int oldfbo;
-	static mesh_t mesh;
-	image_t *oldsrccol;
-	static vecV_t xyz[4] =
-	{
-		{-1,-1,-1},
-		{-1,1,-1},
-		{1,1,-1},
-		{1,-1,-1}
-	};
-	static vec2_t tc[4] =
-	{
-		{0,0},
-		{0,1},
-		{1,1},
-		{1,0}
-	};
-	static index_t idx[6] =
-	{
-		0,1,2,
-		0,2,3
-	};
-	if (qrenderer != QR_OPENGL)
-		return;
-
-	mesh.numindexes = 6;
-	mesh.numvertexes = 4;
-	mesh.xyz_array = xyz;
-	mesh.st_array = tc;
-	mesh.indexes = idx;
-
-	/*
-	a crepuscular light (seriously, that's the correct spelling) is one that gives 'god rays', rather than regular light.
-	our implementation doesn't cast shadows. this allows it to actually be outside the map, and to shine through cloud layers in the sky.
-	we could cast shadows if the light was actually inside, I suppose.
-	Anyway, its done using an FBO, where everything but the sky is black (stuff that occludes the sky is black too).
-	which is then blitted onto the screen in 2d-space.
-	*/
-
-	/*requires an FBO, as stated above*/
-	if (!gl_config.ext_framebuffer_objects)
-		return;
-
-	//fixme: we should add an extra few pixels each side to the fbo, to avoid too much weirdness at screen edges.
-
-	if (!crepuscular_texture_id)
-	{
-		/*FIXME: requires npot*/
-		crepuscular_shader = R_RegisterShader("crepuscular_screen", SUF_NONE,
-			"{\n"
-				"program crepuscular_rays\n"
-				"{\n"
-					"map $sourcecolour\n"
-					"blend add\n"
-				"}\n"
-			"}\n"
-			);
-
-		crepuscular_texture_id = Image_CreateTexture("***crepusculartexture***", NULL, IF_LINEAR|IF_NOMIPMAP|IF_CLAMP|IF_NOGAMMA);
-		Image_Upload(crepuscular_texture_id, TF_RGBA32, NULL, NULL, vid.pixelwidth, vid.pixelheight, 1, IF_LINEAR|IF_NOMIPMAP|IF_CLAMP|IF_NOGAMMA);
-	}
-
-	BE_Scissor(NULL);
-
-	oldfbo = GLBE_FBO_Update(&crepuscular_fbo, FBO_RB_DEPTH, &crepuscular_texture_id, 1, r_nulltex, vid.pixelwidth, vid.pixelheight, 0);
-
-	GL_ForceDepthWritable();
-//	qglClearColor(0, 0, 0, 1);
-	qglClear(GL_DEPTH_BUFFER_BIT);
-
-	BE_SelectMode(BEM_CREPUSCULAR);
-	BE_SelectDLight(dl, colours, dl->axis, LSHADER_STANDARD);
-	GLBE_SubmitMeshes(cl.worldmodel->batches, SHADER_SORT_PORTAL, SHADER_SORT_BLEND);
-
-	GLBE_FBO_Pop(oldfbo);
-
-	oldsrccol = NULL;//shaderstate.tex_sourcecol;
-	GLBE_FBO_Sources(crepuscular_texture_id, NULL);
-//	crepuscular_shader->defaulttextures.base = crepuscular_texture_id;
-	//shaderstate.tex_sourcecol = oldsrccol;
-
-	BE_SelectMode(BEM_STANDARD);
-
-	BE_DrawMesh_Single(crepuscular_shader, &mesh, NULL, 0);
-
-	GLBE_FBO_Sources(oldsrccol, NULL);
-#endif
 }
 
 void Sh_PurgeShadowMeshes(void)
@@ -3926,6 +3351,11 @@ void Sh_PreGenerateLights(void)
 	if (r_shadow_realtime_world_lightmaps_force >= 0)
 		r_shadow_realtime_world_lightmaps.value = r_shadow_realtime_world_lightmaps_force;
 
+#ifdef SDL_GPUQUAKE
+    /* SDL GPU builds cubemap shadows from frame geometry; only import lights here. */
+    if (qrenderer == QR_SDLGPU) return;
+#endif
+
 	ignoreflags = (r_shadow_realtime_world.ival?LFLAG_REALTIMEMODE:0)
 			| (r_shadow_realtime_dlight.ival?LFLAG_NORMALMODE:0);
 
@@ -3997,30 +3427,17 @@ void Sh_CheckSettings(void)
 
 	switch(qrenderer)
 	{
+#ifdef SDL_GPUQUAKE
+	case QR_SDLGPU:
+		canshadowless = cansmap = true;
+		break;
+#endif
 #ifdef VKQUAKE
 	case QR_VULKAN:
 		canshadowless = true;
 		cansmap = vk.multisamplebits==VK_SAMPLE_COUNT_1_BIT; //FIXME - we need to render shadowmaps without needing to restart the current scene.
 		canraytrace = vk.khr_ray_query;
 		canstencil = false;
-		break;
-#endif
-#ifdef GLQUAKE
-	case QR_OPENGL:
-		canshadowless = gl_config.arb_shader_objects || !gl_config_nofixedfunc; //falls back to crappy texture env
-		if (gl_config.arb_shader_objects && gl_config.ext_framebuffer_objects && gl_config.arb_depth_texture)// && gl_config.arb_shadow)
-			cansmap = true;
-		else if ((r_shadow_realtime_world_shadows.ival || r_shadow_realtime_dlight_shadows.ival) && r_shadow_shadowmapping.ival)
-		{
-			if (!gl_config.arb_shader_objects)
-				Con_DPrintf("Shadowmapping unsupported: No arb_shader_objects\n");
-			else if (!gl_config.ext_framebuffer_objects)
-				Con_DPrintf("Shadowmapping unsupported: No ext_framebuffer_objects\n");
-			else if (!gl_config.arb_depth_texture)
-				Con_DPrintf("Shadowmapping unsupported: No arb_depth_texture\n");
-		}
-		if (sh_config.stencilbits)
-			canstencil = true;
 		break;
 #endif
 #ifdef D3D9QUAKE
@@ -4328,40 +3745,6 @@ void Sh_DrawLights(qbyte *vis)
 		}
 	}
 
-#ifdef GLQUAKE
-	if (gl_config.arb_shader_objects)
-	{
-		dlight_t sun = {0};
-		vec3_t sundir;
-		float dot;
-		Com_ParseVector(r_sun_dir.string, sundir);
-		Com_ParseVector(r_sun_colour.string, colour);
-
-		//fade it out if we're looking at an angle parallel to it (to avoid nasty visible graduations or backwards rays!)
-		dot = DotProduct(vpn, sundir);
-		dot = 1-dot;
-		dot *= dot;
-		dot = 1-dot;
-		VectorScale(colour, dot, colour);
-
-		if (colour[0] > 0.001 || colour[1] > 0.001 || colour[2] > 0.001)
-		{
-			//only do this if we can see some sky surfaces. pointless otherwise
-			batch_t *b;
-			for (b = cl.worldmodel->batches[SHADER_SORT_SKY]; b; b = b->next)
-			{
-				if (b->meshes)
-					break;
-			}
-			if (b)
-			{
-				VectorNormalize(sundir);
-				VectorMA(r_origin, 1000, sundir, sun.origin);
-				Sh_DrawCrepuscularLight(&sun, colour);
-			}
-		}
-	}
-#endif
 
 	BE_Scissor(NULL);
 

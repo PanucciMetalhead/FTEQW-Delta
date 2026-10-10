@@ -10,11 +10,7 @@
 #else
 #include <unistd.h>
 #endif
-#if defined(FTE_SDL3)
 	#include <SDL3/SDL.h>
-#elif defined(FTE_SDL)
-	#include <SDL.h>
-#endif
 
 static void Headless_Draw_Init(void)
 {
@@ -44,7 +40,6 @@ static void	Headless_R_RenderView				(void)
 {
 }
 #ifdef FTE_SDL
-	#if SDL_VERSION_ATLEAST(3,0,0)
 static SDL_Tray *thetray;
 static void SDLCALL Headless_Restore(void *userdata, SDL_TrayEntry *entry)
 {
@@ -54,7 +49,6 @@ static void SDLCALL Headless_Restore(void *userdata, SDL_TrayEntry *entry)
 	else
 		Cbuf_AddText("vid_restart\n", RESTRICT_LOCAL);
 }
-	#endif
 #elif defined(_WIN32)
 //tray icon crap, so the user can still restore the game.
 LRESULT CALLBACK HeadlessWndProc(HWND wnd, UINT msg, WPARAM wparam, LPARAM lparam)
@@ -91,7 +85,6 @@ static qboolean Headless_VID_Init				(rendererstate_t *info, unsigned char *pale
 	memset(&sh_config, 0, sizeof(sh_config));
 
 #ifdef FTE_SDL
-	#if SDL_VERSION_ATLEAST(3,0,0)
 		thetray = SDL_CreateTray(NULL, fs_manifest->formalname);
 		if (thetray)
 		{	//don't know how to respond to direct clicks, so create a menu.
@@ -102,7 +95,6 @@ static qboolean Headless_VID_Init				(rendererstate_t *info, unsigned char *pale
 		}
 		Con_Printf(CON_ERROR"Headless: Unable to create system tray icon for restoring.\n");
 		return false;
-	#endif
 #elif defined(_WIN32)
 	//tray icon crap, so the user can still restore the game.
 	extern HWND	mainwindow;
@@ -171,10 +163,8 @@ static qboolean Headless_VID_Init				(rendererstate_t *info, unsigned char *pale
 static void	 Headless_VID_DeInit				(void)
 {
 #ifdef FTE_SDL
-	#if SDL_VERSION_ATLEAST(3,0,0)
 		SDL_DestroyTray(thetray);
 		thetray = NULL;
-	#endif
 #elif defined(_WIN32)
 	//tray icon crap, so the user can still restore the game.
 	//FIXME: remove tray icon. win95 won't do this automagically.
@@ -328,129 +318,5 @@ rendererinfo_t headlessrenderer =
 
 
 
-#if 0//def VKQUAKE
-#include "../vk/vkrenderer.h"
-static qboolean HeadlessVK_CreateSurface(void)
-{
-	vk.surface = VK_NULL_HANDLE;	//nothing to create, we're using offscreen rendering.
-	vk.allowsubmissionthread = false;	//waste of threading
-	return true;
-}
-static void HeadlessVK_Present(struct vkframe *theframe)
-{
-	//VK_DoPresent(theframe);
-
-	if (!theframe)
-		return;
-	vk
-
-	qglWaitVkSemaphoreNV(theframe->backbuf->presentsemaphore);
-	//tell the gl driver to copy it over now
-	qglDrawVkImageNV(theframe->backbuf->colour.image, theframe->backbuf->colour.sampler, 
-		0, 0, vid.pixelwidth, vid.pixelheight,	//xywh (window coords)
-		0,	//z
-		0, 1, 1, 0);	//stst (remember that gl textures are meant to be upside down)
-
-	//at this point the gl driver can signal the fence so our vk code can wake up and start drawing the next frame (if the gpu is slow)
-	qglSignalVkFenceNV(vk.acquirefences[vk.aquirelast%ACQUIRELIMIT]);
-	//and tell our code to expect it.
-	vk.acquirebufferidx[vk.aquirelast%ACQUIRELIMIT] = vk.aquirelast%vk.backbuf_count;
-	barrier
-	vk.aquirelast++;
-}
-static qboolean HeadlessVK_Init (rendererstate_t *info, unsigned char *palette)
-{
-	extern cvar_t vid_conautoscale;
-#ifdef VK_NO_PROTOTYPES
-	static dllhandle_t *hInstVulkan = NULL;
-	dllfunction_t vkfuncs[] =
-	{
-		{(void**)&vkGetInstanceProcAddr, "vkGetInstanceProcAddr"},
-		{NULL}
-	};
-	if (!hInstVulkan)
-		hInstVulkan = *info->subrenderer?Sys_LoadLibrary(info->subrenderer, vkfuncs):NULL;
-#ifdef _WIN32
-	if (!hInstVulkan)
-		hInstVulkan = Sys_LoadLibrary("vulkan-1.dll", vkfuncs);
-#else
-	if (!hInstVulkan)
-		hInstVulkan = Sys_LoadLibrary("libvulkan.so.1", vkfuncs);
-	if (!hInstVulkan)
-		hInstVulkan = Sys_LoadLibrary("libvulkan.so", vkfuncs);
-#endif
-	if (!hInstVulkan)
-	{
-		Con_Printf("Unable to load vulkan library\nNo Vulkan drivers are installed\n");
-		return false;
-	}
-#endif
-
-	vid.pixelwidth = 1920;
-	vid.pixelheight = 1080;
-	if (!VK_Init(info, NULL,0, HeadlessVK_CreateSurface, NULL))
-		return false;
-	Cvar_ForceCallback(&vid_conautoscale);
-	return true;
-}
-
-rendererinfo_t headlessvkrendererinfo =
-{
-	"Headless Vulkan",
-	{
-		"vkheadless"
-	},
-	QR_VULKAN,
-
-	VK_Draw_Init,
-	VK_Draw_Shutdown,
-
-	VK_UpdateFiltering,
-	VK_LoadTextureMips,
-	VK_DestroyTexture,
-
-	VK_R_Init,
-	VK_R_DeInit,
-	VK_R_RenderView,
-
-	HeadlessVK_Init,
-	GLVID_DeInit,
-	GLVID_SwapBuffers,
-	GLVID_ApplyGammaRamps,
-	NULL,
-	NULL,
-	NULL,
-	GLVID_SetCaption,
-	VKVID_GetRGBInfo,
-
-	VK_SCR_UpdateScreen,
-
-	VKBE_SelectMode,
-	VKBE_DrawMesh_List,
-	VKBE_DrawMesh_Single,
-	VKBE_SubmitBatch,
-	VKBE_GetTempBatch,
-	VKBE_DrawWorld,
-	VKBE_Init,
-	VKBE_GenBrushModelVBO,
-	VKBE_ClearVBO,
-	VKBE_UploadAllLightmaps,
-	VKBE_SelectEntity,
-	VKBE_SelectDLight,
-	VKBE_Scissor,
-	VKBE_LightCullModel,
-
-	VKBE_VBO_Begin,
-	VKBE_VBO_Data,
-	VKBE_VBO_Finish,
-	VKBE_VBO_Destroy,
-
-	VKBE_RenderToTextureUpdate2d,
-
-	"no more",
-
-	Headless_VID_GetPrioriy
-};
-#endif
 #endif
 #endif

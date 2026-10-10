@@ -3,9 +3,6 @@
 #include "pr_common.h"
 #include "shader.h"
 
-#ifdef GLQUAKE
-#include "glquake.h"
-#endif
 
 #if defined(MENU_DAT) || defined(CSQC_DAT)
 #include "cl_master.h"

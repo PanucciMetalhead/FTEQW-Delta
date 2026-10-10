@@ -1380,7 +1380,7 @@ void M_Menu_Preset_f (void)
 #ifdef HAVE_SERVER
 	extern cvar_t sv_nqplayerphysics;
 #endif
-#if defined(RTLIGHTS) && (defined(GLQUAKE) || defined(VKQUAKE))
+#if defined(RTLIGHTS) && (defined(SDL_GPUQUAKE) || defined(VKQUAKE))
 	extern cvar_t r_bloom, r_shadow_realtime_world_importlightentitiesfrommap;
 #endif
 
@@ -1413,14 +1413,11 @@ void M_Menu_Preset_f (void)
 #endif
 		MB_CONSOLECMDRETURN("^7vanilla  (softwarey)",	"fps_preset vanilla\n",		"This is for purists! Party like its 1995! No sanity spared!", presetoption[3]),
 			MB_CHECKBOXCVAR("anim snapping", r_nolerp, 1),
-#if defined(GLQUAKE)
-			MB_CHECKBOXCVAR("model swimming", gl_affinemodels, 0),
-#endif
 		MB_CONSOLECMDRETURN("^7normal    (faithful)",	"fps_preset normal\n",		"An updated but still faithful appearance, using content replacements where applicable", presetoption[4]),
 		MB_CONSOLECMDRETURN("^7nice       (dynamic)",	"fps_preset nice\n",		"For people who like nice things, but still want to actually play", presetoption[5]),
 			MB_COMBOCVAR("rgb lighting", r_loadlits, litopts, litvals, NULL),
 			MB_COMBOCVAR("deluxemaps", r_deluxemapping_cvar, deluxeopts, NULL, NULL),
-#if defined(RTLIGHTS) && (defined(GLQUAKE) || defined(VKQUAKE))
+#if defined(RTLIGHTS) && (defined(SDL_GPUQUAKE) || defined(VKQUAKE))
 		MB_CONSOLECMDRETURN("^7realtime    (all on)",	"fps_preset realtime\n",	"For people who value pretty over fast/smooth. Not viable for deathmatch.", presetoption[6]),
 			MB_CHECKBOXCVAR("bloom", r_bloom, 1),
 			MB_CHECKBOXCVAR("force rtlights", r_shadow_realtime_world_importlightentitiesfrommap, 1),
@@ -1675,11 +1672,13 @@ void M_Menu_Render_f (void)
 
 	static const char *scenecacheopts[] = {"Auto", "Force Off", "Force On", NULL};
 	static const char *scenecachevalues[] = {"", "0", "1", NULL};
+	static const char *wateropts[] = {"Flat", "Classic", "Refractive", "Reflective", NULL};
+	static const char *watervalues[] = {"0", "1", "2", "3", NULL};
 
 	emenu_t *menu;
 	extern cvar_t r_novis, cl_item_bobbing, r_waterwarp, r_nolerp, r_noframegrouplerp, r_fastsky, gl_nocolors, gl_lerpimages, r_wateralpha, r_drawviewmodel, gl_cshiftenabled, r_hdr_irisadaptation, scr_logcenterprint, r_fxaa, r_graphics;
-#if defined(GLQUAKE) || defined(VKQUAKE)
-	extern cvar_t r_bloom;
+#if defined(SDL_GPUQUAKE) || defined(VKQUAKE)
+	extern cvar_t r_bloom, r_hdr_framebuffer;
 #endif
 	static menuresel_t resel;
 
@@ -1697,6 +1696,7 @@ void M_Menu_Render_f (void)
 		MB_CHECKBOXCVAR("Model Bobbing", cl_item_bobbing, 0),
 		MB_COMBOCVAR("Scene Cache", r_temporalscenecache, scenecacheopts,scenecachevalues, "Cache scene data to significantly optimise highly complex scenes or unvised maps.\nThis may result in offscreen surfaces getting rendered."),
 		MB_COMBOCVAR("Water Warp", r_waterwarp, warpopts, warpvalues, NULL),
+		MB_COMBOCVAR("Water Surfaces", r_waterstyle, wateropts, watervalues, "Choose flat, classic, refractive, or reflective water surfaces."),
 		MB_SLIDER("Water Alpha", r_wateralpha, 0, 1, 0.1, NULL),
 		MB_SLIDER("Viewmodel Alpha", r_drawviewmodel, 0, 1, 0.1, NULL),
 		MB_COMBOCVAR("Screen Tints", gl_cshiftenabled, cshiftopts, cshiftvalues, "Changes how screen flashes should be displayed (otherwise known as polyblends)."),
@@ -1705,10 +1705,11 @@ void M_Menu_Render_f (void)
 #endif
 		MB_COMBOCVAR("Log Centerprints", scr_logcenterprint, logcenteropts, logcentervalues, "Display centerprints in the console also."),
 		MB_CHECKBOXCVAR("FXAA", r_fxaa, 0),
-#if defined(GLQUAKE) || defined(VKQUAKE)
+#if defined(SDL_GPUQUAKE) || defined(VKQUAKE)
 		MB_CHECKBOXCVAR("Bloom", r_bloom, 0),
+		MB_CHECKBOXCVAR("HDR Framebuffer", r_hdr_framebuffer, 0),
 #endif
-		MB_CHECKBOXCVARTIP("HDR", r_hdr_irisadaptation, 0, "Adjust scene brightness to compensate for lighting levels."),
+		MB_CHECKBOXCVARTIP("Auto Exposure", r_hdr_irisadaptation, 0, "Adjust scene brightness to compensate for lighting levels."),
 		MB_END()
 	};
 	menu = M_Options_Title(&y, 0);
@@ -1786,6 +1787,7 @@ void M_Menu_Textures_f (void)
 		NULL
 	};
 
+	extern cvar_t r_normalmapping;
 	extern cvar_t gl_load24bit, gl_specular, gl_compress, gl_picmip, gl_picmip2d, gl_max_size, r_drawflat, r_glsl_offsetmapping;
 	extern cvar_t gl_texture_anisotropic_filtering, gl_texturemode, gl_texturemode2d, gl_mipcap;
 	int y;
@@ -1799,12 +1801,12 @@ void M_Menu_Textures_f (void)
 		MB_COMBOCVAR("2D Filter Mode", gl_texturemode2d, texture2dfilternames, texture2dfiltervalues, "Chooses the texture filtering method used for HUD, menus, and other 2D assets."),
 		MB_COMBOCVAR("Anisotropy", gl_texture_anisotropic_filtering, anisotropylevels, anisotropyvalues, NULL),
 		MB_SPACING(4),
-#ifdef GLQUAKE
-		MB_CHECKBOXCVAR("Software-style Rendering", r_softwarebanding_cvar, 0),
+#ifdef SDL_GPUQUAKE
+		MB_CHECKBOXCVAR("Normal Mapping", r_normalmapping, 0),
 #endif
 		MB_CHECKBOXCVAR("Specular Highlights", gl_specular, 0),
 //		MB_CHECKBOXCVAR("Detail Textures", gl_detail, 0),
-		MB_CHECKBOXCVAR("offsetmapping", r_glsl_offsetmapping, 0),
+		MB_CHECKBOXCVAR("Offset Mapping", r_glsl_offsetmapping, 0),
 		MB_SPACING(4),
 		MB_CHECKBOXCVAR("Texture Compression", gl_compress, 0), // merge the save compressed tex options into here?
 		MB_SLIDER("3D Picmip", gl_picmip, 0, 16, 1, NULL),
@@ -2754,9 +2756,6 @@ void M_Menu_Singleplayer_Cheats_f (void)
 }
 
 // video mode options
-#if defined(D3DQUAKE) && defined(GLQUAKE)
-#define MULTIRENDERER // allow options for selecting renderer
-#endif
 
 typedef struct {
 	menucombo_t *dispmode;
@@ -2861,6 +2860,9 @@ static int M_MatchModes(int width, int height, int *outres)
 				}
 				break;
 			}
+			// Keep the largest available entry when the current mode exceeds this list.
+			if (!v[1])
+				break;
 			outres[i]++;
 			v++;
 		}
@@ -3039,8 +3041,8 @@ void M_Menu_Video_f (void)
 	extern cvar_t vid_renderer;
 	static const char *rendererops[] =
 	{
-#ifdef GLQUAKE
-		"OpenGL",
+#ifdef SDL_GPUQUAKE
+		"SDL3 GPU (Metal / Vulkan)",
 #endif
 #ifdef VKQUAKE
 		"Vulkan",
@@ -3068,8 +3070,8 @@ void M_Menu_Video_f (void)
 	};
 	static const char *renderervalues[] =
 	{
-#ifdef GLQUAKE
-		"gl",
+#ifdef SDL_GPUQUAKE
+		"sdlgpu",
 #endif
 #ifdef VKQUAKE
 		"vk",
@@ -3227,7 +3229,7 @@ void M_Menu_Video_f (void)
 		resmodechoice = ASPECT3D_DESKTOP;
 	else if (resmodechoice < 0)
 		resmodechoice = ASPECT3D_CUSTOM;
-	res2dmodechoice = M_MatchModes(vid.pixelwidth, vid.pixelheight, res2dchoices);
+	res2dmodechoice = M_MatchModes(vid.width, vid.height, res2dchoices);
 	if (vid_conautoscale.value > 0)
 		res2dmodechoice = ASPECT2D_SCALED;
 	else if (!vid_conwidth.ival && !vid_conheight.ival)

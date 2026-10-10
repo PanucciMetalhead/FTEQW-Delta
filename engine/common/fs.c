@@ -76,6 +76,10 @@ static char *vidfilenames[] =	//list of filenames to check to see if graphics st
 #define HLCFG "plug_load ffmpeg\n"
 #define HL2CFG "plug_load ode;plug_load hl2\n"
 
+#ifdef SDL_GPUQUAKE
+/* The local fork must not offer upstream engine binaries as self-updates. */
+#define UPDATEURL(g) NULL
+#endif
 #ifndef UPDATEURL
 	#ifdef HAVE_SSL
 		#define UPDATEURL(g)	"/downloadables.php?game=" #g

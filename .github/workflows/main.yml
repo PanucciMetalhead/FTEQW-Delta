@@ -1,211 +1,38 @@
-name: main
-
-on: [ push, pull_request, workflow_dispatch ]
-
+name: SDL3 GPU desktop build
+# Manual desktop build checks. No release publication or artifact upload steps.
+on:
+  workflow_dispatch:
 jobs:
-  cmake:
+  desktop:
     strategy:
-      matrix:
-        os: [ ubuntu-latest ]
-        profile: [ "Debug", "Release" ]
-
-    runs-on: ${{ matrix.os }}
-
-    steps:
-      - name: Get number of CPU cores
-        uses: SimenB/github-actions-cpu-cores@v2
-        id: cpu-cores
-
-      - uses: actions/checkout@v4
-
-      - name: "Install Dependencies"
-        run: |
-          sudo apt-get -qq update
-          sudo apt-get -qq install --no-install-recommends              \
-            gettext                                                     \
-            libasound2-dev                                              \
-            libbullet-dev                                               \
-            libgnutls28-dev                                             \
-            libopenxr-dev                                               \
-            libqscintilla2-qt5-dev                                      \
-            libsdl2-dev                                                 \
-            libpng-dev                                                  \
-            libvorbis-dev                                               \
-            libvulkan-dev                                               \
-            libwayland-dev                                              \
-            libxcursor-dev                                              \
-            libxkbcommon-dev                                            \
-            libxrandr-dev                                               \
-            qtbase5-dev
-
-            # Disabled due to warnings that break the debug build with -Werror
-            # libode-dev
-            # libavcodec-dev libavformat-dev libavutil-dev libswscale-dev
-
-      - name: "Configure: ${{ matrix.profile }}"
-        run: |
-          cmake -B build_${{ matrix.profile }} -DCMAKE_BUILD_TYPE=${{ matrix.profile }}
-
-      - name: "Build: ${{ matrix.profile }}"
-        run: |
-          cmake --build build_${{ matrix.profile }} --parallel ${{ steps.cpu-cores.outputs.count }}
-
-  make:
-    strategy:
-      matrix:
-        include:
-          - name: web
-            fte_target: web
-            make_targets: "gl-rel"
-            os: ubuntu-latest
-          - name: linux64
-            fte_target: linux64
-            make_targets: "m-rel sv-rel qtv-rel qcc-rel"
-            os: ubuntu-latest
-            packages: "libpng-dev libasound2-dev libgl-dev libegl1-mesa-dev libwayland-dev libxcursor-dev libxi-dev libxkbcommon-dev libxrandr-dev libxss-dev"
-          - name: win32
-            fte_target: win32
-            make_targets: "m-rel sv-rel qcc-rel"
-            os: ubuntu-latest
-            packages: "binutils-mingw-w64-i686 gcc-mingw-w64-i686 g++-mingw-w64-i686"
-          - name: win64
-            fte_target: win64
-            make_targets: "m-rel sv-rel qcc-rel"
-            os: ubuntu-latest
-            packages: "binutils-mingw-w64-x86-64 gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64"
-          - name: macos-arm64
-            fte_target: SDL2
-            make_targets: "gl-rel sv-rel qcc-rel"
-            args: "ARCH=arm STRIPFLAGS="
-            packages: "sdl2"
-            os: macos-latest
-
-    name: make-${{ matrix.name }}
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
-
-    steps:
-      - name: Get number of CPU cores
-        uses: SimenB/github-actions-cpu-cores@v2
-        id: cpu-cores
-
-      - uses: actions/checkout@v4
-
-      - name: Extract versions
-        run: grep 'VER=' engine/Makefile | tee makelibs_versions
-
-      - uses: actions/cache@v4
-        id: cache
-        with:
-          path: engine/libs-*
-          key: ${{ runner.os }}-${{ matrix.fte_target }}-${{ hashFiles('makelibs_versions') }}
-
-      - uses: mymindstorm/setup-emsdk@v14
-        with:
-          version: "2.0.12"
-          actions-cache-folder: "emsdk-cache-2.0.12"
-          cache-key: "emsdk-2.0.12"
-        if: matrix.fte_target == 'web'
-
-      - name: Verify emscripten
-        run: emcc -v
-        if: matrix.fte_target == 'web'
-
-      - name: Install dependencies (linux)
-        run: sudo apt-get -qq update && sudo apt-get -qq install --no-install-recommends ${{ matrix.packages }}
-        if: matrix.packages != '' && matrix.os == 'ubuntu-latest'
-
-      - name: Install dependencies (macos)
-        run: brew install ${{ matrix.packages }}
-        if: matrix.packages != '' && matrix.os == 'macos-latest'
-
-      - name: Build dependencies
-        working-directory: engine
-        run: make FTE_TARGET=${{ matrix.fte_target }} makelibs ${{ matrix.args }}
-        if: steps.cache.outputs.cache-hit != 'true'
-
-      - uses: ammaraskar/gcc-problem-matcher@0.3.0
-
-      - name: Build ${{ matrix.name }}
-        working-directory: engine
-        run: |
-          make -j ${{ steps.cpu-cores.outputs.count }} FTE_TARGET=${{ matrix.fte_target }} ${{ matrix.make_targets }} ${{ matrix.args }} LINK_EZHUD=1 LINK_OPENSSL=1
-
-      - name: Attach macOS docs
-        run: |
-          cat <<EOF > engine/release/fte_macos.txt
-          To allow executables to run issue for example:
-          chmod +x fteqw-glsdl2
-          xattr -d com.apple.quarantine fteqw-glsdl2
-          
-          If you don't have SDL2 installed, run:
-          brew install sdl2
-          EOF
-        if: matrix.os == 'macos-latest'
-
-      - name: Get version
-        id: version
-        run: echo "short_sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: fteqw-${{ matrix.name }}-${{ steps.version.outputs.short_sha }}
-          path: |
-            engine/release/fte*
-            !engine/release/*.db
-          compression-level: 9
-
-  flatpak:
-    name: make-flatpak-${{ matrix.arch.name }}
-    timeout-minutes: 30
-    strategy:
-      matrix:
-        arch:
-          - name: x86_64
-            runner: ubuntu-latest
-          - name: aarch64
-            runner: ubuntu-24.04-arm
       fail-fast: false
-    runs-on: ${{ matrix.arch.runner }}
-    container:
-      image: ghcr.io/flathub-infra/flatpak-github-actions:kde-5.15-23.08
-      options: --privileged
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Lint metadata and build manifest
-        run: |
-          echo "::group::Lint metainfo"
-          flatpak-builder-lint \
-            --user-exceptions=dist/linux/linter-exceptions.json --exceptions \
-            appstream ./dist/linux/org.fteqw.fteqw.metainfo.xml \
-            || export FLATPAK_LINT_FAILED=1
-          echo "::endgroup::"
-          echo "::group::Lint Flatpak manifest"
-          flatpak-builder-lint \
-            --user-exceptions=dist/linux/linter-exceptions.json --exceptions \
-            manifest ./dist/linux/org.fteqw.fteqw.yml \
-            || export FLATPAK_LINT_FAILED=1
-          echo "::endgroup::"
-          if [[ ! -z "$FLATPAK_LINT_FAILED" ]]; then
-            echo "::error::Metadata linting failed"
-            exit 1
-          fi
-          git config --global --add safe.directory $(pwd)
-          echo "SHORT_SHA=`git rev-parse --short HEAD`" >> $GITHUB_ENV
-
-      - name: Build flatpak
-        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          bundle: org.fteqw.fteqw.${{ env.SHORT_SHA }}.flatpak
-          manifest-path: dist/linux/org.fteqw.fteqw.yml
-          cache-key: flatpak-builder-${{ matrix.arch }}-${{ env.SHORT_SHA }}
-          arch: ${{ matrix.arch.name }}
-
-      - name: Lint build directory
+          python-version: '3.x'
+      - name: Linux SDL build dependencies
+        if: runner.os == 'Linux'
         run: |
-          flatpak-builder-lint \
-            --user-exceptions=dist/linux/linter-exceptions.json --exceptions \
-            builddir flatpak_app
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxkbcommon-dev libwayland-dev libasound2-dev libpulse-dev libudev-dev libpng-dev libjpeg-dev zlib1g-dev
+      - name: Get SDL3
+        uses: actions/checkout@v4
+        with:
+          repository: libsdl-org/SDL
+          ref: release-3.4.0
+          path: build-deps/SDL
+      - name: Build SDL3
+        shell: bash
+        run: |
+          cmake -S build-deps/SDL -B build-deps/sdl-build -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TESTS=OFF -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/build-deps/install"
+          cmake --build build-deps/sdl-build --config Release --parallel
+          cmake --install build-deps/sdl-build --config Release
+      - name: Configure fork
+        shell: bash
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/build-deps/install" -DFTE_WERROR=OFF -DFTE_TOOL_QCCGUI=OFF
+      - name: Compile engine, server and tools
+        run: cmake --build build --config Release --target fteqw fteqw-sv imgtool fteqcc --parallel

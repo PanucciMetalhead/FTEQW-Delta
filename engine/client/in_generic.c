@@ -131,21 +131,13 @@ static cvar_t	joy_movethreshold[3] =
 static cvar_t joy_exponent = CVARD("joyexponent", "1", "Scales joystick/controller sensitivity non-linearly to increase precision in the center.\nA value of 1 is linear.");
 
 #if defined(__linux__) && defined(FTE_SDL)
-#ifdef FTE_SDL3
 #include <SDL3/SDL.h>
-#else
-#include <SDL.h>
-#endif
 void joy_radialdeadzone_cb(cvar_t *var, char *oldvalue)
 {
 	if (!*var->string)
 	{
-#if SDL_VERSION_ATLEAST(3,0,0)
 		if (SDL_GetHintBoolean(SDL_HINT_JOYSTICK_LINUX_DEADZONES, true))
-#else
-		if (SDL_GetHintBoolean(SDL_HINT_LINUX_JOYSTICK_DEADZONES, true))
-#endif
-			var->ival = 2;	//sdl2 provides its own deadzones on linux, by default.
+			var->ival = 2;	//SDL provides its own deadzones on linux, by default.
 		else
 			var->ival = 1;
 	}

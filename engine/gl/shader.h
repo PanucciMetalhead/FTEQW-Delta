@@ -501,13 +501,6 @@ struct programpermu_s
 #if defined(GLQUAKE) || defined(D3DQUAKE)
 	union programhandle_u
 	{
-	#ifdef GLQUAKE
-		struct
-		{
-			unsigned int handle;
-			qboolean usetesselation;
-		} glsl;
-	#endif
 	#ifdef D3DQUAKE
 		struct
 		{
@@ -527,9 +520,6 @@ struct programpermu_s
 		} hlsl;
 	#endif
 	} h;
-#endif
-#ifdef GLQUAKE
-	int factorsuniform;
 #endif
 	unsigned int permutation;
 	unsigned int attrmask;
@@ -916,46 +906,6 @@ qboolean VK_LoadBlob(program_t *prog, void *blobdata, const char *name);
 void VK_RegisterVulkanCvars(void);
 #endif
 
-#ifdef GLQUAKE
-void GLBE_Init(void);
-void GLBE_Shutdown(void);
-void GLBE_SelectMode(backendmode_t mode);
-void GLBE_DrawMesh_List(shader_t *shader, int nummeshes, mesh_t **mesh, vbo_t *vbo, texnums_t *texnums, unsigned int beflags);
-void GLBE_DrawMesh_Single(shader_t *shader, mesh_t *meshchain, vbo_t *vbo, unsigned int beflags);
-void GLBE_SubmitBatch(batch_t *batch);
-batch_t *GLBE_GetTempBatch(void);
-void GLBE_GenBrushModelVBO(model_t *mod);
-void GLBE_ClearVBO(vbo_t *vbo, qboolean dataonly);
-void GLBE_UpdateLightmaps(void);
-void GLBE_DrawWorld (batch_t **worldbatches);
-qboolean GLBE_LightCullModel(vec3_t org, model_t *model);
-void GLBE_SelectEntity(entity_t *ent);
-qboolean GLBE_SelectDLight(dlight_t *dl, vec3_t colour, vec3_t axis[3], unsigned int lmode);
-void GLBE_Scissor(srect_t *rect);
-void GLBE_SubmitMeshes (batch_t **worldbatches, int start, int stop);
-//void GLBE_RenderToTexture(texid_t sourcecol, texid_t sourcedepth, texid_t destcol, texid_t destdepth, qboolean usedepth);
-void GLBE_RenderToTextureUpdate2d(qboolean destchanged);
-void GLBE_VBO_Begin(vbobctx_t *ctx, size_t maxsize);
-void GLBE_VBO_Data(vbobctx_t *ctx, void *data, size_t size, vboarray_t *varray);
-void GLBE_VBO_Finish(vbobctx_t *ctx, void *edata, size_t esize, vboarray_t *earray, void **vbomem, void **ebomem);
-void GLBE_VBO_Destroy(vboarray_t *vearray, void *mem);
-
-void GLBE_FBO_Sources(texid_t sourcecolour, texid_t sourcedepth);
-int GLBE_FBO_Push(fbostate_t *state);
-void GLBE_FBO_Pop(int oldfbo);
-void GLBE_FBO_Destroy(fbostate_t *state);
-int GLBE_FBO_Update(fbostate_t *state, unsigned int enables, texid_t *destcol, int colourbuffers, texid_t destdepth, int width, int height, int layer);
-
-qboolean GLBE_BeginShadowMap(int id, int w, int h, uploadfmt_t encoding, int *restorefbo);
-void GLBE_EndShadowMap(int restorefbo);
-void GLBE_SetupForShadowMap(dlight_t *dl, int texwidth, int texheight, float shadowscale);
-
-qboolean GLVID_ApplyGammaRamps (unsigned int size, unsigned short *ramps);	//called when gamma ramps need to be reapplied
-qboolean GLVID_Init (rendererstate_t *info, unsigned char *palette);		//the platform-specific function to init gl state
-void GLVID_SwapBuffers(void);
-char *GLVID_GetRGBInfo(int *bytestride, int *truewidth, int *trueheight, enum uploadfmt *fmt);
-void GLVID_SetCaption(const char *caption);
-#endif
 #ifdef D3D8QUAKE
 void D3D8BE_Init(void);
 void D3D8BE_Shutdown(void);

@@ -1974,25 +1974,6 @@ void Terr_DestroySection(heightmap_t *hm, hmsection_t *s, qboolean lightmapreusa
 	if (hm->relight == s)
 		hm->relight = NULL;
 
-#ifdef GLQUAKE
-	if (qrenderer == QR_OPENGL)
-	{
-		if (qglDeleteBuffersARB)
-		{
-			if (s->vbo.coord.gl.vbo)
-			{
-				qglDeleteBuffersARB(1, &s->vbo.coord.gl.vbo);
-				s->vbo.coord.gl.vbo = 0;
-			}
-			if (s->vbo.indicies.gl.vbo)
-			{
-				qglDeleteBuffersARB(1, &s->vbo.indicies.gl.vbo);
-				s->vbo.indicies.gl.vbo = 0;
-			}
-		}
-	}
-	else
-#endif
 	{
 		BE_ClearVBO(&s->vbo, true);
 	}
@@ -2679,64 +2660,6 @@ static void Terr_RebuildMesh(model_t *model, hmsection_t *s, int x, int y)
 		model->funcs.FindTouchedLeafs(model, &s->pvscache, mins, maxs);
 	}
 
-#ifdef GLQUAKE
-	#if 0
-	if (qrenderer == QR_OPENGL && qglGenBuffersARB)
-	{
-		vbobctx_t ctx;
-		size_t vertsize = sizeof(*mesh->xyz_array)+sizeof(*mesh->st_array)+sizeof(*mesh->lmst_array)+(mesh->colors4f_array?sizeof(*mesh->colors4f_array):0);
-		BE_VBO_Begin(&ctx, vertsize * mesh->numvertexes);
-		BE_VBO_Data(&ctx, mesh->xyz_array, sizeof(*mesh->xyz_array) * mesh->numvertexes, &s->vbo.coord);
-		BE_VBO_Data(&ctx, mesh->st_array, sizeof(*mesh->st_array) * mesh->numvertexes, &s->vbo.texcoord);
-		BE_VBO_Data(&ctx, mesh->lmst_array, sizeof(*mesh->lmst_array) * mesh->numvertexes, &s->vbo.lmcoord[0]);
-		if (mesh->colors4f_array)
-			BE_VBO_Data(&ctx, mesh->colors4f_array, sizeof(*mesh->colors4f_array) * mesh->numvertexes, &s->vbo.colours[0]);
-		BE_VBO_Finish(&ctx, mesh->indexes, sizeof(*mesh->indexes)*mesh->numindexes, &s->vbo.indicies, NULL, NULL);
-	}
-	#else
-	if (qrenderer == QR_OPENGL && qglGenBuffersARB)
-	{
-		if (!s->vbo.coord.gl.vbo)
-		{
-			qglGenBuffersARB(1, &s->vbo.coord.gl.vbo);
-			GL_SelectVBO(s->vbo.coord.gl.vbo);
-		}
-		else
-			GL_SelectVBO(s->vbo.coord.gl.vbo);
-
-		qglBufferDataARB(GL_ARRAY_BUFFER_ARB, (sizeof(vecV_t)+sizeof(vec2_t)+sizeof(vec2_t)+sizeof(vec4_t)) * (mesh->numvertexes), NULL, GL_STATIC_DRAW_ARB);
-
-		qglBufferSubDataARB(GL_ARRAY_BUFFER_ARB, 0, (sizeof(vecV_t)+sizeof(vec2_t)+sizeof(vec2_t)) * mesh->numvertexes, mesh->xyz_array);
-		if (mesh->colors4f_array[0])
-			qglBufferSubDataARB(GL_ARRAY_BUFFER_ARB, (sizeof(vecV_t)+sizeof(vec2_t)+sizeof(vec2_t)) * mesh->numvertexes, sizeof(vec4_t)*mesh->numvertexes,  mesh->colors4f_array[0]);
-		GL_SelectVBO(0);
-		s->vbo.coord.gl.addr = 0;
-		s->vbo.texcoord.gl.addr = (void*)((char*)mesh->st_array - (char*)mesh->xyz_array);
-		s->vbo.texcoord.gl.vbo = s->vbo.coord.gl.vbo;
-		s->vbo.lmcoord[0].gl.addr = (void*)((char*)mesh->lmst_array[0] - (char*)mesh->xyz_array);
-		s->vbo.lmcoord[0].gl.vbo = s->vbo.coord.gl.vbo;
-		s->vbo.colours[0].gl.addr = (void*)((sizeof(vecV_t)+sizeof(vec2_t)+sizeof(vec2_t)) * mesh->numvertexes);
-		s->vbo.colours[0].gl.vbo = s->vbo.coord.gl.vbo;
-
-		if (!s->vbo.indicies.gl.vbo)
-			qglGenBuffersARB(1, &s->vbo.indicies.gl.vbo);
-		s->vbo.indicies.gl.addr = 0;
-		GL_SelectEBO(s->vbo.indicies.gl.vbo);
-		qglBufferDataARB(GL_ELEMENT_ARRAY_BUFFER_ARB, sizeof(index_t) * mesh->numindexes, mesh->indexes, GL_STATIC_DRAW_ARB);
-		GL_SelectEBO(0);
-
-#if 1
-		Z_Free(mesh->xyz_array);
-		mesh->xyz_array = NULL;
-		mesh->st_array = NULL;
-		mesh->lmst_array[0] = NULL;
-
-		Z_Free(mesh->indexes);
-		mesh->indexes = NULL;
-#endif
-	}
-	#endif
-#endif
 #ifdef VKQUAKE
 	if (qrenderer == QR_VULKAN)
 	{

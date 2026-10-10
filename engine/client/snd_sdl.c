@@ -3,100 +3,7 @@
 #if defined(HAVE_MIXER) || defined(VOICECHAT)
 #include "winquake.h"
 
-#ifdef DYNAMIC_SDL
-#define SDL_MAJOR_VERSION 2
-#define SDL_MINOR_VERSION 0
-#define SDL_PATCHLEVEL 5
-#define SDL_VERSIONNUM(X, Y, Z)			((X)*1000 + (Y)*100 + (Z))
-#define SDL_COMPILEDVERSION				SDL_VERSIONNUM(SDL_MAJOR_VERSION, SDL_MINOR_VERSION, SDL_PATCHLEVEL)
-#define SDL_VERSION_ATLEAST(X, Y, Z)	(SDL_COMPILEDVERSION >= SDL_VERSIONNUM(X, Y, Z))
-
-
-//if we're not an sdl build, we probably want to link to sdl libraries dynamically or something.
-#include <stdint.h>
-#define SDL_AudioDeviceID uint32_t
-#define SDL_INIT_AUDIO          0x00000010
-#define SDL_INIT_NOPARACHUTE    0x00100000
-#define SDL_AUDIO_ALLOW_FREQUENCY_CHANGE    0x00000001
-#define SDL_AUDIO_ALLOW_FORMAT_CHANGE       0x00000002
-#define SDL_AUDIO_ALLOW_CHANNELS_CHANGE     0x00000004
-#define AUDIO_U8    0x0008
-#define AUDIO_S8    0x8008
-#define AUDIO_S16LSB    0x8010
-#define AUDIO_S16MSB    0x9010
-#define AUDIO_F32LSB    0x8120
-#define AUDIO_F32MSB    0x9120
-#if __BYTE_ORDER == __BIG_ENDIAN
-#define AUDIO_S16SYS    AUDIO_S16MSB
-#define AUDIO_F32SYS    AUDIO_F32MSB
-#else
-#define AUDIO_S16SYS    AUDIO_S16LSB
-#define AUDIO_F32SYS    AUDIO_F32LSB
-#endif
-#define SDLCALL QDECL
-
-typedef uint16_t SDL_AudioFormat;
-typedef void (SDLCALL *SDL_AudioCallback)(void *userdata, uint8_t *stream, int len);
-
-typedef struct SDL_AudioSpec
-{
-	int freq;
-	SDL_AudioFormat format;
-	uint8_t channels;
-	uint8_t silence;
-	uint16_t samples;
-	uint16_t padding;
-	uint32_t size;
-	SDL_AudioCallback callback;
-	void *userdata;
-} SDL_AudioSpec;
-
-static int (SDLCALL *SDL_Init)								(uint32_t flags);
-static int (SDLCALL *SDL_InitSubSystem)						(uint32_t flags);
-static SDL_AudioDeviceID (SDLCALL *SDL_OpenAudioDevice)		(const char *dev, int iscapture, const SDL_AudioSpec *desired, SDL_AudioSpec *obtained, int allowed_changes);
-static void (SDLCALL *SDL_PauseAudioDevice)					(SDL_AudioDeviceID fd, int pausestate);
-static void (SDLCALL *SDL_LockAudioDevice)					(SDL_AudioDeviceID fd);
-static void (SDLCALL *SDL_UnlockAudioDevice)				(SDL_AudioDeviceID fd);
-static int (SDLCALL *SDL_CloseAudioDevice)					(SDL_AudioDeviceID fd);
-static int (SDLCALL *SDL_GetNumAudioDevices)				(int iscapture);
-static const char *(SDLCALL *SDL_GetAudioDeviceName)		(int index, int iscapture);
-static const char *(SDLCALL *SDL_GetError)					(void);
-#if SDL_VERSION_ATLEAST(2,0,4)
-static int (SDLCALL *SDL_QueueAudio)						(SDL_AudioDeviceID dev, const void *data, uint32_t len);
-static uint32_t (SDLCALL *SDL_GetQueuedAudioSize)			(SDL_AudioDeviceID dev);
-#endif
-#if SDL_VERSION_ATLEAST(2,0,5)
-static uint32_t (SDLCALL *SDL_DequeueAudio)					(SDL_AudioDeviceID dev, void *data, uint32_t len);
-#endif
-static dllfunction_t sdl_funcs[] =
-{
-	{(void*)&SDL_Init, "SDL_Init"},
-	{(void*)&SDL_InitSubSystem, "SDL_InitSubSystem"},
-	{(void*)&SDL_OpenAudioDevice, "SDL_OpenAudioDevice"},
-	{(void*)&SDL_PauseAudioDevice, "SDL_PauseAudioDevice"},
-	{(void*)&SDL_LockAudioDevice, "SDL_LockAudioDevice"},
-	{(void*)&SDL_UnlockAudioDevice, "SDL_UnlockAudioDevice"},
-	{(void*)&SDL_CloseAudioDevice, "SDL_CloseAudioDevice"},
-	{(void*)&SDL_GetNumAudioDevices, "SDL_GetNumAudioDevices"},
-	{(void*)&SDL_GetAudioDeviceName, "SDL_GetAudioDeviceName"},
-	{(void*)&SDL_GetError, "SDL_GetError"},
-#if SDL_VERSION_ATLEAST(2,0,4)
-	{(void*)&SDL_QueueAudio, "SDL_QueueAudio"},
-	{(void*)&SDL_GetQueuedAudioSize, "SDL_GetQueuedAudioSize"},
-#endif
-#if SDL_VERSION_ATLEAST(2,0,5)
-	{(void*)&SDL_DequeueAudio, "SDL_DequeueAudio"},
-#endif
-	{NULL, NULL}
-};
-static dllhandle_t *libsdl;
-#else
-	#ifdef FTE_SDL3
-		#include <SDL3/SDL.h>
-	#else
-		#include <SDL.h>
-	#endif
-#endif
+#include <SDL3/SDL.h>
 #define SDRVNAME "SDL"
 
 //SDL calls a callback each time it needs to repaint the 'hardware' buffers
@@ -111,41 +18,16 @@ static qboolean SSDL_InitAudio(void)
 	static qboolean inited = false;
 	if (COM_CheckParm("-nosdlsnd") || COM_CheckParm("-nosdl"))
 		return false;
-#ifdef DYNAMIC_SDL
-	if (!libsdl)
-	{
-		libsdl = Sys_LoadLibrary("libSDL2-2.0.so.0", sdl_funcs);
-		if (!libsdl)
-			libsdl = Sys_LoadLibrary("libSDL2.so", sdl_funcs);	//maybe they have a dev package installed that fixes this mess.
-#ifdef _WIN32
-		if (!libsdl)
-			libsdl = Sys_LoadLibrary("SDL2", sdl_funcs);
-#endif
-		if (libsdl)
-			SDL_Init(SDL_INIT_NOPARACHUTE);
-		else
-		{
-			Con_Printf("Unable to load libSDL2 library\n");
-			return false;
-		}
-	}
-#endif
 
 	if (!inited)
 	{
-#if SDL_VERSION_ATLEAST(3,0,0)
 		if(SDL_InitSubSystem(SDL_INIT_AUDIO))
-#else
-		if(0==SDL_InitSubSystem(SDL_INIT_AUDIO | SDL_INIT_NOPARACHUTE))
-#endif
 			inited = true;
 		else
 			Con_Printf("Couldn't initialize SDL audio subsystem (%s)\n", SDL_GetError());
 	}
 	return inited;
 }
-#else
-#define SDL_VERSION_ATLEAST(x,y,z) 0
 #endif
 
 #ifdef HAVE_MIXER
@@ -154,21 +36,12 @@ static void SSDL_Shutdown(soundcardinfo_t *sc)
 {
 	Con_DPrintf("Shutdown SDL sound\n");
 
-#if SDL_VERSION_ATLEAST(3,0,0)
 	if (sc->handle)
 	{
 		SDL_PauseAudioStreamDevice(sc->handle);
 		SDL_DestroyAudioStream(sc->handle);
+        sc->handle = NULL;
 	}
-#elif SDL_VERSION_ATLEAST(2,0,0)
-	if (sc->audio_fd)
-	{
-		SDL_PauseAudioDevice(sc->audio_fd, 1);
-		SDL_CloseAudioDevice(sc->audio_fd);
-	}
-#else
-	SDL_CloseAudio();
-#endif
 #ifndef SELFPAINT
 	if (sc->sn.buffer)
 		free(sc->sn.buffer);
@@ -183,78 +56,39 @@ static unsigned int SSDL_Callback_GetDMAPos(soundcardinfo_t *sc)
 
 //this function is called from inside SDL.
 //transfer the 'dma' buffer into the buffer it requests.
-#if SDL_VERSION_ATLEAST(3,0,0)
 static void SDLCALL SSDL3_Callback_Paint(void *userdata, SDL_AudioStream *stream, int additional, int total)
 {
 	soundcardinfo_t *sc = userdata;
-	sc->sn.buffer = SDL_stack_alloc(Uint8, additional);
-	if (sc->sn.buffer)
-	{
-		sc->sn.samples = additional / sc->sn.samplebytes;
-		sc->samplequeue = sc->sn.samples;
-		S_MixerThread(sc);
-		sc->snd_sent += additional;
-		SDL_PutAudioStreamData(sc->handle, sc->sn.buffer, additional);
-		SDL_stack_free(sc->sn.buffer);
-		sc->sn.buffer = NULL;
-	}
+    /* SDL may request arbitrarily large fills. Mix bounded, whole sample frames. */
+    Uint8 buffer[16384];
+    const int framebytes = sc->sn.samplebytes * sc->sn.numchannels;
+    (void)total;
+    if (additional <= 0 || framebytes <= 0) return;
+    while (additional > 0) {
+        int bytes = min(additional, (int)sizeof(buffer));
+        bytes = ((bytes + framebytes - 1) / framebytes) * framebytes;
+        if (bytes > (int)sizeof(buffer)) bytes -= framebytes;
+        sc->sn.buffer = buffer;
+        sc->sn.samples = bytes / sc->sn.samplebytes;
+        sc->samplequeue = sc->sn.samples;
+        S_MixerThread(sc);
+        if (!SDL_PutAudioStreamData(stream, buffer, bytes)) break;
+        sc->snd_sent += bytes;
+        additional -= bytes;
+    }
+    sc->sn.buffer = NULL;
 }
-#else
-static void VARGS SSDL_Callback_Paint(void *userdata, qbyte *stream, int len)
-{
-	soundcardinfo_t *sc = userdata;
-
-#ifdef SELFPAINT
-	sc->sn.buffer = stream;
-	sc->sn.samples = len / sc->sn.samplebytes;
-	sc->samplequeue = sc->sn.samples;
-	S_MixerThread(sc);
-	sc->snd_sent += len;
-#else
-	int buffersize = sc->sn.samples*sc->sn.samplebytes;
-
-	if (len > buffersize)
-	{
-		len = buffersize;	//whoa nellie!
-	}
-
-	if (len + sc->snd_sent%buffersize > buffersize)
-	{	//buffer will wrap, fill in the rest
-		memcpy(stream, (char*)sc->sn.buffer + (sc->snd_sent%buffersize), buffersize - (sc->snd_sent%buffersize));
-		stream += buffersize - sc->snd_sent%buffersize;
-		sc->snd_sent += buffersize - sc->snd_sent%buffersize;
-		len -= buffersize - (sc->snd_sent%buffersize);
-		if (len < 0)
-			return;
-	}	//and finish from the start
-	memcpy(stream, (char*)sc->sn.buffer + (sc->snd_sent%buffersize), len);
-	sc->snd_sent += len;
-#endif
-}
-#endif
 
 static void *SSDL_Callback_LockBuffer(soundcardinfo_t *sc, unsigned int *sampidx)
 {
-#if SDL_VERSION_ATLEAST(3,0,0)
 	SDL_LockAudioStream(sc->handle);
-#elif SDL_VERSION_ATLEAST(2,0,0)
-	SDL_LockAudioDevice(sc->audio_fd);
-#else
-	SDL_LockAudio();
-#endif
 
 	return sc->sn.buffer;
 }
 
 static void SSDL_Callback_UnlockBuffer(soundcardinfo_t *sc, void *buffer)
 {
-#if SDL_VERSION_ATLEAST(3,0,0)
 	SDL_UnlockAudioStream(sc->handle);
-#elif SDL_VERSION_ATLEAST(2,0,0)
-	SDL_UnlockAudioDevice(sc->audio_fd);
-#else
-	SDL_UnlockAudio();
-#endif
 }
 
 static void SSDL_Callback_Submit(soundcardinfo_t *sc, int start, int end)
@@ -262,36 +96,6 @@ static void SSDL_Callback_Submit(soundcardinfo_t *sc, int start, int end)
 	//SDL will call SSDL_Paint to paint when it's time, and the sound buffer is always there...
 }
 
-#if SDL_VERSION_ATLEAST(2,0,4) && !SDL_VERSION_ATLEAST(3,0,0)
-static unsigned int SSDL_Queue_GetDMAPos(soundcardinfo_t *sc)
-{	//keep proper track of how much data has actually been sent to the audio device.
-	//note that SDL may have already submitted more than this to the physical device.
-	//note: if we don't mix enough data then sdl will mix 0s for us.
-	uint32_t queued = SDL_GetQueuedAudioSize(sc->audio_fd);
-	extern cvar_t _snd_mixahead;
-	int ahead = (_snd_mixahead.value*sc->sn.speed) - (queued / (sc->sn.samplebytes*sc->sn.numchannels));
-	if (ahead < 0)
-		ahead = 0;	//never behind
-	sc->samplequeue = -1;	//return value is a desired timestamp
-	return sc->sn.samplepos + ahead*sc->sn.numchannels;
-}
-static void *SSDL_Queue_LockBuffer(soundcardinfo_t *sc, unsigned int *sampidx)
-{	//queuing uses private memory, so no need to lock
-	*sampidx = 0;	//don't bother ringing it.
-	return sc->sn.buffer;
-}
-static void SSDL_Queue_UnlockBuffer(soundcardinfo_t *sc, void *buffer)
-{	//nor a need to unlock
-}
-
-static void SSDL_Queue_Submit(soundcardinfo_t *sc, int start, int end)
-{
-	int bytecount = (end-start)*sc->sn.samplebytes*sc->sn.numchannels;
-	SDL_QueueAudio(sc->audio_fd, sc->sn.buffer, bytecount);
-
-	sc->sn.samplepos += bytecount/sc->sn.samplebytes;
-}
-#endif
 
 static qboolean QDECL SDL_InitCard(soundcardinfo_t *sc, const char *devicename)
 {
@@ -303,7 +107,6 @@ static qboolean QDECL SDL_InitCard(soundcardinfo_t *sc, const char *devicename)
 		return false;
 	}
 
-#if SDL_VERSION_ATLEAST(3,0,0)
 	{
 		SDL_AudioDeviceID devid = SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK;
 		SDL_AudioDeviceID *dev;
@@ -367,10 +170,12 @@ static qboolean QDECL SDL_InitCard(soundcardinfo_t *sc, const char *devicename)
 	if (!sc->handle)
 		return false;
 	if (SDL_GetAudioStreamFormat(sc->handle, &desired, &obtained))
-	{	//try to match the hardware format.
+	{	//The mixer produces the stream input format; SDL converts to the device format.
+		sc->sn.numchannels = desired.channels;
+		sc->sn.speed = desired.freq;
 		if (desired.format != obtained.format || desired.freq != obtained.freq || desired.channels != obtained.channels)
-			Con_Printf("SDL2: %ibit%s %ihz audio input\n", SDL_AUDIO_BITSIZE(desired.format), SDL_AUDIO_ISFLOAT(desired.format)?" float":"", desired.freq);
-		Con_Printf("SDL2: %ibit%s %ihz audio output\n", SDL_AUDIO_BITSIZE(obtained.format), SDL_AUDIO_ISFLOAT(obtained.format)?" float":"", obtained.freq);
+			Con_Printf("SDL3: %ibit%s %ihz audio input\n", SDL_AUDIO_BITSIZE(desired.format), SDL_AUDIO_ISFLOAT(desired.format)?" float":"", desired.freq);
+		Con_Printf("SDL3: %ibit%s %ihz audio output\n", SDL_AUDIO_BITSIZE(obtained.format), SDL_AUDIO_ISFLOAT(obtained.format)?" float":"", obtained.freq);
 		switch(desired.format)
 		{
 		case SDL_AUDIO_U8:		sc->sn.samplebytes = 1;	sc->sn.sampleformat = QSF_U8;	break;
@@ -393,137 +198,12 @@ static qboolean QDECL SDL_InitCard(soundcardinfo_t *sc, const char *devicename)
 	sc->selfpainting = true;
 
 	SDL_ResumeAudioStreamDevice(sc->handle);
-#else
-
-	memset(&desired, 0, sizeof(desired));
-
-	desired.freq = sc->sn.speed;
-	desired.channels = sc->sn.numchannels;	//fixme!
-	desired.samples = 0x0200;	//'Good values seem to range between 512 and 8192 inclusive, depending on the application and CPU speed.'
-#if SDL_VERSION_ATLEAST(2,0,4)
-	if (!snd_mixerthread.ival)
-		desired.callback = NULL;
-	else
-#endif
-		desired.callback = (void*)SSDL_Callback_Paint;
-	desired.userdata = sc;
-	memcpy(&obtained, &desired, sizeof(obtained));
-
-#if SDL_VERSION_ATLEAST(2,0,0)
-	desired.format = AUDIO_F32SYS;	//most modern audio APIs favour float audio nowadays.
-	sc->audio_fd = SDL_OpenAudioDevice(devicename, false, &desired, &obtained, (sndcardinfo?0:SDL_AUDIO_ALLOW_FREQUENCY_CHANGE) | SDL_AUDIO_ALLOW_CHANNELS_CHANGE | SDL_AUDIO_ALLOW_FORMAT_CHANGE);
-	if (!sc->audio_fd)
-	{
-		Con_Printf("SDL_OpenAudioDevice(%s) failed: couldn't open sound device (%s).\n", devicename?devicename:"default", SDL_GetError());
-		return false;
-	}
-	if (obtained.format != AUDIO_U8 && obtained.format != AUDIO_S8 && obtained.format != AUDIO_S16SYS && obtained.format != AUDIO_F32SYS)
-	{	//can't cope with that... try again but force the format (so SDL converts)
-		SDL_CloseAudioDevice(sc->audio_fd);
-		sc->audio_fd = SDL_OpenAudioDevice(devicename, false, &desired, &obtained, (sndcardinfo?0:SDL_AUDIO_ALLOW_FREQUENCY_CHANGE) | SDL_AUDIO_ALLOW_CHANNELS_CHANGE);
-	}
-	if (devicename)
-		Con_Printf("Initing SDL audio device '%s'.\n", devicename);
-	else
-		Con_Printf("Initing default SDL audio device.\n");
-#else
-	desired.format = AUDIO_S16SYS;
-	if (sndcardinfo)
-		return false;	//SDL1 only supports opening one audio device at a time. the existing one might not be sdl, but I don't care.
-	if (SDL_OpenAudio(&desired, &obtained) < 0)
-	{
-		Con_Printf("SDL_OpenAudio failed: couldn't open sound device (%s).\n", SDL_GetError());
-		return false;
-	}
-	Con_Printf("Initing default SDL audio device.\n");
-#endif
-	sc->sn.numchannels = obtained.channels;
-	sc->sn.speed = obtained.freq;
-	sc->sn.samples = 32768;//*sc->sn.numchannels;	//doesn't really matter, so long as it's higher than obtained.samples
-
-	switch(obtained.format)
-	{
-	case AUDIO_U8:
-		sc->sn.samplebytes = 1;
-		sc->sn.sampleformat = QSF_U8;
-		break;
-	case AUDIO_S8:
-		sc->sn.samplebytes = 1;
-		sc->sn.sampleformat = QSF_S8;
-		break;
-	case AUDIO_S16SYS:
-		sc->sn.samplebytes = 2;
-		sc->sn.sampleformat = QSF_S16;
-		break;
-#if SDL_MAJOR_VERSION >= 2
-	case AUDIO_F32SYS:
-		sc->sn.samplebytes = 4;
-		sc->sn.sampleformat = QSF_F32;
-		break;
-#endif
-	default:
-		//unsupported. shouldn't have obtained that.
-#if SDL_VERSION_ATLEAST(2,0,0)
-		SDL_CloseAudioDevice(sc->audio_fd);
-		sc->audio_fd = 0;
-#else
-		SDL_CloseAudio();
-#endif
-		break;
-	}
-
-	Con_DPrintf("channels: %i\n", sc->sn.numchannels);
-	Con_DPrintf("Speed: %i\n", sc->sn.speed);
-	Con_DPrintf("Samplebits: %i\n", sc->sn.samplebytes*8);
-	Con_DPrintf("SDLSamples: %i (low for latency)\n", obtained.samples);
-	Con_DPrintf("FakeSamples: %i\n", sc->sn.samples);
-
-	Con_DPrintf("Got sound %i-%i\n", obtained.freq, obtained.format);
-
-#if SDL_VERSION_ATLEAST(2,0,4)
-	if (!obtained.callback)
-	{
-		sc->Lock		= SSDL_Queue_LockBuffer;
-		sc->Unlock		= SSDL_Queue_UnlockBuffer;
-		sc->Submit		= SSDL_Queue_Submit;
-		sc->Shutdown	= SSDL_Shutdown;
-		sc->GetDMAPos	= SSDL_Queue_GetDMAPos;
-
-		sc->sn.buffer = malloc(sc->sn.samples*sc->sn.samplebytes);
-
-		Con_DPrintf("Using SDL audio queues\n");
-	}
-	else
-#endif
-	{
-		sc->Lock		= SSDL_Callback_LockBuffer;
-		sc->Unlock		= SSDL_Callback_UnlockBuffer;
-		sc->Submit		= SSDL_Callback_Submit;
-		sc->Shutdown	= SSDL_Shutdown;
-		sc->GetDMAPos	= SSDL_Callback_GetDMAPos;
-
-#ifdef SELFPAINT
-		sc->selfpainting = true;
-		Con_DPrintf("Using SDL audio threading\n");
-#else
-		sc->sn.buffer = malloc(sc->sn.samples*sc->sn.samplebytes);
-		Con_DPrintf("Using SDL audio callbacks\n");
-#endif
-	}
-
-#if SDL_VERSION_ATLEAST(2,0,0)
-	SDL_PauseAudioDevice(sc->audio_fd, 0);
-#else
-	SDL_PauseAudio(0);
-#endif
-#endif
 
 	return true;
 }
 
 static qboolean QDECL SDL_Enumerate(void (QDECL *cb) (const char *drivername, const char *devicecode, const char *readablename))
 {
-#if SDL_VERSION_ATLEAST(3,0,0)
 	SDL_AudioDeviceID *dev;
 	int count, i;
 	if(SSDL_InitAudio())
@@ -538,22 +218,6 @@ static qboolean QDECL SDL_Enumerate(void (QDECL *cb) (const char *drivername, co
 		SDL_free(dev);
 	}
 	return true;
-#elif SDL_VERSION_ATLEAST(2,0,0)
-	int max, i;
-	if(SSDL_InitAudio())
-	{
-		max = SDL_GetNumAudioDevices(false);
-		for (i = 0; i < max; i++)
-		{
-			const char *devname = SDL_GetAudioDeviceName(i, false);
-			if (devname)
-				cb(SDRVNAME, devname, va("SDL:%s", devname));
-		}
-	}
-	return true;
-#else
-	return false;
-#endif
 }
 
 sounddriver_t SDL_Output =
@@ -564,46 +228,30 @@ sounddriver_t SDL_Output =
 };
 #endif
 
-#if SDL_VERSION_ATLEAST(2,0,5) && defined(VOICECHAT)
-//Requires SDL 2.0.5+ supposedly.
+#if 1 && defined(VOICECHAT)
+// SDL3 recording uses an audio stream with explicit start and stop.
 //Bugging out for me on windows, with really low audio levels. looks like there's been some float->int conversion without a multiplier. asking for float audio gives stupidly low values too.
 typedef struct
 {
-#if SDL_VERSION_ATLEAST(3,0,0)
 	SDL_AudioStream *dev;
-#else
-	SDL_AudioDeviceID dev;
-#endif
 } sdlcapture_t;
 
 static void QDECL SDL_Capture_Start(void *ctx)
 {
 	sdlcapture_t *d = ctx;
-#if SDL_VERSION_ATLEAST(3,0,0)
 	SDL_ResumeAudioStreamDevice(d->dev);
-#else
-	SDL_PauseAudioDevice(d->dev, false);
-#endif
 }
 
 static void QDECL SDL_Capture_Stop(void *ctx)
 {
 	sdlcapture_t *d = ctx;
-#if SDL_VERSION_ATLEAST(3,0,0)
 	SDL_PauseAudioStreamDevice(d->dev);
-#else
-	SDL_PauseAudioDevice(d->dev, true);
-#endif
 }
 
 static void QDECL SDL_Capture_Shutdown(void *ctx)
 {
 	sdlcapture_t *d = ctx;
-#if SDL_VERSION_ATLEAST(3,0,0)
 	SDL_DestroyAudioStream(d->dev);
-#else
-	SDL_CloseAudioDevice(d->dev);
-#endif
 	Z_Free(d);
 }
 
@@ -612,7 +260,6 @@ static qboolean QDECL SDL_Capture_Enumerate(void (QDECL *callback) (const char *
 	int i, count;
 	if (SSDL_InitAudio())
 	{
-#if SDL_VERSION_ATLEAST(3,0,0)
 		SDL_AudioDeviceID *dev = SDL_GetAudioRecordingDevices(&count);
 		for (i = 0; i < count; i++)
 		{
@@ -621,15 +268,6 @@ static qboolean QDECL SDL_Capture_Enumerate(void (QDECL *callback) (const char *
 				callback(SDRVNAME, name, va("SDL:%s", name));
 		}
 		SDL_free(dev);
-#else
-		count = SDL_GetNumAudioDevices(true);
-		for (i = 0; i < count; i++)
-		{
-			const char *name = SDL_GetAudioDeviceName(i, true);
-			if (name)
-				callback(SDRVNAME, name, va("SDL:%s", name));
-		}
-#endif
 	}
 	return true;
 }
@@ -639,7 +277,6 @@ static void *QDECL SDL_Capture_Init (int rate, const char *devname)
 
 	if (SSDL_InitAudio())
 	{
-#if SDL_VERSION_ATLEAST(3,0,0)
 		int i, count;
 		SDL_AudioSpec have;
 		SDL_AudioDeviceID dev = SDL_AUDIO_DEVICE_DEFAULT_RECORDING;	//assume the default device.
@@ -659,18 +296,6 @@ static void *QDECL SDL_Capture_Init (int rate, const char *devname)
 		have.channels = 1;
 		have.freq = rate;
 		c.dev = SDL_OpenAudioDeviceStream(dev, &have, NULL, NULL);
-#else
-		SDL_AudioSpec want, have;
-		memset(&want, 0, sizeof(want));
-
-		want.freq = rate;
-		want.format = AUDIO_S16SYS;
-		want.channels = 1;
-		want.samples = 256;	//this seems to be chunk sizes rather than total buffer size, so lets keep it reasonably small for lower latencies
-		want.callback = NULL;
-
-		c.dev = SDL_OpenAudioDevice(devname, true, &want, &have, 0);
-#endif
 		if (c.dev)
 		{
 			r = Z_Malloc(sizeof(*r));
@@ -685,24 +310,15 @@ static void *QDECL SDL_Capture_Init (int rate, const char *devname)
 static unsigned int QDECL SDL_Capture_Update(void *ctx, unsigned char *buffer, unsigned int minbytes, unsigned int maxbytes)
 {
 	sdlcapture_t *c = ctx;
-#if SDL_VERSION_ATLEAST(3,0,0)
-	unsigned int queuedsize = SDL_GetAudioStreamAvailable(c->dev);
+	int queuedsize = SDL_GetAudioStreamAvailable(c->dev);
+    if (queuedsize <= 0) return 0;
 	if (queuedsize < minbytes)
 		return 0;
 	if (queuedsize > maxbytes)
 		queuedsize = maxbytes;
 
 	queuedsize = SDL_GetAudioStreamData(c->dev, buffer, queuedsize);
-#else
-	unsigned int queuedsize = SDL_GetQueuedAudioSize(c->dev);
-	if (queuedsize < minbytes)
-		return 0;
-	if (queuedsize > maxbytes)
-		queuedsize = maxbytes;
-
-	queuedsize = SDL_DequeueAudio(c->dev, buffer, queuedsize);
-#endif
-	return queuedsize;
+	return queuedsize > 0 ? queuedsize : 0;
 }
 snd_capture_driver_t SDL_Capture =
 {

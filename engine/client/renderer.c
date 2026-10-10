@@ -287,8 +287,8 @@ cvar_t vid_conheight						= CVARFD ("vid_conheight", "0",
 cvar_t vid_conwidth							= CVARFD ("vid_conwidth", "0",
 												CVAR_ARCHIVE | CVAR_RENDERERCALLBACK, "Specifies the virtual width of the screen. Should generally be left as 0 to allow the correct aspect to be used despite video mode changes.");
 //see R_RestartRenderer_f for the effective default 'if (newr.renderer == -1)'.
-cvar_t vid_renderer							= CVARFD ("vid_renderer", "",
-													 CVAR_ARCHIVE | CVAR_VIDEOLATCH, "Specifies which backend is used. Values that might work are: sv (dedicated server), headless (null renderer), vk (vulkan), gl (opengl), egl (opengl es), d3d9 (direct3d 9), d3d11 (direct3d 11, with default hardware rendering), d3d11 warp (direct3d 11, with software rendering).");
+cvar_t vid_renderer							= CVARFD ("vid_renderer", "sdlgpu",
+													 CVAR_ARCHIVE | CVAR_VIDEOLATCH, "Selects the renderer: sdlgpu (Metal on macOS, Vulkan on Windows/Linux), headless, or sv (dedicated server).");
 cvar_t vid_renderer_opts					= CVARFD ("_vid_renderer_opts", NULL, CVAR_NOSET|CVAR_NOSAVE, "The possible video renderer apis, in \"value\" \"description\" pairs, for gamecode to read.");
 
 cvar_t vid_bpp								= CVARFD ("vid_bpp", "0",
@@ -358,21 +358,6 @@ cvar_t	r_polygonoffset_stencil_offset = CVAR("r_polygonoffset_stencil_offset", "
 
 rendererstate_t currentrendererstate;
 
-#if defined(GLQUAKE)
-cvar_t	gl_workaround_ati_shadersource		= CVARD	 ("gl_workaround_ati_shadersource", "1", "Work around ATI driver bugs in the glShaderSource function. Can safely be enabled with other drivers too.");
-cvar_t	vid_gl_context_version				= CVARD  ("vid_gl_context_version", "", "Specifies the version of OpenGL to try to create.");
-cvar_t	vid_gl_context_forwardcompatible	= CVARD  ("vid_gl_context_forwardcompatible", "0", "Requests an opengl context with no depricated features enabled.");
-cvar_t	vid_gl_context_compatibility		= CVARD  ("vid_gl_context_compatibility", "1", "Requests an OpenGL context with fixed-function backwards compat.");
-cvar_t	vid_gl_context_debug				= CVARD  ("vid_gl_context_debug", "0", "Requests a debug opengl context. This provides better error oreporting.");	//for my ati drivers, debug 1 only works if version >= 3
-cvar_t	vid_gl_context_es					= CVARD  ("vid_gl_context_es", "0", "Requests an OpenGLES context. Be sure to set vid_gl_context_version to 2 or so."); //requires version set correctly, no debug, no compat
-cvar_t	vid_gl_context_robustness			= CVARD	("vid_gl_context_robustness", "1", "Attempt to enforce extra buffer protection in the gl driver, but can be slower with pre-gl3 hardware.");
-cvar_t	vid_gl_context_selfreset			= CVARD	("vid_gl_context_selfreset", "1", "Upon hardware failure, have the engine create a new context instead of depending on the drivers to restore everything. This can help to avoid graphics drivers randomly killing your game, and can help reduce memory requirements.");
-cvar_t	vid_gl_context_noerror				= CVARD	("vid_gl_context_noerror", "", "Disables OpenGL's error checks for a small performance speedup. May cause segfaults if stuff wasn't properly implemented/tested.");
-
-cvar_t	gl_immutable_textures				= CVARFD ("gl_immutable_textures", "1", CVAR_VIDEOLATCH, "Controls whether to use immutable GPU memory allocations for OpenGL textures. This potentially means less work for the drivers and thus higher framerates.");
-cvar_t	gl_immutable_buffers				= CVARFD ("gl_immutable_buffers", "1", CVAR_VIDEOLATCH, "Controls whether to use immutable GPU memory allocations for static OpenGL vertex buffers. This potentially means less work for the drivers and thus higher framerates.");
-cvar_t	gl_pbolightmaps						= CVARFD ("gl_pbolightmaps", "1", CVAR_RENDERERLATCH, "Controls whether to use PBOs for streaming lightmap updates. This prevents CPU stalls while the driver reads out the lightmap data (lightmap updates are still not free though).");
-#endif
 
 #if 1
 cvar_t r_tessellation						= CVARAFD  ("r_tessellation", "0", "gl_ati_truform", CVAR_SHADERSYSTEM, "Enables+controls the use of blinn tessellation on the fallback shader for meshes, equivelent to a shader with 'program defaultskin#TESS'. This will look stupid unless the meshes were actually designed for it and have suitable vertex normals.");
@@ -532,107 +517,6 @@ void GLD3DRenderer_Init(void)
 }
 #endif
 
-#if defined(GLQUAKE)
-extern cvar_t gl_blacklist_texture_compression;
-extern cvar_t gl_blacklist_generatemipmap;
-void GLRenderer_Init(void)
-{
-	//gl-specific video vars
-	Cvar_Register (&gl_workaround_ati_shadersource, GLRENDEREROPTIONS);
-	Cvar_Register (&vid_gl_context_version, GLRENDEREROPTIONS);
-	Cvar_Register (&vid_gl_context_debug, GLRENDEREROPTIONS);
-	Cvar_Register (&vid_gl_context_forwardcompatible, GLRENDEREROPTIONS);
-	Cvar_Register (&vid_gl_context_compatibility, GLRENDEREROPTIONS);
-	Cvar_Register (&vid_gl_context_es, GLRENDEREROPTIONS);
-	Cvar_Register (&vid_gl_context_robustness, GLRENDEREROPTIONS);
-	Cvar_Register (&vid_gl_context_selfreset, GLRENDEREROPTIONS);
-	Cvar_Register (&vid_gl_context_noerror, GLRENDEREROPTIONS);
-
-	Cvar_Register (&gl_immutable_textures, GLRENDEREROPTIONS);
-	Cvar_Register (&gl_immutable_buffers, GLRENDEREROPTIONS);
-	Cvar_Register (&gl_pbolightmaps, GLRENDEREROPTIONS);
-//renderer
-
-	Cvar_Register (&gl_affinemodels, GLRENDEREROPTIONS);
-	Cvar_Register (&gl_nohwblend, GLRENDEREROPTIONS);
-#ifdef QWSKINS
-	Cvar_Register (&gl_nocolors, GLRENDEREROPTIONS);
-#endif
-	Cvar_Register (&gl_finish, GLRENDEREROPTIONS);
-	Cvar_Register (&gl_lateswap, GLRENDEREROPTIONS);
-	Cvar_Register (&gl_lerpimages, GLRENDEREROPTIONS);
-
-#ifdef PSKMODELS
-	Cvar_Register (&dpcompat_psa_ungroup, GLRENDEREROPTIONS);
-#endif
-#ifdef MD1MODELS
-	Cvar_Register (&mod_h2holey_bugged, GLRENDEREROPTIONS);
-	Cvar_Register (&mod_halftexel, GLRENDEREROPTIONS);
-	Cvar_Register (&mod_nomipmap, GLRENDEREROPTIONS);
-#endif
-	Cvar_Register (&r_lerpmuzzlehack, GLRENDEREROPTIONS);
-	Cvar_Register (&r_noframegrouplerp, GLRENDEREROPTIONS);
-	Cvar_Register (&r_portalrecursion, GLRENDEREROPTIONS);
-	Cvar_Register (&r_portaldrawplanes, GLRENDEREROPTIONS);
-	Cvar_Register (&r_portalonly, GLRENDEREROPTIONS);
-	Cvar_Register (&r_noaliasshadows, GLRENDEREROPTIONS);
-
-	Cvar_Register (&r_lodscale, GRAPHICALNICETIES);
-	Cvar_Register (&r_lodbias, GRAPHICALNICETIES);
-
-	Cvar_Register (&gl_motionblur, GLRENDEREROPTIONS);
-	Cvar_Register (&gl_motionblurscale, GLRENDEREROPTIONS);
-
-	Cvar_Register (&gl_smoothcrosshair, GRAPHICALNICETIES);
-
-//	Cvar_Register (&gl_lightmapmode, GLRENDEREROPTIONS);
-
-	Cvar_Register (&gl_picmip, GLRENDEREROPTIONS);
-	Cvar_Register (&gl_picmip2d, GLRENDEREROPTIONS);
-	Cvar_Register (&gl_picmip_world, GLRENDEREROPTIONS);
-	Cvar_Register (&gl_picmip_sprites, GLRENDEREROPTIONS);
-	Cvar_Register (&gl_picmip_other, GLRENDEREROPTIONS);
-
-	Cvar_Register (&r_shaderblobs, GLRENDEREROPTIONS);
-	Cvar_Register (&gl_compress, GLRENDEREROPTIONS);
-	Cvar_Register (&gl_blacklist_texture_compression, "gl blacklists");
-	Cvar_Register (&gl_blacklist_generatemipmap,		"gl blacklists");
-//	Cvar_Register (&gl_detail, GRAPHICALNICETIES);
-//	Cvar_Register (&gl_detailscale, GRAPHICALNICETIES);
-	Cvar_Register (&gl_overbright, GRAPHICALNICETIES);
-	Cvar_Register (&gl_overbright_all, GRAPHICALNICETIES);
-	Cvar_Register (&gl_dither, GRAPHICALNICETIES);
-	Cvar_Register (&r_fog_cullentities, GRAPHICALNICETIES);
-	Cvar_Register (&r_fog_linear, GLRENDEREROPTIONS);
-	Cvar_Register (&r_fog_exp2, GLRENDEREROPTIONS);
-	Cvar_Register (&r_fog_permutation, GLRENDEREROPTIONS);
-
-	Cvar_Register (&r_tessellation, GRAPHICALNICETIES);
-	Cvar_Register (&gl_ati_truform_type, GRAPHICALNICETIES);
-	Cvar_Register (&r_tessellation_level, GRAPHICALNICETIES);
-
-	Cvar_Register (&gl_screenangle, GLRENDEREROPTIONS);
-
-	Cvar_Register (&r_wallcolour, GLRENDEREROPTIONS);
-	Cvar_Register (&r_floorcolour, GLRENDEREROPTIONS);
-//	Cvar_Register (&r_walltexture, GLRENDEREROPTIONS);
-//	Cvar_Register (&r_floortexture, GLRENDEREROPTIONS);
-
-	Cvar_Register (&r_vertexdlights, GLRENDEREROPTIONS);
-
-//	Cvar_Register (&gl_schematics, GLRENDEREROPTIONS);
-
-	Cvar_Register (&r_vertexlight, GLRENDEREROPTIONS);
-
-	Cvar_Register (&gl_blend2d, GLRENDEREROPTIONS);
-
-	Cvar_Register (&gl_menutint_shader, GLRENDEREROPTIONS);
-
-	Cvar_Register (&r_lightmap_nearest, GLRENDEREROPTIONS);
-	Cvar_Register (&r_lightmap_average, GLRENDEREROPTIONS);
-	Cvar_Register (&mod_loadsurfenvmaps, GLRENDEREROPTIONS);
-}
-#endif
 
 void	R_InitTextures (void)
 {
@@ -1049,9 +933,6 @@ void Renderer_Init(void)
 #if defined(D3DQUAKE)
 	GLD3DRenderer_Init();
 #endif
-#if defined(GLQUAKE)
-	GLRenderer_Init();
-#endif
 
 #if defined(GLQUAKE) || defined(VKQUAKE)
 	R_BloomRegister();
@@ -1224,24 +1105,10 @@ static rendererinfo_t dedicatedrendererinfo = {
 };
 static void R_RegisterBuiltinRenderers(void)
 {
-	#ifdef GLQUAKE
-	{
-		extern rendererinfo_t openglrendererinfo;
-		#ifdef FTE_RPI
-		{
-			extern rendererinfo_t rpirendererinfo;
-			R_RegisterRenderer(NULL, &rpirendererinfo);
-		}
-		#endif
-		R_RegisterRenderer(NULL, &openglrendererinfo);
-		#ifdef USE_EGL
-		{
-			extern rendererinfo_t eglrendererinfo;
-			R_RegisterRenderer(NULL, &eglrendererinfo);
-		}
-		#endif
-	}
-	#endif
+#ifdef SDL_GPUQUAKE
+	extern rendererinfo_t sdlgpurendererinfo;
+	R_RegisterRenderer(NULL, &sdlgpurendererinfo);
+#endif
 
 
 	#ifdef D3D9QUAKE
@@ -1254,12 +1121,6 @@ static void R_RegisterBuiltinRenderers(void)
 	{
 		extern rendererinfo_t vkrendererinfo;
 		R_RegisterRenderer(NULL, &vkrendererinfo);
-		#if defined(_WIN32) && defined(GLQUAKE) && !defined(FTE_SDL)
-		{
-			extern rendererinfo_t nvvkrendererinfo;
-			R_RegisterRenderer(NULL, &nvvkrendererinfo);
-		}
-		#endif
 	}
 	#endif
 	#ifdef D3D11QUAKE
@@ -1281,24 +1142,12 @@ static void R_RegisterBuiltinRenderers(void)
 	}
 	#endif
 	#ifdef WAYLANDQUAKE
-		#ifdef GLQUAKE
-		{
-			extern rendererinfo_t rendererinfo_wayland_gl;
-			R_RegisterRenderer(NULL, &rendererinfo_wayland_gl);
-		}
-		#endif
 		#ifdef VKQUAKE
 		{
 			extern rendererinfo_t rendererinfo_wayland_vk;
 			R_RegisterRenderer(NULL, &rendererinfo_wayland_vk);
 		}
 		#endif
-	#endif
-	#if defined(GLQUAKE) && defined(USE_FBDEV)
-	{
-		extern rendererinfo_t fbdevrendererinfo;
-		R_RegisterRenderer(NULL, &fbdevrendererinfo);	//direct stuff that doesn't interact well with the system should always be low priority
-	}
 	#endif
 		R_RegisterRenderer(NULL, &dedicatedrendererinfo);
 	#ifdef HEADLESSQUAKE
@@ -1308,12 +1157,6 @@ static void R_RegisterBuiltinRenderers(void)
 		#ifdef VKQUAKE
 			//R_RegisterRenderer(NULL, &headlessvkrendererinfo);
 		#endif
-	}
-	#endif
-	#if defined(GLQUAKE) && defined(USE_EGL)
-	{
-		extern rendererinfo_t rendererinfo_headless_egl;
-		R_RegisterRenderer(NULL, &rendererinfo_headless_egl);
 	}
 	#endif
 }
@@ -1630,7 +1473,7 @@ TRACE(("dbg: R_ApplyRenderer: vid applied\n"));
 		R_GenPaletteLookup();
 
 		r_softwarebanding = false;
-		r_deluxemapping = false;
+		r_deluxemapping = qrenderer == QR_SDLGPU;
 		r_lightprepass = false;
 
 		W_LoadWadFile("gfx.wad");

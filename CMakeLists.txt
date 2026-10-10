@@ -1,12 +1,15 @@
-#Note: this file was made primarily to support msvc and its project file incompatibilities nightmare.
-#Its also useful for various other IDEs like QtCreator etc.
-#It uses system libraries, so it will have dependancy issues with public releases where those dependancies are distro/version-specific.
-#Public builds are still built using the (overcomplicated) traditional (g)makefile.
+# Desktop SDL3 GPU fork: CMake is the supported build system.
 
-CMAKE_MINIMUM_REQUIRED(VERSION 3.0...3.10)
+CMAKE_MINIMUM_REQUIRED(VERSION 3.16...3.31)
 cmake_policy(SET CMP0063 NEW)
 
 PROJECT(FTEQuake)
+
+# Playable builds should be optimized unless a developer selects Debug.
+if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build configuration" FORCE)
+    set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS Debug Release RelWithDebInfo MinSizeRel)
+endif()
 
 INCLUDE_DIRECTORIES(
 	engine/common
@@ -113,34 +116,22 @@ ELSE()
 	ENDIF()
 ENDIF()
 
-# Added these to solve some build issues I ran into - Brad
-IF(FTE_BIG_ENDIAN)
-	ADD_DEFINITIONS(-DFTE_BIG_ENDIAN)
-ENDIF()
-
-IF(FTE_LITTLE_ENDIAN)
-	ADD_DEFINITIONS(-DFTE_LITTLE_ENDIAN)
-ENDIF()
-
-# libepoll-shim needs to be installed on the BSDs and Mac OSX to get 
-# some of the server code to compile and work correctly on those platforms - Brad
-IF(CMAKE_SYSTEM_NAME MATCHES "BSD" OR CMAKE_SYSTEM_NAME MATCHES "Darwin")
-	INCLUDE(FetchContent)
-	FetchContent_Declare(
-		epoll-shim
-		GIT_REPOSITORY https://github.com/jiixyj/epoll-shim.git
-		GIT_TAG master
-	)
-	SET(epoll-shim BUILD_TESTS OFF CACHE INTERNAL "")
-	SET(epoll-shim BUILD_SHARED_LIBS OFF CACHE INTERNAL "")
-	FetchContent_MakeAvailable(epoll-shim)
-
-	SET(EPOLL_INC_DIR "${epoll-shim_SOURCE_DIR}/include")
-ENDIF()
+# Configure endian macros for standalone tools as well as the engine.
+include(TestBigEndian)
+test_big_endian(FTE_HOST_BIG_ENDIAN)
+if(FTE_HOST_BIG_ENDIAN)
+    add_compile_definitions(FTE_BIG_ENDIAN)
+else()
+    add_compile_definitions(FTE_LITTLE_ENDIAN)
+endif()
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
 
 SET(FTE_BUILD_CONFIG ${PROJECT_SOURCE_DIR}/engine/common/config_fteqw.h CACHE FILEPATH "Which build config file to use to control supported features.")
 SET(FTE_LIB_DEFINES ${FTE_LIB_DEFINES};CONFIG_FILE_NAME=${FTE_BUILD_CONFIG})
-SET(FTE_USE_SDL false CACHE BOOL "Force the use of SDL2 instead of using native builds.")
+find_package(SDL3 3.4 REQUIRED CONFIG)
+set(FTE_USE_SDL true)
+set(FTE_DEP_SDL3 true)
 
 INCLUDE(GNUInstallDirs)
 SET(FTE_INSTALL_BINDIR games CACHE STRING "Binary dir to install to.")
@@ -180,14 +171,7 @@ ELSE()
 	MESSAGE(WARNING "bzip2 library NOT available. bz2-compressed pk3s will not be available, as if anyone cares.")
 ENDIF()
 
-SET(OpenGL_GL_PREFERENCE LEGACY)
-FIND_PACKAGE(OpenGL)
-IF(OpenGL_FOUND)
-	SET(FTE_LIB_DEFINES ${FTE_LIB_DEFINES};GLQUAKE)
-ELSE()
-	MESSAGE(WARNING "opengl library NOT available. Will depend upon vulkan.")
-	SET(FTE_LIB_DEFINES ${FTE_LIB_DEFINES};NO_OPENGL)
-ENDIF()
+set(FTE_LIB_DEFINES ${FTE_LIB_DEFINES} NO_OPENGL SDL_GPUQUAKE)
 
 SET(FTE_DEP_JPEG true CACHE BOOL "Link against libjpeg.")
 IF(FTE_DEP_JPEG)
@@ -253,30 +237,21 @@ ELSE()
 	SET(FTE_LIB_DEFINES ${FTE_LIB_DEFINES};NO_FREETYPE)
 ENDIF()
 
-#this is just for headers.
-FIND_PATH(VULKAN_INCLUDE_DIR vulkan/vulkan.h)
-IF(VULKAN_INCLUDE_DIR)
-	INCLUDE_DIRECTORIES( ${VULKAN_INCLUDE_DIR} )
-	SET(FTE_DEFINES ${FTE_DEFINES};VKQUAKE) #no libs required, thankfully
-ELSE()
-	MESSAGE(WARNING "Vulkan headers NOT available.")
-ENDIF()
-
 SET(FTE_DEP_VORBISFILE true CACHE BOOL "Link against libvorbisfile.")
 IF(FTE_DEP_VORBISFILE)
 	FIND_LIBRARY(VORBISFILE_LIBRARY NAMES vorbisfile)
+	FIND_PATH(VORBISFILE_INCLUDE_DIR NAMES vorbis/vorbisfile.h)
 ENDIF()
-IF(NOT VORBISFILE_LIBRARY)
-	INCLUDE_DIRECTORIES( ${VORBISFILE_INCLUDE_DIRS} )
-	MESSAGE(WARNING "libvorbisfile library NOT available. Who listens to the bgm anyway?")
+IF(FTE_DEP_VORBISFILE AND VORBISFILE_LIBRARY AND VORBISFILE_INCLUDE_DIR)
+	INCLUDE_DIRECTORIES( ${VORBISFILE_INCLUDE_DIR} )
+	SET(FTE_LIB_DEFINES ${FTE_LIB_DEFINES};LIBVORBISFILE_STATIC)
+	SET(FTE_LIBS ${FTE_LIBS} ${VORBISFILE_LIBRARY})
+ELSE()
+	MESSAGE(STATUS "Ogg Vorbis decoding disabled (libvorbisfile library and headers required).")
 	SET(FTE_LIB_DEFINES ${FTE_LIB_DEFINES};NO_OGG)
 ENDIF()
 
-IF(CMAKE_BUILD_TYPE MATCHES "Debug")
-	SET(FTE_WERROR true CACHE BOOL "Warnings as errors.")
-ELSE()
-	SET(FTE_WERROR false CACHE BOOL "Warnings as errors.")
-ENDIF()
+option(FTE_WERROR "Treat compiler warnings as errors." OFF)
 IF(FTE_WERROR)
 	SET(FTE_WERROR_ARG "-Werror")
 ELSE()
@@ -309,12 +284,12 @@ IF(CMAKE_C_COMPILER_ID MATCHES "GNU")
 	IF(CMAKE_SYSTEM_PROCESSOR MATCHES "ppc64le" OR CMAKE_SYSTEM_PROCESSOR MATCHES "ppc64")
 		SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mcpu=native")
 	ELSE()
-		SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=native")
+		# Keep the compiler baseline for portable binaries.
 	ENDIF()
 	IF(CMAKE_BUILD_TYPE MATCHES "Debug")
-		set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall ${FTE_WERROR_} -Wno-pointer-sign -Wno-unknown-pragmas -Wno-format-zero-length -Wno-strict-aliasing -Wno-error=cpp")
+		set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall ${FTE_WERROR_ARG} -Wno-pointer-sign -Wno-unknown-pragmas -Wno-format-zero-length -Wno-strict-aliasing -Wno-error=cpp")
 	ELSE()
-		set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 ${FTE_WERROR_}")
+		set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 ${FTE_WERROR_ARG}")
 	ENDIF()
 	IF (NOT FTE_USE_SDL)
 		set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wl,--warn-common")
@@ -324,27 +299,28 @@ ENDIF()
 IF(CMAKE_BUILD_TYPE MATCHES "Debug")
 	IF(NOT ${WIN32})
 		set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fstack-protector-strong")
-		set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=gnu89")
-	ENDIF()
+			ENDIF()
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_DEBUG")
 ENDIF()
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_FILE_OFFSET_BITS=64")
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DFTE_LIBRARY_PATH=${CMAKE_INSTALL_FULL_LIBDIR}/${FTE_INSTALL_LIBDIR} -DFTE_DATA_DIR=${CMAKE_INSTALL_FULL_DATAROOTDIR}")
 
+find_package(Python3 COMPONENTS Interpreter QUIET)
 FUNCTION(EMBED_PLUGIN_META PLUGNAME PLUGTITLE PLUGDESC)
-	SET_TARGET_PROPERTIES(plug_${PLUGNAME} PROPERTIES OUTPUT_NAME "${PLUGNAME}")
-	SET_TARGET_PROPERTIES(plug_${PLUGNAME} PROPERTIES PREFIX "fteplug_")
-	SET_TARGET_PROPERTIES(plug_${PLUGNAME} PROPERTIES LINK_FLAGS "-Wl,--no-undefined")
-	SET(INSTALLTARGS ${INSTALLTARGS} "plug_${PLUGNAME}" PARENT_SCOPE)
-	#sadly we need to use a temp zip file, because otherwise zip insists on using zip64 extensions which breaks zip -A (as well as any attempts to read any files).
-	ADD_CUSTOM_COMMAND(
-		TARGET plug_${PLUGNAME} POST_BUILD
-		COMMAND /bin/echo -e "{\\n	package fteplug_${PLUGNAME}\\n	ver \"${SVNREVISION}\"\\n	category Plugins\\n	title \"${PLUGTITLE}\"\\n	gamedir \"\"\\n	desc \"${PLUGDESC}\"\\n}" | zip -q -9 -fz- $<TARGET_FILE:plug_${PLUGNAME}>.zip -
-		COMMAND cmake -E cat $<TARGET_FILE:plug_${PLUGNAME}>.zip >> "$<TARGET_FILE:plug_${PLUGNAME}>"
-		COMMAND zip -A "$<TARGET_FILE:plug_${PLUGNAME}>"
-		COMMAND cmake -E rm $<TARGET_FILE:plug_${PLUGNAME}>.zip
-		VERBATIM)
+    SET_TARGET_PROPERTIES(plug_${PLUGNAME} PROPERTIES OUTPUT_NAME "${PLUGNAME}" PREFIX "fteplug_")
+    if(APPLE)
+        target_link_options(plug_${PLUGNAME} PRIVATE "-Wl,-undefined,error")
+    elseif(NOT MSVC)
+        target_link_options(plug_${PLUGNAME} PRIVATE "-Wl,--no-undefined")
+    endif()
+    SET(INSTALLTARGS ${INSTALLTARGS} "plug_${PLUGNAME}" PARENT_SCOPE)
+    if(Python3_Interpreter_FOUND)
+        ADD_CUSTOM_COMMAND(TARGET plug_${PLUGNAME} POST_BUILD
+            COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/embed_plugin_meta.py"
+                "$<TARGET_FILE:plug_${PLUGNAME}>" "${PLUGNAME}" "${SVNREVISION}" "${PLUGTITLE}" "${PLUGDESC}"
+            VERBATIM)
+    endif()
 ENDFUNCTION()
 
 SET(FTE_DEP_GNUTLS true CACHE BOOL "Link against gnutls")
@@ -373,335 +349,30 @@ IF(WIN32)
 	ENDIF()
 ENDIF()
 
-SET(FTE_DEP_SDL3 false CACHE BOOL "Use SDL3 if available (disabling many platform-specific behaviours).")
-IF(FTE_DEP_SDL3)
-	FIND_PACKAGE(SDL3 QUIET)
-ENDIF()
-IF(SDL3_FOUND)	#SDL3
-	MESSAGE(STATUS "SDL3 library found, woo, modern, for now.")
-
-#	FIND_PACKAGE(PkgConfig REQUIRED)
-#	PKG_SEARCH_MODULE(sdl3 REQUIRED sdl3)
-
-	FIND_PACKAGE(SDL3 REQUIRED)
-
-	INCLUDE_DIRECTORIES(${FREETYPE_INCLUDE_DIRS} ${SDL3_INCLUDE_DIRS})
-
-	SET(FTE_DEFINES ${FTE_DEFINES};FTE_SDL3;MULTITHREAD)
-	SET(FTE_LIBS ${FTE_LIBS} ${SYS_LIBS} ${CMAKE_DL_LIBS} ${SDL3_LIBRARIES})
-	SET(FTE_ARCH_FILES
-		engine/client/sys_sdl.c
-		engine/client/snd_al.c
-		engine/client/snd_sdl.c
-		engine/client/in_sdl.c
-		engine/client/cd_sdl.c
-		engine/gl/gl_vidsdl.c
-	)
-
-	SET(FTESV_DEFINES ${FTESV_DEFINES};MULTITHREAD)
-	SET(FTESV_LIBS ${FTESV_LIBS} ${SYS_LIBS} ${CMAKE_DL_LIBS} ${SDL3_LIBRARIES})
-
-	IF(WIN32)
-		SET(FTE_LIBS ${FTE_LIBS} wsock32 gdi32 ole32)
-		SET(FTE_DEFINES ${FTE_DEFINES})
-		SET(FTE_ARCH_FILES ${FTE_ARCH_FILES}
-			engine/client/winquake.rc
-			engine/common/net_ssl_winsspi.c
-			engine/common/fs_win32.c
-		)
-		SET(FTESV_ARCH_FILES ${FTESV_ARCH_FILES}
-			engine/client/winquake.rc
-			engine/common/net_ssl_winsspi.c
-			engine/common/fs_win32.c
-			engine/server/sv_sys_win.c
-		)
-	ELSE()
-		SET(FTE_ARCH_FILES ${FTE_ARCH_FILES}
-			engine/common/net_ssl_gnutls.c
-		)
-		SET(FTESV_ARCH_FILES ${FTESV_ARCH_FILES}
-			engine/common/net_ssl_gnutls.c
-			engine/common/sys_linux_threads.c
-			engine/server/sv_sys_unix.c
-		)
-		SET(FTESV_LIBS ${FTESV_LIBS} pthread)
-	ENDIF()
-ELSEIF(${ANDROID})
-#	FIND_PACKAGE(Freetype REQUIRED)
-
-#	INCLUDE_DIRECTORIES(	${FREETYPE_INCLUDE_DIRS} )
-
-	SET(FTE_DEFINES ${FTE_DEFINES};ANDROID;VKQUAKE;MULTITHREAD)
-	SET(FTE_LIBS ${FTE_LIBS} android log EGL ${SYS_LIBS} ${CMAKE_DL_LIBS})
-	SET(FTE_ARCH_FILES
-		engine/client/sys_droid.c
-		engine/common/sys_linux_threads.c
-		engine/client/snd_droid.c
-		engine/client/cd_null.c
-		engine/gl/gl_viddroid.c
-	)
-ELSEIF(WIN32 AND NOT FTE_USE_SDL)
-	INCLUDE_DIRECTORIES(engine/libs engine/libs/freetype2/include)
-#	LINK_DIRECTORIES(engine/libs/mingw64-libs)
-	
-	#	engine/server/sv_sys_win.c
-	
-	SET(FTE_LIBS ${FTE_LIBS} ole32 gdi32 wsock32 winmm dxguid)
-	SET(FTE_DEFINES ${FTE_DEFINES};D3D9QUAKE;D3D11QUAKE)
-	SET(FTE_ARCH_FILES 
-		engine/client/winquake.rc
-		engine/common/sys_win_threads.c
-		engine/common/net_ssl_winsspi.c
-		engine/common/net_ssl_gnutls.c
-		engine/common/fs_win32.c
-		engine/client/cd_win.c
-		engine/client/in_win.c
-		engine/client/snd_al.c
-		engine/client/snd_directx.c
-		engine/client/snd_wasapi.c
-		engine/client/snd_win.c
-		engine/client/snd_xaudio.c
-		engine/client/sys_win.c
-		
-		engine/gl/gl_vidnt.c
-
-		engine/d3d/d3d_backend.c
-		engine/d3d/d3d_image.c
-		engine/d3d/d3d_shader.c
-		engine/d3d/d3d11_backend.c
-		engine/d3d/d3d11_image.c
-		engine/d3d/d3d11_shader.c
-		engine/d3d/d3d8_backend.c
-		engine/d3d/d3d8_image.c
-		engine/d3d/vid_d3d.c
-		engine/d3d/vid_d3d11.c
-		engine/d3d/vid_d3d8.c
-	)
-	
-	SET(FTESV_LIBS ${FTESV_LIBS} wsock32 winmm)
-	SET(FTESV_ARCH_FILES 
-		engine/client/winquake.rc
-		engine/common/sys_win_threads.c
-		engine/common/net_ssl_winsspi.c
-		engine/common/net_ssl_gnutls.c
-		engine/common/fs_win32.c
-		engine/server/sv_sys_win.c
-	)
-ELSEIF(UNIX AND NOT FTE_USE_SDL)	#linux(ish)
-				#openbsd will have issues with snd_linux.c
-
-	#linux-only packages
-	FIND_PACKAGE(ALSA)
-	IF(ALSA_FOUND)
-		SET(FTE_LIB_DEFINES ${FTE_LIB_DEFINES};AUDIO_ALSA;AUDIO_PULSE)
-	ELSE()
-		MESSAGE(WARNING "asound (alsa) library NOT available.")
-	ENDIF()
-
-	FIND_PACKAGE(X11)
-	IF(X11_FOUND)
-		IF (NOT X11_Xcursor_FOUND)
-			SET(FTE_LIB_DEFINES ${FTE_LIB_DEFINES};NO_X11_CURSOR)
-			MESSAGE(WARNING "Xcursor library NOT available.")
-		ENDIF()
-		IF (NOT X11_Xrandr_FOUND)
-			SET(FTE_LIB_DEFINES ${FTE_LIB_DEFINES};NO_X11_RANDR)
-			MESSAGE(WARNING "Xrandr library NOT available.")
-		ENDIF()
-		IF (NOT X11_Xscreensaver_FOUND)
-			SET(FTE_LIB_DEFINES ${FTE_LIB_DEFINES};NO_X11_XSS)
-			MESSAGE(WARNING "Xss library NOT available.")
-		ENDIF()
-	ELSE()
-		MESSAGE(WARNING "x11 library NOT available.")
-		SET(FTE_LIB_DEFINES ${FTE_LIB_DEFINES};NO_X11)
-	ENDIF()
-
-	SET(FTE_DEFINES ${FTE_DEFINES};DYNAMIC_SDL;MULTITHREAD)
-	SET(FTE_LIBS ${FTE_LIBS} ${SYS_LIBS} ${CMAKE_DL_LIBS} pthread ${SDL2_LIBRARIES})
-	SET(FTE_ARCH_FILES ${FTE_ARCH_FILES}
-		engine/client/sys_linux.c
-		engine/common/sys_linux_threads.c
-		engine/common/net_ssl_gnutls.c
-
-		engine/client/snd_al.c
-		engine/client/snd_alsa.c
-		engine/client/snd_linux.c
-		engine/client/snd_pulse.c
-		engine/client/snd_sdl.c	#we use SDL audio even without sys_sdl, because of pulseaudio fucking over alsa, alsa fucking over oss3, and oss4 not being used. Either way, openal should be the default anyway.
-
-		engine/client/cd_linux.c
-		engine/gl/gl_vidlinuxglx.c
-		engine/gl/gl_videgl.c
-
-#		engine/gl/gl_vidrpi.c
-#		engine/gl/gl_vidwayland.c
-	)
-
-	#openbsd uses a libossaudio library for all the oss stuff, use that to ensure that we still get sound
-	FIND_LIBRARY(
-		OSSAUDIO_LIBRARY
-		NAMES ossaudio
-	)
-	IF(OSSAUDIO_LIBRARY)
-		SET(FTE_LIBS ${FTE_LIBS} ${OSSAUDIO_LIBRARY})
-	ENDIF()
-
-	#on linux, use wayland (we normally dynamically link, but we still need headers).
-	FIND_LIBRARY(
-		WAYLAND_CLIENT_LIBRARY
-		NAMES wayland-client libwayland-client
-	)
-	FIND_LIBRARY(
-		WAYLAND_EGL
-		NAMES wayland-egl
-	)
-	FIND_LIBRARY(
-		HAVE_XKBCOMMON
-		NAMES xkbcommon
-	)
-	IF(NOT HAVE_XKBCOMMON)
-		MESSAGE(WARNING "xkbcommon library not found, needed for wayland to be usable.")
-		UNSET(WAYLAND_CLIENT_LIBRARY)
-	ENDIF()
-	IF(WAYLAND_CLIENT_LIBRARY AND WAYLAND_EGL)
-#		SET(FTE_LIBS ${FTE_LIBS} ${WAYLAND_CLIENT_LIBRARY} ${HAVE_XKBCOMMON} ${WAYLAND_EGL})
-#		SET(FTE_DEFINES ${FTE_DEFINES};STATIC_WAYLAND)
-
-		SET(FTE_DEFINES ${FTE_DEFINES};WAYLANDQUAKE;USE_EGL)
-		SET(FTE_ARCH_FILES ${FTE_ARCH_FILES}
-			engine/gl/gl_vidwayland.c
-		)
-	ELSE()
-		MESSAGE(WARNING "Wayland library NOT available. X11 will live forever anyway.")
-		IF(NOT X11_FOUND)
-			MESSAGE(WARNING "No renderers supported!")
-			SET(FTE_NO_RENDERERS 1)
-		ENDIF()
-	ENDIF()
-
-	IF(CMAKE_SYSTEM_NAME MATCHES "BSD" OR CMAKE_SYSTEM_NAME MATCHES "Darwin")
-		FIND_LIBRARY(epoll-shim REQUIRED)
-		INCLUDE_DIRECTORIES(${EPOLL_INC_DIR})
-		SET(FTESV_LIBS ${FTESV_LIBS} epoll-shim)
-		SET(FTESV_DEFINES ${FTESV_DEFINES};HAVE_EPOLL)
-	ENDIF()
-
-	SET(FTESV_DEFINES ${FTESV_DEFINES};MULTITHREAD)
-	SET(FTESV_ARCH_FILES ${FTESV_ARCH_FILES}
-		engine/server/sv_sys_unix.c
-		engine/common/sys_linux_threads.c
-		engine/common/net_ssl_gnutls.c
-	)
-	SET(FTESV_LIBS ${FTESV_LIBS} ${SYS_LIBS} ${CMAKE_DL_LIBS} pthread)
-
-ELSEIF(1)	#SDL2
-#	FIND_PACKAGE(Freetype REQUIRED)
-#	INCLUDE_DIRECTORIES(engine/libs engine/libs/freetype2/include)
-
-	FIND_PACKAGE(PkgConfig REQUIRED)
-	PKG_SEARCH_MODULE(sdl2 REQUIRED sdl2)
-
-	FIND_PACKAGE(SDL2 REQUIRED)
-
-	INCLUDE_DIRECTORIES(${FREETYPE_INCLUDE_DIRS} ${SDL2_INCLUDE_DIRS})
-	
-	#SDL2.0.7 supports vulkan, so lets use it.
-	SET(FTE_DEFINES ${FTE_DEFINES};FTE_SDL;MULTITHREAD)
-	SET(FTE_LIBS ${FTE_LIBS} ${SYS_LIBS} ${CMAKE_DL_LIBS} ${SDL2_LIBRARIES})
-	SET(FTE_ARCH_FILES
-		engine/client/sys_sdl.c
-		engine/client/snd_al.c
-		engine/client/snd_sdl.c
-		engine/client/in_sdl.c
-		engine/client/cd_sdl.c
-		engine/gl/gl_vidsdl.c
-	)
-
-	SET(FTESV_DEFINES ${FTESV_DEFINES};MULTITHREAD)
-	SET(FTESV_LIBS ${FTESV_LIBS} ${SYS_LIBS} ${CMAKE_DL_LIBS} ${SDL2_LIBRARIES})
-
-	IF(WIN32)
-		SET(FTE_LIBS ${FTE_LIBS} wsock32 gdi32 ole32)
-		SET(FTE_DEFINES ${FTE_DEFINES};NO_DIRECTX)
-		SET(FTE_ARCH_FILES ${FTE_ARCH_FILES}
-			engine/client/winquake.rc
-			engine/common/net_ssl_winsspi.c
-			engine/common/fs_win32.c
-		)
-		SET(FTESV_ARCH_FILES ${FTESV_ARCH_FILES}
-			engine/client/winquake.rc
-			engine/common/net_ssl_winsspi.c
-			engine/common/fs_win32.c
-			engine/server/sv_sys_win.c
-		)
-	ELSE()
-		SET(FTE_ARCH_FILES ${FTE_ARCH_FILES}
-			engine/common/net_ssl_gnutls.c
-		)
-		SET(FTESV_ARCH_FILES ${FTESV_ARCH_FILES}
-			engine/common/net_ssl_gnutls.c
-			engine/common/sys_linux_threads.c
-			engine/server/sv_sys_unix.c
-		)
-		SET(FTESV_LIBS ${FTESV_LIBS} pthread)
-	ENDIF()
-ELSE()
-#	engine/common/sys_linux_threads.c
-#	engine/common/net_ssl_gnutls.c
-#	engine/server/sv_sys_unix.c
-
-#	engine/client/snd_alsa.c
-#	engine/client/snd_droid.c
-#	engine/client/snd_linux.c
-#	engine/client/snd_macos.c
-#	engine/client/snd_morphos.c
-#	engine/client/snd_sblaster.c
-#	engine/client/snd_sdl.c
-#	engine/client/snd_sndio.c
-
-#	engine/client/sys_dos.c
-#	engine/client/sys_droid.c
-#	engine/client/sys_linux.c
-#	engine/client/sys_morphos.c
-#	engine/client/sys_plugfte.c
-#	engine/client/sys_sdl.c
-#	engine/client/sys_xdk.c
-
-#	engine/client/cd_linux.c
-#	engine/client/cd_null.c
-#	engine/client/cd_sdl.c
-#	engine/client/in_morphos.c
-#	engine/client/in_sdl.c
-	
-#	engine/gl/gl_viddroid.c
-#	engine/gl/gl_videgl.c
-#	engine/gl/gl_vidlinuxglx.c
-#	engine/gl/gl_vidmacos.c
-#	engine/gl/gl_vidmorphos.c
-#	engine/gl/gl_vidnull.c
-#	engine/gl/gl_vidrpi.c
-#	engine/gl/gl_vidsdl.c
-#	engine/gl/gl_vidtinyglstubs.c
-#	engine/gl/gl_vidwayland.c
-ENDIF()
-
-SET(FTE_GL_FILES
-#These are GL-specific, but can be left even if no gl is supported.
-	engine/gl/gl_backend.c
-	engine/gl/gl_bloom.c
-	engine/gl/gl_draw.c
-	engine/gl/gl_rmain.c
-	engine/gl/gl_rmisc.c
-	engine/gl/gl_rsurf.c
-	engine/gl/gl_screen.c
-	engine/gl/gl_vidcommon.c
-	engine/gl/glmod_doom.c
+set(FTE_DEFINES ${FTE_DEFINES} FTE_SDL3 MULTITHREAD)
+set(FTE_LIBS ${FTE_LIBS} ${SYS_LIBS} ${CMAKE_DL_LIBS} SDL3::SDL3)
+set(FTE_ARCH_FILES
+    engine/client/sys_sdl.c
+    engine/client/snd_al.c
+    engine/client/snd_sdl.c
+    engine/client/in_sdl.c
+    engine/client/cd_null.c
+    engine/sdlgpu/gpu_vid.c
+    engine/sdlgpu/gpu_image.c
+    engine/sdlgpu/gpu_backend.c
 )
-SET(FTE_VK_FILES
-	engine/vk/vk_backend.c
-	engine/vk/vk_init.c
-)
+set(FTESV_DEFINES ${FTESV_DEFINES} MULTITHREAD)
+set(FTESV_LIBS ${FTESV_LIBS} ${SYS_LIBS} ${CMAKE_DL_LIBS})
+if(WIN32)
+    list(APPEND FTE_LIBS ws2_32 gdi32 ole32 shell32 advapi32)
+    list(APPEND FTE_ARCH_FILES engine/client/winquake.rc engine/common/net_ssl_winsspi.c engine/common/fs_win32.c)
+    list(APPEND FTESV_ARCH_FILES engine/client/winquake.rc engine/common/net_ssl_winsspi.c engine/common/fs_win32.c engine/server/sv_sys_win.c)
+else()
+    list(APPEND FTE_ARCH_FILES engine/common/net_ssl_gnutls.c)
+    list(APPEND FTESV_ARCH_FILES engine/common/net_ssl_gnutls.c engine/common/sys_linux_threads.c engine/server/sv_sys_unix.c)
+    list(APPEND FTESV_LIBS pthread)
+endif()
+
 SET(FTE_QCVM_FILES
 	engine/qclib/comprout.c
 	engine/qclib/initlib.c
@@ -812,9 +483,7 @@ SET(FTE_COMMON_FILES
 	engine/gl/gl_draw.h
 	engine/gl/gl_model.h
 	engine/gl/glquake.h
-	engine/gl/glsupp.h
 	engine/gl/gl_terrain.h
-	engine/gl/gl_videgl.h
 	engine/gl/model_hl.h
 	engine/gl/shader.h
 	engine/http/iweb.h
@@ -836,7 +505,7 @@ SET(FTE_COMMON_FILES
 	engine/server/sv_sql.h
 	#engine/sw/sw.h
 	#engine/sw/sw_spans.h
-	engine/vk/vkrenderer.h
+	engine/sdlgpu/gpu_local.h
 	engine/web/ftejslib.h
 
 
@@ -957,8 +626,6 @@ SET(FTE_CLIENT_FILES
 
 #these are renderer-specific
 	engine/client/vid_headless.c
-	${FTE_GL_FILES}
-	${FTE_VK_FILES}
 )
 
 SET(FTE_Q3_FILES
@@ -1151,25 +818,22 @@ ELSE()
 			${FTE_CLIENT_FILES}
 			${FTE_SERVER_FILES}
 		)
-		IF(CMAKE_SYSTEM_NAME MATCHES "BSD" OR CMAKE_SYSTEM_NAME MATCHES "Darwin")
-			FIND_LIBRARY(epoll-shim REQUIRED)
-			SET(FTE_INCLUDES ${FTE_INCLUDES} "${EPOLL_INC_DIR}")
-			SET(FTE_LIBS ${FTE_LIBS} epoll-shim)
-			SET(FTE_DEFINES ${FTE_DEFINES};HAVE_EPOLL)
-		ENDIF()
 		SET_TARGET_PROPERTIES(fteqw PROPERTIES COMPILE_DEFINITIONS "${FTE_LIB_DEFINES};${FTE_DEFINES};${FTE_REVISON}")
 		TARGET_INCLUDE_DIRECTORIES(fteqw PUBLIC ${FTE_INCLUDES})
 		TARGET_LINK_LIBRARIES(fteqw ${FTE_LIBS})
 		SET(INSTALLTARGS ${INSTALLTARGS} fteqw)
 
+		find_program(FTE_XGETTEXT xgettext)
+		if(FTE_XGETTEXT)
 		ADD_CUSTOM_TARGET(fteqw-i18n ALL
 			VERBATIM
 			WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-			COMMAND xgettext --output=${CMAKE_CURRENT_BINARY_DIR}/fteqw.pot -k -kCon_TPrintf -kCon_SafeTPrintf -kNetchan_OutOfBandTPrintf:4 -kSV_OutOfBandTPrintf:4 -klangtext -kSV_TPrintToClient:3 -kSV_ClientTPrintf:3 -kSV_BroadcastTPrintf:2 -kCVARAFCD:6 -kCVARAFD:5 -kCVARFCD:5 -kCVARAD:4 -kCVARFD:4 -kCVARCD:4 -kCVARD:3 -kCmd_AddCommandD:3 -kCmd_AddCommandAD:4 -kMenu_Prompt:4:5:6 -kHost_EndGame	${FTE_ARCH_FILES} ${FTE_COMMON_FILES} ${FTE_CLIENT_FILES} ${FTE_SERVER_FILES}
+			COMMAND ${FTE_XGETTEXT} --output=${CMAKE_CURRENT_BINARY_DIR}/fteqw.pot -k -kCon_TPrintf -kCon_SafeTPrintf -kNetchan_OutOfBandTPrintf:4 -kSV_OutOfBandTPrintf:4 -klangtext -kSV_TPrintToClient:3 -kSV_ClientTPrintf:3 -kSV_BroadcastTPrintf:2 -kCVARAFCD:6 -kCVARAFD:5 -kCVARFCD:5 -kCVARAD:4 -kCVARFD:4 -kCVARCD:4 -kCVARD:3 -kCmd_AddCommandD:3 -kCmd_AddCommandAD:4 -kMenu_Prompt:4:5:6 -kHost_EndGame	${FTE_ARCH_FILES} ${FTE_COMMON_FILES} ${FTE_CLIENT_FILES} ${FTE_SERVER_FILES}
 			BYPRODUCTS "${CMAKE_CURRENT_BINARY_DIR}/fteqw.pot"
 			SOURCES
 				${FTE_ARCH_FILES} ${FTE_COMMON_FILES} ${FTE_CLIENT_FILES} ${FTE_SERVER_FILES}
 		)
+		endif()
 	ENDIF()
 
 	SET(FTE_ENGINE_SERVER_ONLY true CACHE BOOL "Compile fteqw-sv (server only) engine binary.")
@@ -1198,14 +862,6 @@ ELSE()
 		SET(INSTALLTARGS ${INSTALLTARGS} fteqw-cl)
 	ENDIF()
 
-	IF(FTE_ENGINE OR FTE_ENGINE_CLIENT)
-		FIND_PACKAGE(SDL2)
-		IF(SDL2_FOUND)
-			SET(FTE_SDL2 FTE_SDL)
-			SET(FTE_SDL2_INCLUDES ${SDL2_INCLUDE_DIRS})
-		ENDIF()
-	ENDIF()
-
 	SET(FTE_TOOL_IQM true CACHE BOOL "Compile IQM Tool.")
 	IF(FTE_TOOL_IQM)
 		ADD_EXECUTABLE(iqmtool
@@ -1228,8 +884,8 @@ ELSE()
 			engine/client/image.c
 			imgtool.c
 		)
-		TARGET_INCLUDE_DIRECTORIES(imgtool PUBLIC ${FTE_SDL2_INCLUDES})
-		SET_TARGET_PROPERTIES(imgtool PROPERTIES COMPILE_DEFINITIONS "IMGTOOL;${FTE_LIB_DEFINES};${FTE_DEFINES};${FTE_REVISON};${FTE_SDL2}")
+		TARGET_INCLUDE_DIRECTORIES(imgtool PUBLIC )
+		SET_TARGET_PROPERTIES(imgtool PROPERTIES COMPILE_DEFINITIONS "IMGTOOL;FTE_SDL3;${FTE_LIB_DEFINES};${FTE_REVISON}")
 		TARGET_LINK_LIBRARIES(imgtool ${FTE_LIBS} )
 		SET(INSTALLTARGS ${INSTALLTARGS} imgtool)
 	ENDIF()
@@ -1257,17 +913,10 @@ ELSE()
 			engine/common/sha1.c
 		)
 		SET_TARGET_PROPERTIES(qtv PROPERTIES COMPILE_DEFINITIONS "${FTE_REVISON};${FTE_LIB_DEFINES}")
-		IF(WIN32)
-			TARGET_LINK_LIBRARIES(qtv ws2_32 winmm ${SYS_LIBS} ${FTEQTV_LIBS})
-		ELSEIF(CMAKE_SYSTEM_NAME MATCHES "BSD" OR CMAKE_SYSTEM_NAME MATCHES "Darwin")
-			# Add Epoll-shim for the kqueue Unixes here - Brad
-			FIND_LIBRARY(epoll-shim REQUIRED)
-			TARGET_INCLUDE_DIRECTORIES(qtv PUBLIC "${EPOLL_INC_DIR}")
-			TARGET_LINK_LIBRARIES(qtv epoll-shim ${SYS_LIBS} ${FTEQTV_LIBS})
-			SET_TARGET_PROPERTIES(qtv PROPERTIES COMPILE_DEFINITIONS "${FTE_REVISON};${FTE_LIB_DEFINES};HAVE_EPOLL")
-		ELSE()
-			TARGET_LINK_LIBRARIES(qtv ${SYS_LIBS} ${FTEQTV_LIBS})
-		ENDIF()
+        TARGET_LINK_LIBRARIES(qtv ${SYS_LIBS} ${FTEQTV_LIBS})
+        IF(WIN32)
+            TARGET_LINK_LIBRARIES(qtv ws2_32 winmm)
+        ENDIF()
 		SET(INSTALLTARGS ${INSTALLTARGS} qtv)
 	ENDIF()
 
@@ -1311,11 +960,6 @@ ELSE()
 		SET_TARGET_PROPERTIES(httpserver PROPERTIES COMPILE_DEFINITIONS "WEBSERVER;WEBSVONLY;${FTE_REVISON}")
 		IF(WIN32)
 			TARGET_LINK_LIBRARIES(httpserver ws2_32)
-		ELSEIF(CMAKE_SYSTEM_NAME MATCHES "BSD" OR CMAKE_SYSTEM_NAME MATCHES "Darwin")
-			FIND_LIBRARY(epoll-shim REQUIRED)
-			TARGET_INCLUDE_DIRECTORIES(httpserver PUBLIC "${EPOLL_INC_DIR}")
-			TARGET_LINK_LIBRARIES(httpserver epoll-shim)
-			SET_TARGET_PROPERTIES(httpserver PROPERTIES COMPILE_DEFINITIONS "WEBSERVER;WEBSVONLY;${FTE_REVISON};HAVE_EPOLL")
 		ENDIF()
 		#SET(INSTALLTARGS ${INSTALLTARGS} httpserver)
 	ENDIF()
@@ -1838,13 +1482,13 @@ IF(UNIX AND NOT APPLE)
 ENDIF()
 
 SET(FTE_MENU_SYS true CACHE BOOL "Compile System Menu.")
-IF(FTE_MENU_SYS)
+IF(FTE_MENU_SYS AND TARGET fteqcc AND Python3_Interpreter_FOUND)
 	ADD_CUSTOM_TARGET(menusys ALL
 		VERBATIM
 		DEPENDS fteqcc
 		WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/quakec/menusys/"
 		COMMAND fteqcc -srcfile "menu.src" -o "${CMAKE_CURRENT_BINARY_DIR}/menu.dat" -DREVISION="${SVNREVISION}" -DDATE="${FTE_DATE}" -DBRANCH="${FTE_BRANCH}"
-		COMMAND /bin/echo -e "{\\n	package fte_menusys\\n	ver \"${SVNREVISION}\"\\n	category Plugins\\n	title \"Replacement Menus\"\\n	gamedir \"id1\"\\n	desc \"Modern menus to replace the ancient quake ones\"\\n}" | zip -j -q -9 -fz- "${CMAKE_CURRENT_BINARY_DIR}/menusys.pk3" - "${CMAKE_CURRENT_BINARY_DIR}/menu.dat"
+		COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/package_quakec.py" "${CMAKE_CURRENT_BINARY_DIR}/menusys.pk3" "${CMAKE_CURRENT_BINARY_DIR}/menu.dat" "fte_menusys" "${SVNREVISION}" "Replacement Menus" "Modern menus to replace the ancient quake ones"
 		BYPRODUCTS "${CMAKE_CURRENT_BINARY_DIR}/menu.dat" "${CMAKE_CURRENT_BINARY_DIR}/menu.lno" "${CMAKE_CURRENT_BINARY_DIR}/menusys.pk3"
 		SOURCES
 			quakec/menusys/menu.src
@@ -1888,13 +1532,13 @@ IF(FTE_MENU_SYS)
 ENDIF()
 
 SET(FTE_CSADDON true CACHE BOOL "CS Addon.")
-IF(FTE_CSADDON)
+IF(FTE_CSADDON AND TARGET fteqcc AND Python3_Interpreter_FOUND)
 	ADD_CUSTOM_TARGET(csaddon ALL
 		VERBATIM
 		DEPENDS fteqcc
 		WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/quakec/csaddon/src/"
 		COMMAND fteqcc -srcfile "csaddon.src" -o "${CMAKE_CURRENT_BINARY_DIR}/csaddon.dat"
-		COMMAND /bin/echo -e "{\\n	package fte_csaddon\\n	ver \"${SVNREVISION}\"\\n	category Plugins\\n	title \"${PLUGTITLE}\"\\n	gamedir \"id1\"\\n	desc \"${PLUGDESC}\"\\n}" | zip -j -q -9 -fz- "${CMAKE_CURRENT_BINARY_DIR}/csaddon.pk3" - "${CMAKE_CURRENT_BINARY_DIR}/csaddon.dat"
+		COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/package_quakec.py" "${CMAKE_CURRENT_BINARY_DIR}/csaddon.pk3" "${CMAKE_CURRENT_BINARY_DIR}/csaddon.dat" "fte_csaddon" "${SVNREVISION}" "Client Addon" "QuakeC client editors and tools"
 		BYPRODUCTS "${CMAKE_CURRENT_BINARY_DIR}/csaddon.dat" "${CMAKE_CURRENT_BINARY_DIR}/csaddon.lno" "${CMAKE_CURRENT_BINARY_DIR}/csaddon.pk3"
 		SOURCES
 			quakec/csaddon/src/csaddon.src

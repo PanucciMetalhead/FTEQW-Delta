@@ -1188,10 +1188,6 @@ static void Friendly_Crash_Handler(int sig, siginfo_t *info, void *vcontext)
 		write(fd, "\n", 1);
 		close(fd);
 	}
-#if defined(DEBUG) && defined(GLQUAKE)
-	if (qrenderer == QR_OPENGL)
-		DumpGLState();
-#endif
 	exit(1);
 }
 #endif
@@ -1676,13 +1672,6 @@ int main (int c, const char **v)
 
 #ifdef __MACOSX__
 		//wow, not even windows was this absurd.
-#ifdef GLQUAKE
-		if (glcocoaRunLoop())
-		{
-			oldtime = Sys_DoubleTime ();
-			continue;
-		}
-#endif
 #endif
 
 // find time spent rendering last frame

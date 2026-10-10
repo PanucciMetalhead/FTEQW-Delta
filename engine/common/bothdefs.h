@@ -402,10 +402,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #ifdef NO_WINSSPI
 	#undef HAVE_WINSSPI
 #endif
-#ifdef NO_OPENGL
-	#undef GLQUAKE
-	#undef USE_EGL
-#endif
+#undef GLQUAKE
+#undef USE_EGL
 
 #if (defined(HAVE_GNUTLS) || defined(HAVE_WINSSPI) || defined(PLUGINS)) && !defined(FTE_TARGET_WEB)
 	#define HAVE_SSL

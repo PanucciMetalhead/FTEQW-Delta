@@ -157,7 +157,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 	#define ioctlsocket ioctl
 	#define closesocket close
 
-#elif (defined(unix) && !defined(__CYGWIN__)) || defined(ixemul) // I hope by adding MACOSX here it doesnt stop it from being natively built on macosx
+#elif (defined(unix) && !defined(__CYGWIN__)) || defined(ixemul) || defined(MACOSX) // I hope by adding MACOSX here it doesnt stop it from being natively built on macosx
 	#include <sys/time.h>
 	#include <sys/types.h>
 	#include <sys/socket.h>
@@ -245,7 +245,9 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define ustrncmp(s1,s2,l) strncmp((char*)(s1),(char*)(s2),l)
 
 
+#ifndef MACOSX
 size_t strlcpy(char *dst, const char *src, size_t siz);
+#endif
 
 
 typedef struct

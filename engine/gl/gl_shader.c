@@ -392,11 +392,7 @@ static qboolean Shader_EvaluateCondition(shader_t *shader, const char **ptr)
 			lhs = (qrenderer == QR_DIRECT3D11);
 		else if (!Q_stricmp(token, "gles"))
 		{
-#ifdef GLQUAKE
-			lhs = ((qrenderer == QR_OPENGL) && gl_config.gles);
-#else
 			lhs = false;
-#endif
 		}
 		else if (!Q_stricmp(token, "nofixed"))
 			lhs = sh_config.progs_required;
@@ -1493,9 +1489,6 @@ struct programpermu_s *Shader_LoadPermutation(program_t *prog, unsigned int p)
 #ifdef RTLIGHTS
 	if (r_fakeshadows)
 		Q_strlcatfz(defines, &offset, sizeof(defines), "#define FAKESHADOWS\n%s",
-#ifdef GLQUAKE
-				gl_config.arb_shadow?"#define USE_ARB_SHADOW\n":
-#endif
 				"");
 #endif
 
@@ -2200,7 +2193,43 @@ static void Shader_LoadGeneric(sgeneric_t *g, int qrtype)
 	char *h;
 
 	g->failed = true;
-
+#ifdef SDL_GPUQUAKE
+    if (qrtype == QR_SDLGPU) {
+        /* Builtin material programs share the SDL GPU pipeline. Arbitrary
+         * external GLSL programs require a real port and use material fallback. */
+        static const char *builtins[] = {"default2d", "defaultfill", "defaultwall", "defaultskin", "defaultwarp", "defaultsky", "defaultskybox", "defaultadditivesprite", "defaultsprite", "drawflat_wall", "altwater"};
+        unsigned b;
+        Z_Free(g->prog.name); g->prog.name = NULL;
+        for (b = 0; b < countof(builtins); ++b) {
+            size_t n = strlen(builtins[b]);
+            if (!strncmp(g->name, builtins[b], n) && (g->name[n] == 0 || g->name[n] == '#')) {
+                g->prog.name = Z_StrDup(g->name);
+                g->prog.calcgens = true;
+                g->prog.numsamplers = 1;
+                g->prog.defaulttextures = 0;
+                if (!strcmp(builtins[b], "defaultwall") || !strcmp(builtins[b], "defaultskin")) {
+                    /* These programs use named engine textures, with no
+                     * explicit sampler before diffuse. Cutout BSP materials
+                     * declare only a program, so reserving a pass here binds
+                     * a missing image instead of their embedded texture. */
+                    g->prog.numsamplers = 0;
+                    g->prog.defaulttextures = (1u<<S_DIFFUSE)|(1u<<S_NORMALMAP)|(1u<<S_SPECULAR)|(1u<<S_FULLBRIGHT)|(1u<<S_UPPERMAP)|(1u<<S_LOWERMAP);
+                }
+                /* The model loader uses this declaration to allocate BSP
+                 * lightmaps, even though SDL GPU binds the samplers itself. */
+                if (!strcmp(builtins[b], "defaultwall"))
+                    g->prog.defaulttextures |= (1u<<S_LIGHTMAP0)|(1u<<S_DELUXEMAP0);
+                if (!strcmp(builtins[b], "drawflat_wall"))
+                    g->prog.defaulttextures |= (1u<<S_LIGHTMAP0);
+                if (!strcmp(builtins[b], "defaultskybox"))
+                    g->prog.defaulttextures |= (1u<<S_REFLECTCUBE);
+                g->failed = false;
+                return;
+            }
+        }
+        return;
+    }
+#endif
 	TRACE(("Loading program %s...\n", g->name));
 
 	basicname[1] = 0;
@@ -2947,11 +2976,7 @@ static void Shader_BEMode(parsestate_t *ps, const char **ptr)
 																(mode & LSHADER_SPOT)?"#SPOT":"",
 																(mode & LSHADER_CUBE)?"#CUBE":"",
 																(mode & LSHADER_ORTHO)?"#ORTHO":"",
-#ifdef GLQUAKE
-																(qrenderer == QR_OPENGL && gl_config.arb_shadow && (mode & LSHADER_SMAP))?"#USE_ARB_SHADOW":""
-#else
 																""
-#endif
 																);
 			shader->bemoverrides[mode] = R_RegisterCustom(shader->model, subname, shader->usageflags|(embed?SUR_FORCEFALLBACK:0), embed?Shader_DefaultScript:NULL, embed);
 		}
@@ -5931,11 +5956,7 @@ done:;
 																(mode & LSHADER_SMAP)?"#PCF":"",
 																(mode & LSHADER_SPOT)?"#SPOT":"",
 																(mode & LSHADER_CUBE)?"#CUBE":"",
-#ifdef GLQUAKE
-																(qrenderer == QR_OPENGL && gl_config.arb_shadow && (mode & (LSHADER_SMAP|LSHADER_SPOT)))?"#USE_ARB_SHADOW":""
-#else
 																""
-#endif
 																)
 														, s->usageflags, 
 				"{\n"
@@ -6852,6 +6873,7 @@ char *Shader_DefaultBSPWater(parsestate_t *ps, const char *shortname, char *buff
 	int type;
 	float alpha;
 	qboolean explicitalpha = false;
+	const char *refractalpha = "";
 	cvar_t *alphavars[] = {	&r_wateralpha, &r_lavaalpha, &r_slimealpha, &r_telealpha};
 	cvar_t *stylevars[] = {	&r_waterstyle, &r_lavastyle, &r_slimestyle, &r_telestyle};
 
@@ -6880,6 +6902,11 @@ char *Shader_DefaultBSPWater(parsestate_t *ps, const char *shortname, char *buff
 			alpha = 1;
 	}
 
+#ifdef SDL_GPUQUAKE
+	if (qrenderer == QR_SDLGPU)
+		refractalpha = va("#ALPHA=%g", alpha);
+#endif
+
 	if (alpha <= 0)
 		wstyle = -1;
 	else if (r_fastturb.ival)
@@ -6900,10 +6927,9 @@ char *Shader_DefaultBSPWater(parsestate_t *ps, const char *shortname, char *buff
 	//extra silly limitations
 	switch(qrenderer)
 	{
-#ifdef GLQUAKE
-	case QR_OPENGL:
-		if (wstyle > 2 && !gl_config.ext_framebuffer_objects)
-			wstyle = 2;
+#ifdef SDL_GPUQUAKE
+	case QR_SDLGPU:
+		if (wstyle > 3) wstyle = 3;
 		break;
 #endif
 #ifdef VKQUAKE
@@ -6977,12 +7003,12 @@ char *Shader_DefaultBSPWater(parsestate_t *ps, const char *shortname, char *buff
 				, alpha, (explicitalpha||alpha==1)?"":va("#ALPHA=%g",alpha), alpha, alpha);
 		return buffer;
 	case 2:	//refraction of the underwater surface, with a fresnel
-		return (
+		Q_snprintfz(buffer, buffersize,
 			"{\n"
 				"surfaceparm nodlight\n"
 				"surfaceparm nomarks\n"
 				"{\n"
-					"program altwater#FRESNEL=4\n"
+					"program altwater#FRESNEL=4%s\n"
 					"map $refraction\n"
 					"map $null\n"//$reflection
 					"map $null\n"//$ripplemap
@@ -6990,14 +7016,15 @@ char *Shader_DefaultBSPWater(parsestate_t *ps, const char *shortname, char *buff
 				"}\n"
 				"surfaceparm hasdiffuse\n"
 			"}\n"
-		);
+			, refractalpha);
+		return buffer;
 	case 3:	//reflections
-		return (
+		Q_snprintfz(buffer, buffersize,
 			"{\n"
 				"surfaceparm nodlight\n"
 				"surfaceparm nomarks\n"
 				"{\n"
-					"program altwater#REFLECT#FRESNEL=4\n"
+					"program altwater#REFLECT#FRESNEL=4%s\n"
 					"map $refraction\n"
 					"map $reflection\n"
 					"map $null\n"//$ripplemap
@@ -7005,7 +7032,8 @@ char *Shader_DefaultBSPWater(parsestate_t *ps, const char *shortname, char *buff
 				"}\n"
 				"surfaceparm hasdiffuse\n"
 			"}\n"
-		);
+			, refractalpha);
+		return buffer;
 	case 4:	//ripples
 		return (
 			"{\n"

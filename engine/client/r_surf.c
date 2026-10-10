@@ -2492,15 +2492,6 @@ static void R_DestroyWorldEBO(struct webostate_s *es)
 		BZ_Free(es->batches[i].idxbuffer);
 	}
 
-#ifdef GLQUAKE
-	if (qrenderer == QR_OPENGL)
-	{
-		if (es->ebo.gl.vbo)
-			qglDeleteBuffersARB(1, &es->ebo.gl.vbo);
-		if (es->vbo.gl.vbo)
-			qglDeleteBuffersARB(1, &es->vbo.gl.vbo);
-	}
-#endif
 #ifdef VKQUAKE
 	if (qrenderer == QR_VULKAN)
 		BE_VBO_Destroy(&es->ebo, es->ebomem);
@@ -2531,71 +2522,6 @@ void R_GeneratedWorldEBO(void *ctx, void *data, size_t a_, size_t b_)
 		idxcount += webostate->batches[i].numidx;
 		vertcount += webostate->batches[i].m.numvertexes;
 	}
-#ifdef GLQUAKE
-	if (qrenderer == QR_OPENGL)
-	{
-		GL_DeselectVAO();
-
-		if (vertcount)
-		{
-			size_t vc;
-			vbo_t *vbo;
-			size_t v_coord	= 0;
-			size_t v_tc		= v_coord	+ sizeof(vecV_t)*vertcount;
-			size_t v_lmtc	= v_tc		+ sizeof(vec2_t)*vertcount;
-			size_t v_norm	= v_lmtc	+ sizeof(vec2_t)*vertcount;
-			size_t v_snorm	= v_norm	+ sizeof(vec3_t)*vertcount;
-			size_t v_tnorm	= v_snorm	+ sizeof(vec3_t)*vertcount;
-			size_t v_colour	= v_tnorm	+ sizeof(vec3_t)*vertcount;
-			size_t vbosize	= v_colour	+ sizeof(vec4_t)*vertcount;
-
-			if (!webostate->vbo.gl.vbo)
-				qglGenBuffersARB(1, &webostate->vbo.gl.vbo);
-			GL_SelectVBO(webostate->vbo.gl.vbo);
-			qglBufferDataARB(GL_ARRAY_BUFFER_ARB, vbosize, NULL, GL_STATIC_DRAW_ARB);
-			for (i = 0, vertcount = 0; i < webostate->numbatches; i++)
-			{
-				if (webostate->batches[i].inefficient)
-				{
-					vc = webostate->batches[i].m.numvertexes;
-
-					vbo = &webostate->batches[i].vbo;
-					vbo->coord.gl.vbo		= webostate->vbo.gl.vbo;	vbo->coord.gl.addr		= (char*)v_coord	+ sizeof(vecV_t)*vertcount;
-					vbo->texcoord.gl.vbo	= webostate->vbo.gl.vbo;	vbo->texcoord.gl.addr	= (char*)v_tc		+ sizeof(vec2_t)*vertcount;
-					vbo->lmcoord[0].gl.vbo	= webostate->vbo.gl.vbo;	vbo->lmcoord[0].gl.addr = (char*)v_lmtc		+ sizeof(vec2_t)*vertcount;
-					vbo->normals.gl.vbo		= webostate->vbo.gl.vbo;	vbo->normals.gl.addr	= (char*)v_norm		+ sizeof(vec3_t)*vertcount;
-					vbo->svector.gl.vbo		= webostate->vbo.gl.vbo;	vbo->svector.gl.addr	= (char*)v_snorm	+ sizeof(vec3_t)*vertcount;
-					vbo->tvector.gl.vbo		= webostate->vbo.gl.vbo;	vbo->tvector.gl.addr	= (char*)v_tnorm	+ sizeof(vec3_t)*vertcount;
-					vbo->colours[0].gl.vbo	= webostate->vbo.gl.vbo;	vbo->colours[0].gl.addr	= (char*)v_colour	+ sizeof(vec4_t)*vertcount;
-
-					qglBufferSubDataARB(GL_ARRAY_BUFFER_ARB,(qintptr_t)vbo->coord.gl.addr,		vc*sizeof(vecV_t), webostate->batches[i].m.xyz_array);
-					qglBufferSubDataARB(GL_ARRAY_BUFFER_ARB,(qintptr_t)vbo->texcoord.gl.addr,	vc*sizeof(vec2_t), webostate->batches[i].m.st_array);
-					qglBufferSubDataARB(GL_ARRAY_BUFFER_ARB,(qintptr_t)vbo->lmcoord[0].gl.addr,	vc*sizeof(vec2_t), webostate->batches[i].m.lmst_array[0]);
-					qglBufferSubDataARB(GL_ARRAY_BUFFER_ARB,(qintptr_t)vbo->normals.gl.addr,	vc*sizeof(vec3_t), webostate->batches[i].m.normals_array);
-					qglBufferSubDataARB(GL_ARRAY_BUFFER_ARB,(qintptr_t)vbo->svector.gl.addr,	vc*sizeof(vec3_t), webostate->batches[i].m.snormals_array);
-					qglBufferSubDataARB(GL_ARRAY_BUFFER_ARB,(qintptr_t)vbo->tvector.gl.addr,	vc*sizeof(vec3_t), webostate->batches[i].m.tnormals_array);
-					qglBufferSubDataARB(GL_ARRAY_BUFFER_ARB,(qintptr_t)vbo->colours[0].gl.addr,	vc*sizeof(vec4_t), webostate->batches[i].m.colors4f_array[0]);
-					webostate->batches[i].m.vbofirstvert = 0;
-					vertcount += vc;
-				}
-			}
-		}
-
-		webostate->ebo.gl.addr = NULL;
-		if (!webostate->ebo.gl.vbo)
-			qglGenBuffersARB(1, &webostate->ebo.gl.vbo);
-		GL_SelectEBO(webostate->ebo.gl.vbo);
-		qglBufferDataARB(GL_ELEMENT_ARRAY_BUFFER_ARB, idxcount*sizeof(index_t), NULL, GL_STATIC_DRAW_ARB);
-		for (i = 0, idxcount = 0; i < webostate->numbatches; i++)
-		{
-			qglBufferSubDataARB(GL_ELEMENT_ARRAY_BUFFER_ARB, idxcount*sizeof(index_t), webostate->batches[i].numidx*sizeof(index_t), webostate->batches[i].idxbuffer);
-//			BZ_Free(webostate->batches[i].idxbuffer);
-//			webostate->batches[i].idxbuffer = NULL;
-			webostate->batches[i].firstidx = idxcount;
-			idxcount += webostate->batches[i].numidx;
-		}
-	}
-#endif
 #ifdef VKQUAKE
 	if (qrenderer == QR_VULKAN)
 	{	//this malloc is stupid.
@@ -3509,15 +3435,6 @@ static void Surf_FreeLightmap(lightmapinfo_t *lm)
 {
 	if (lm)
 	{
-#ifdef GLQUAKE
-		if (lm->pbo_handle)
-		{
-			qglBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, lm->pbo_handle);
-			qglUnmapBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB);
-			qglBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
-			qglDeleteBuffersARB(1, &lm->pbo_handle);
-		}
-#endif
 		if (!lm->external)
 			Image_DestroyTexture(lm->lightmap_texture);
 		BZ_Free(lm);
@@ -3568,44 +3485,6 @@ int Surf_NewLightmaps(int count, int width, int height, uploadfmt_t fmt, qboolea
 	lightmap = BZ_Realloc(lightmap, sizeof(*lightmap)*(i));
 	while(i --> first)
 	{
-#ifdef GLQUAKE
-		extern cvar_t gl_pbolightmaps;
-		//we might as well use a pbo for our staging memory.
-		if (qrenderer == QR_OPENGL && qglBufferStorage && qglMapBufferRange && gl_pbolightmaps.ival && Sys_IsMainThread())
-		{	//glBufferStorage and GL_MAP_PERSISTENT_BIT generally means gl4.4+ (we need persistent for scenecache)
-			//pbos are 2.1
-			if (deluxe && ((i - numlightmaps)&1))
-			{
-				lightmap[i] = Z_Malloc(sizeof(*lightmap[i]));
-				lightmap[i]->width = width;
-				lightmap[i]->height = height;
-				lightmap[i]->lightmaps = NULL;
-				lightmap[i]->stainmaps = NULL;
-				lightmap[i]->hasdeluxe = false;
-				lightmap[i]->pixbytes = dpixbytes;
-				lightmap[i]->fmt = dfmt;
-			}
-			else
-			{
-				lightmap[i] = Z_Malloc(sizeof(*lightmap[i]) + (sizeof(stmap)*3)*width*height);
-				lightmap[i]->width = width;
-				lightmap[i]->height = height;
-				lightmap[i]->lightmaps = NULL;
-				lightmap[i]->stainmaps = (qbyte*)(lightmap[i]+1);
-				lightmap[i]->hasdeluxe = deluxe;
-				lightmap[i]->pixbytes = pixbytes;
-				lightmap[i]->fmt = fmt;
-			}
-
-			qglGenBuffersARB(1, &lightmap[i]->pbo_handle);
-			qglBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, lightmap[i]->pbo_handle);
-			//note: we only write the memory. the pbo would normally be in system memory anyway so there shouldn't be too much cost from coherent mappings.
-			qglBufferStorage(GL_PIXEL_UNPACK_BUFFER_ARB, lightmap[i]->pixbytes*width*height, NULL, GL_MAP_WRITE_BIT|GL_MAP_PERSISTENT_BIT|GL_MAP_COHERENT_BIT);
-			lightmap[i]->lightmaps = qglMapBufferRange(GL_PIXEL_UNPACK_BUFFER_ARB, 0, lightmap[i]->pixbytes*width*height, GL_MAP_WRITE_BIT|GL_MAP_PERSISTENT_BIT|GL_MAP_COHERENT_BIT);
-			qglBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
-		}
-		else
-#endif
 		{
 			if (deluxe && ((i - numlightmaps)&1))
 			{	//deluxemaps always use a specific format.
@@ -4154,6 +4033,9 @@ void Surf_PreNewMap(void)
 	extern cvar_t gl_specular;
 
 	r_loadbumpmapping = r_deluxemapping || r_glsl_offsetmapping.ival;
+#ifdef SDL_GPUQUAKE
+	r_loadbumpmapping |= qrenderer == QR_SDLGPU;
+#endif
 	r_loadbumpmapping |= gl_specular.value>0;
 #ifdef RTLIGHTS
 	r_loadbumpmapping |= r_shadow_realtime_world.ival || r_shadow_realtime_dlight.ival;
