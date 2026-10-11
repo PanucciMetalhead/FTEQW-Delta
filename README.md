@@ -23,6 +23,10 @@ Requires SDL **3.4 or newer**, CMake, and a C/C++ compiler. See
 [building](documentation/Building.md), [dependencies](documentation/Dependencies.md),
 and [renderer controls and validation](documentation/SDL3-GPU.md).
 
+For game and total-conversion development, see
+[Writing Your progs.dat](documentation/writing_progs.md) and the
+[FTEQCC compiler manual](documentation/FTEQCC.md).
+
 Graphics controls remain available through the in-game Options menus and console.
 Normal mapping, realtime lighting and shadows, specular and offset mapping, bloom,
 HDR framebuffers, FXAA, and reflective/refractive water have independent controls. Game data and normal/specular
