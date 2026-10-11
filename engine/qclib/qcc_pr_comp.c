@@ -2,6 +2,7 @@
 
 #include "qcc.h"
 #include <math.h>
+#include <stdint.h>
 
 #if defined(_WIN32) || defined(__DJGPP__)
 	#include <malloc.h>
@@ -16823,7 +16824,14 @@ void QCC_CommonSubExpressionRemoval(int first, int last)
 //follow branches (by recursing).
 //stop on first read(error, return statement) or write(no error, return -1)
 //end-of-block returns 0, done/return/goto returns -2
-static int QCC_CheckOneUninitialised(int firststatement, int laststatement, union QCC_eval_basic_s *min, union QCC_eval_basic_s *max)
+/* Symbols may not yet have allocated data. Track numeric byte ranges instead
+ * of doing pointer arithmetic on NULL or comparing unrelated allocations. */
+static uintptr_t QCC_SymbolByteAddress(QCC_def_t *symbol, int offset)
+{
+    return (uintptr_t)symbol->symboldata + (uintptr_t)offset * sizeof(union QCC_eval_basic_s);
+}
+
+static int QCC_CheckOneUninitialised(int firststatement, int laststatement, uintptr_t min, uintptr_t max)
 {
 #define SPLIT \
 		if (!(ofs > max || ofs+sz <= min)) \
@@ -16856,8 +16864,8 @@ static int QCC_CheckOneUninitialised(int firststatement, int laststatement, unio
 		{
 			if (st->a.cast && st->a.sym)
 			{
-				union QCC_eval_basic_s *ofs = st->a.sym->symboldata+st->a.ofs;
-				int sz = st->a.cast->size;
+				uintptr_t ofs = QCC_SymbolByteAddress(st->a.sym, st->a.ofs);
+				uintptr_t sz = (uintptr_t)st->a.cast->size * sizeof(union QCC_eval_basic_s);
 				if (!(ofs > max || ofs+sz < min))
 					return i;
 			}
@@ -16870,8 +16878,8 @@ static int QCC_CheckOneUninitialised(int firststatement, int laststatement, unio
 
 		if (pr_opcodes[st->op].type_a && st->a.sym)
 		{
-			union QCC_eval_basic_s *ofs = st->a.sym->symboldata+st->a.ofs;
-			int sz = st->a.cast->size;
+			uintptr_t ofs = QCC_SymbolByteAddress(st->a.sym, st->a.ofs);
+			uintptr_t sz = (uintptr_t)st->a.cast->size * sizeof(union QCC_eval_basic_s);
 			pbool iswrite = OpAssignsToA(st->op) || st->op == OP_GLOBALADDRESS; /* address-of counts as a write here, because we're too dumb to track when/if that is assigned to.*/
 
 			SPLIT
@@ -16887,8 +16895,8 @@ static int QCC_CheckOneUninitialised(int firststatement, int laststatement, unio
 
 		if (pr_opcodes[st->op].type_b && st->b.sym)
 		{
-			union QCC_eval_basic_s *ofs = st->b.sym->symboldata+st->b.jumpofs;
-			int sz = st->b.cast->size;
+			uintptr_t ofs = QCC_SymbolByteAddress(st->b.sym, st->b.jumpofs);
+			uintptr_t sz = (uintptr_t)st->b.cast->size * sizeof(union QCC_eval_basic_s);
 			pbool iswrite = OpAssignsToB(st->op);
 
 			SPLIT
@@ -16923,8 +16931,8 @@ static int QCC_CheckOneUninitialised(int firststatement, int laststatement, unio
 
 		if (pr_opcodes[st->op].type_c && st->c.sym)
 		{
-			union QCC_eval_basic_s *ofs = st->c.sym->symboldata+st->c.ofs;
-			int sz = st->c.cast->size;
+			uintptr_t ofs = QCC_SymbolByteAddress(st->c.sym, st->c.ofs);
+			uintptr_t sz = (uintptr_t)st->c.cast->size * sizeof(union QCC_eval_basic_s);
 			pbool iswrite = OpAssignsToC(st->op);
 
 			SPLIT
@@ -16975,7 +16983,7 @@ static pbool QCC_CheckUninitialised(int firststatement, int laststatement)
 			continue;
 		if (local->arraysize)
 			continue;	//probably indexed. we won't detect things properly. its the user's resposibility to check. :(
-		err = QCC_CheckOneUninitialised(firststatement, laststatement, local->symboldata, local->symboldata + local->type->size * (local->arraysize?local->arraysize:1));
+		err = QCC_CheckOneUninitialised(firststatement, laststatement, QCC_SymbolByteAddress(local, 0), QCC_SymbolByteAddress(local, local->type->size * (local->arraysize?local->arraysize:1)));
 		if (err > 0)
 		{	//try to refine it to a single component if we can.
 			uninit = NULL;
@@ -16983,7 +16991,7 @@ static pbool QCC_CheckUninitialised(int firststatement, int laststatement)
 			{
 				if (c != local)
 				{
-					err = QCC_CheckOneUninitialised(firststatement, laststatement, c->symboldata, c->symboldata + c->type->size * (c->arraysize?c->arraysize:1));
+					err = QCC_CheckOneUninitialised(firststatement, laststatement, QCC_SymbolByteAddress(c, 0), QCC_SymbolByteAddress(c, c->type->size * (c->arraysize?c->arraysize:1)));
 					if (err > 0)
 					{
 						if (uninit)

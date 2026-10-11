@@ -11,6 +11,11 @@
 #include "fs.h"
 
 #include <ctype.h>
+#include <stddef.h>
+
+_Static_assert(sizeof(pint_t) == 4, "QuakeC field slots must remain 32 bits");
+_Static_assert(offsetof(comentvars_t, chain) % sizeof(pint_t) == 0,
+	"QuakeC chain field must align with its field slot");
 
 #define VMUTF8 utf8_enable.ival
 #define VMUTF8MARKUP false
@@ -1504,7 +1509,7 @@ void QCBUILTIN PF_findchainflags (pubprogfuncs_t *prinst, struct globalvars_s *p
 	if (prinst->callargc > 2)
 		cf = G_INT(OFS_PARM2)+prinst->fieldadjust;
 	else
-		cf = &((comentvars_t*)NULL)->chain - (pint_t*)NULL;
+		cf = offsetof(comentvars_t, chain) / sizeof(pint_t);
 	if (ff >= prinst->activefieldslots || cf >= prinst->activefieldslots)
 	{
 		PR_BIError (prinst, "PF_FindChain: bad field reference");
@@ -1542,7 +1547,7 @@ void QCBUILTIN PF_findchainfloat (pubprogfuncs_t *prinst, struct globalvars_s *p
 	if (prinst->callargc > 2)
 		cf = G_INT(OFS_PARM2)+prinst->fieldadjust;
 	else
-		cf = &((comentvars_t*)NULL)->chain - (pint_t*)NULL;
+		cf = offsetof(comentvars_t, chain) / sizeof(pint_t);
 	if (ff >= prinst->activefieldslots || cf >= prinst->activefieldslots)
 	{
 		PR_BIError (prinst, "PF_FindChain: bad field reference");
@@ -1581,7 +1586,7 @@ void QCBUILTIN PF_findchain (pubprogfuncs_t *prinst, struct globalvars_s *pr_glo
 	if (prinst->callargc > 2)
 		cf = G_INT(OFS_PARM2)+prinst->fieldadjust;
 	else
-		cf = &((comentvars_t*)NULL)->chain - (int*)NULL;
+		cf = offsetof(comentvars_t, chain) / sizeof(pint_t);
 	if (ff >= prinst->activefieldslots || cf >= prinst->activefieldslots)
 	{
 		PR_BIError (prinst, "PF_FindChain: bad field reference");
@@ -4017,7 +4022,7 @@ void QCBUILTIN PF_findradius (pubprogfuncs_t *prinst, struct globalvars_s *pr_gl
 	if (prinst->callargc > 2)
 		f = G_INT(OFS_PARM2)+prinst->fieldadjust;
 	else
-		f = &((comentvars_t*)NULL)->chain - (pint_t*)NULL;
+		f = offsetof(comentvars_t, chain) / sizeof(pint_t);
 
 	if (dpcompat_findradiusarealinks.ival)
 	{
@@ -6901,6 +6906,18 @@ void QCBUILTIN PF_rotatevectorsbymatrix (pubprogfuncs_t *prinst, struct globalva
 ////////////////////////////////////////////////////
 //Progs internals
 
+/* Only the server VM has server entity generation IDs. Client-only builds
+ * have no server VM, but still support CSQC and menu coroutines. */
+static qboolean PR_ThreadUsesServerEntities(pubprogfuncs_t *prinst)
+{
+#ifndef CLIENTONLY
+    return prinst == svprogfuncs;
+#else
+    (void)prinst;
+    return false;
+#endif
+}
+
 qcstate_t *PR_CreateThread(pubprogfuncs_t *prinst, float retval, float resumetime, qboolean wait)
 {
 	world_t *world = prinst->parms->user;
@@ -6916,10 +6933,10 @@ qcstate_t *PR_CreateThread(pubprogfuncs_t *prinst, float retval, float resumetim
 	{
 		ed = PROG_TO_EDICT(prinst, world->g.self?*world->g.self:0);
 		state->self = NUM_FOR_EDICT(prinst, ed);
-		state->selfid = (prinst==svprogfuncs&&ed->ereftype==ER_ENTITY)?ed->xv->uniquespawnid:0;
+		state->selfid = (PR_ThreadUsesServerEntities(prinst)&&ed->ereftype==ER_ENTITY)?ed->xv->uniquespawnid:0;
 		ed = PROG_TO_EDICT(prinst, world->g.self?*world->g.self:0);
 		state->other = NUM_FOR_EDICT(prinst, ed);
-		state->otherid = (prinst==svprogfuncs&&ed->ereftype==ER_ENTITY)?ed->xv->uniquespawnid:0;
+		state->otherid = (PR_ThreadUsesServerEntities(prinst)&&ed->ereftype==ER_ENTITY)?ed->xv->uniquespawnid:0;
 	}
 	else	//allows us to call this during init().
 		state->self = state->other = state->selfid = state->otherid = 0;
@@ -6953,7 +6970,7 @@ void PR_RunThreads(world_t *world)
 			{
 				//restore the thread's self variable, if applicable.
 				ed = PROG_TO_EDICT(prinst, state->self);
-				if ((prinst==svprogfuncs?ed->xv->uniquespawnid:0) != state->selfid)
+				if ((PR_ThreadUsesServerEntities(prinst)?ed->xv->uniquespawnid:0) != state->selfid)
 					ed = prinst->edicttable[0];
 				*world->g.self = EDICT_TO_PROG(prinst, ed);
 			}
@@ -6962,7 +6979,7 @@ void PR_RunThreads(world_t *world)
 			{
 				//restore the thread's other variable, if applicable
 				ed = PROG_TO_EDICT(prinst, state->other);
-				if ((prinst==svprogfuncs?ed->xv->uniquespawnid:0) != state->otherid)
+				if ((PR_ThreadUsesServerEntities(prinst)?ed->xv->uniquespawnid:0) != state->otherid)
 					ed = prinst->edicttable[0];
 				*world->g.other = EDICT_TO_PROG(prinst, ed);
 			}
@@ -7017,7 +7034,7 @@ void QCBUILTIN PF_Fork(pubprogfuncs_t *prinst, struct globalvars_s *pr_globals)
 	world_t *world = prinst->parms->user;
 	float sleeptime;
 
-	if (svprogfuncs->callargc >= 1)
+	if (prinst->callargc >= 1)
 		sleeptime = G_FLOAT(OFS_PARM0);
 	else
 		sleeptime = 0;

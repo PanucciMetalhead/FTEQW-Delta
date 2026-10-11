@@ -2589,6 +2589,7 @@ strofs = (strofs+3)&~3;
 
 	if (progs.blockscompressed&16)
 	{
+		len = 0;
 		SafeWrite (h, &len, sizeof(int));	//save for later
 		len = QC_encode(progfuncs, strofs*sizeof(char), 2, (char *)strings, h);	//write
 		i = SafeSeek (h, 0, SEEK_CUR);
@@ -2660,6 +2661,7 @@ strofs = (strofs+3)&~3;
 
 			if (progs.blockscompressed&1)
 			{
+				len = 0;
 				SafeWrite (h, &len, sizeof(int));	//save for later
 				len = QC_encode(progfuncs, numstatements*sizeof(QCC_dstatement32_t), 2, (char *)statements, h);	//write
 				i = SafeSeek (h, 0, SEEK_CUR);
@@ -2738,6 +2740,7 @@ strofs = (strofs+3)&~3;
 
 			if (progs.blockscompressed&1)
 			{
+				len = 0;
 				SafeWrite (h, &len, sizeof(int));	//save for later
 				len = QC_encode(progfuncs, numstatements*sizeof(QCC_dstatement16_t), 2, (char *)statements16, h);	//write
 				i = SafeSeek (h, 0, SEEK_CUR);
@@ -2758,6 +2761,7 @@ strofs = (strofs+3)&~3;
 	progs.numfunctions = numfunctions;
 	if (progs.blockscompressed&8)
 	{
+		len = 0;
 		SafeWrite (h, &len, sizeof(int));	//save for later
 		len = QC_encode(progfuncs, funcdatasize, 2, (char *)funcdata, h);	//write
 		i = SafeSeek (h, 0, SEEK_CUR);
@@ -2818,6 +2822,7 @@ strofs = (strofs+3)&~3;
 
 		if (progs.blockscompressed&2)
 		{
+			len = 0;
 			SafeWrite (h, &len, sizeof(int));	//save for later
 			len = QC_encode(progfuncs, numglobaldefs*sizeof(QCC_ddef_t), 2, (char *)qcc_globals, h);	//write
 			i = SafeSeek (h, 0, SEEK_CUR);
@@ -2841,6 +2846,7 @@ strofs = (strofs+3)&~3;
 
 		if (progs.blockscompressed&4)
 		{
+			len = 0;
 			SafeWrite (h, &len, sizeof(int));	//save for later
 			len = QC_encode(progfuncs, numfielddefs*sizeof(QCC_ddef_t), 2, (char *)fields, h);	//write
 			i = SafeSeek (h, 0, SEEK_CUR);
@@ -2864,6 +2870,7 @@ strofs = (strofs+3)&~3;
 
 		if (progs.blockscompressed&2)
 		{
+			len = 0;
 			SafeWrite (h, &len, sizeof(int));	//save for later
 			len = QC_encode(progfuncs, numglobaldefs*sizeof(QCC_ddef_t), 2, (char *)qcc_globals, h);	//write
 			i = SafeSeek (h, 0, SEEK_CUR);
@@ -2887,6 +2894,7 @@ strofs = (strofs+3)&~3;
 
 		if (progs.blockscompressed&4)
 		{
+			len = 0;
 			SafeWrite (h, &len, sizeof(int));	//save for later
 			len = QC_encode(progfuncs, numfielddefs*sizeof(QCC_ddef_t), 2, (char *)fields, h);	//write
 			i = SafeSeek (h, 0, SEEK_CUR);
@@ -2913,6 +2921,7 @@ strofs = (strofs+3)&~3;
 
 		if (progs.blockscompressed&2)
 		{
+			len = 0;
 			SafeWrite (h, &len, sizeof(int));	//save for later
 			len = QC_encode(progfuncs, numglobaldefs*sizeof(QCC_ddef16_t), 2, (char *)qcc_globals16, h);	//write
 			i = SafeSeek (h, 0, SEEK_CUR);
@@ -2942,6 +2951,7 @@ strofs = (strofs+3)&~3;
 
 		if (progs.blockscompressed&4)
 		{
+			len = 0;
 			SafeWrite (h, &len, sizeof(int));	//save for later
 			len = QC_encode(progfuncs, numfielddefs*sizeof(QCC_ddef16_t), 2, (char *)fields16, h);	//write
 			i = SafeSeek (h, 0, SEEK_CUR);
@@ -2965,6 +2975,7 @@ strofs = (strofs+3)&~3;
 
 	if (progs.blockscompressed&32)
 	{
+		len = 0;
 		SafeWrite (h, &len, sizeof(int));	//save for later
 		len = QC_encode(progfuncs, numpr_globals*4, 2, (char *)qcc_pr_globals, h);	//write
 		i = SafeSeek (h, 0, SEEK_CUR);
@@ -3038,6 +3049,7 @@ strofs = (strofs+3)&~3;
 			progs.ofslinenums = SafeSeek (h, 0, SEEK_CUR);
 			if (progs.blockscompressed&64)
 			{
+				len = 0;
 				SafeWrite (h, &len, sizeof(int));	//save for later
 				len = QC_encode(progfuncs, numstatements*sizeof(int), 2, (char *)statement_linenums, h);	//write
 				i = SafeSeek (h, 0, SEEK_CUR);
@@ -3058,6 +3070,7 @@ strofs = (strofs+3)&~3;
 			progs.ofs_types = SafeSeek (h, 0, SEEK_CUR);
 			if (progs.blockscompressed&128)
 			{
+				len = 0;
 				SafeWrite (h, &len, sizeof(int));	//save for later
 				len = QC_encode(progfuncs, sizeof(QCC_type_t)*numtypeinfos, 2, (char *)qcc_typeinfo, h);	//write
 				i = SafeSeek (h, 0, SEEK_CUR);
@@ -4510,7 +4523,7 @@ static void _QCC_CopyFiles (int blocknum, int copytype, char *srcdir, char *dest
 	int i;
 	int		dirlen;
 	unsigned short		crc;
-	packheader_t	header;
+	packheader_t	header = {0};
 	char	name[1024];
 	char	srcfile[1024], destfile[1024];
 

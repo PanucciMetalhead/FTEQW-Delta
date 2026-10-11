@@ -1,6 +1,7 @@
 # Building the SDL3 GPU fork
 
-Use CMake on Windows, Linux, and macOS. The old platform-specific OpenGL make
+Use CMake 3.21 or newer and a compiler with C17 support on Windows, Linux,
+and macOS (Clang/GCC, or Visual Studio 2019 16.8 or newer). The old platform-specific OpenGL make
 targets are removed. `engine/Makefile`, `build_setup.sh`, and `build_wip.sh` are
 small wrappers around CMake.
 
@@ -32,7 +33,14 @@ cmake --build build/debug --target fteqw --config Debug --parallel
 
 CMake options include `FTE_ENGINE_SERVER_ONLY`, `FTE_ENGINE_CLIENT_ONLY`,
 `FTE_TOOL_IMAGE`, `FTE_TOOL_IQM`, `FTE_TOOL_QCC`, and the existing optional
-plugins. `FTE_WERROR` defaults to OFF because upstream contains compiler warnings.
+plugins. The engine and C tools use ISO C17 mode, with GNU language mode
+disabled. Serious declaration, prototype, pointer-type, return-value, and
+format-security diagnostics are errors in both Release and Debug on GCC/Clang.
+MSVC checks undeclared functions, excessive arguments, and missing returns.
+`FTE_WERROR` makes all remaining warnings errors and defaults to OFF because
+the inherited code still has warnings. `FTE_EXTRA_WARNINGS` enables additional
+conversion, format, and extension audits. See [C17.md](C17.md) for the policy,
+regression commands, and merge criteria.
 Bundled menu/client-addon packages require both `fteqcc` and Python 3; CMake
 skips these packages when either is unavailable. They no longer require shell
 `echo` or a command-line ZIP utility on Windows.

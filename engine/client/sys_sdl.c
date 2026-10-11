@@ -1169,7 +1169,8 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char **argv)
 #ifdef SUBSERVERS
 	if (COM_CheckParm("-clusterslave"))
 	{
-		isDedicated = isClusterSlave = true;
+		isDedicated = true;
+		isClusterSlave = true;
 		SSV_SetupControlPipe(Sys_GetStdInOutStream(), false);
 	}
 #endif
@@ -1179,7 +1180,7 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char **argv)
 	if (parms.binarydir)
 		Sys_Printf("Binary is located at \"%s\"\n", parms.binarydir);
 
-#ifdef HAVE_CLIENT
+#if defined(HAVE_CLIENT) && !defined(CLIENTONLY)
 	if (COM_CheckParm ("-dedicated"))
 		isDedicated = true;
 	if (isDedicated)    //compleate denial to switch to anything else - many of the client structures are not initialized.

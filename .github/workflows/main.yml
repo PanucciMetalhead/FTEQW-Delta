@@ -1,13 +1,25 @@
 name: SDL3 GPU desktop build
-# Manual desktop build checks. No release publication or artifact upload steps.
+# C17 desktop builds and data-free regression checks. No release publication.
 on:
   workflow_dispatch:
+  push:
+    branches: ["dev/c17"]
+  pull_request:
+    branches: [master]
 jobs:
   desktop:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            cc: gcc
+            cxx: g++
+          - os: ubuntu-latest
+            cc: clang
+            cxx: clang++
+          - os: windows-latest
+          - os: macos-latest
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -18,7 +30,13 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxkbcommon-dev libwayland-dev libasound2-dev libpulse-dev libudev-dev libpng-dev libjpeg-dev zlib1g-dev
+          sudo apt-get install -y ninja-build libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxkbcommon-dev libwayland-dev libasound2-dev libpulse-dev libudev-dev libpng-dev libjpeg-dev zlib1g-dev libgnutls28-dev pkg-config
+      - name: Select Linux compiler
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          echo "CC=${{ matrix.cc }}" >> "$GITHUB_ENV"
+          echo "CXX=${{ matrix.cxx }}" >> "$GITHUB_ENV"
       - name: Get SDL3
         uses: actions/checkout@v4
         with:
@@ -33,6 +51,27 @@ jobs:
           cmake --install build-deps/sdl-build --config Release
       - name: Configure fork
         shell: bash
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/build-deps/install" -DFTE_WERROR=OFF -DFTE_TOOL_QCCGUI=OFF
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/build-deps/install" -DFTE_WERROR=OFF -DFTE_TOOL_QCCGUI=OFF -DFTE_TOOL_QCVM=ON -DFTE_ENGINE_CLIENT_ONLY=ON -DBUILD_TESTING=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
       - name: Compile engine, server and tools
-        run: cmake --build build --config Release --target fteqw fteqw-sv imgtool fteqcc --parallel
+        run: cmake --build build --config Release --parallel
+      - name: Run data-free regression checks
+        run: ctest --test-dir build -C Release --output-on-failure
+      - name: Check C17 gameplay instructions
+        if: runner.os != 'Windows'
+        run: python3 tools/c17_compat.py --build build --out build/c17-compat --baseline-ref HEAD
+      - name: Network fault injection with sanitizers
+        if: runner.os == 'Linux'
+        run: python3 tools/network_transport_tests.py --cc clang --out build/network-tests
+      - name: Configure sanitizer tools
+        if: runner.os != 'Windows'
+        shell: bash
+        run: cmake -S . -B build-sanitize -DCMAKE_BUILD_TYPE=Debug -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/build-deps/install" -DFTE_SANITIZERS=ON -DFTE_ENGINE=OFF -DFTE_ENGINE_SERVER_ONLY=OFF -DFTE_TOOL_QCCGUI=OFF -DFTE_TOOL_QCVM=ON -DBUILD_TESTING=ON
+      - name: Build sanitizer tools
+        if: runner.os != 'Windows'
+        run: cmake --build build-sanitize --target fteqcc qcvm c17-endian-check --parallel
+      - name: Run sanitizer compiler and VM checks
+        if: runner.os != 'Windows'
+        env:
+          ASAN_OPTIONS: detect_leaks=0
+          UBSAN_OPTIONS: halt_on_error=1
+        run: ctest --test-dir build-sanitize --output-on-failure

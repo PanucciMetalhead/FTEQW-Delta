@@ -1,6 +1,6 @@
 # Desktop SDL3 GPU fork: CMake is the supported build system.
 
-CMAKE_MINIMUM_REQUIRED(VERSION 3.16...3.31)
+CMAKE_MINIMUM_REQUIRED(VERSION 3.21...3.31)
 cmake_policy(SET CMP0063 NEW)
 
 PROJECT(FTEQuake)
@@ -124,8 +124,10 @@ if(FTE_HOST_BIG_ENDIAN)
 else()
     add_compile_definitions(FTE_LITTLE_ENDIAN)
 endif()
-set(CMAKE_C_STANDARD 11)
+# Use ISO C17 consistently across the engine and standalone tools.
+set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_C_EXTENSIONS OFF)
 
 SET(FTE_BUILD_CONFIG ${PROJECT_SOURCE_DIR}/engine/common/config_fteqw.h CACHE FILEPATH "Which build config file to use to control supported features.")
 SET(FTE_LIB_DEFINES ${FTE_LIB_DEFINES};CONFIG_FILE_NAME=${FTE_BUILD_CONFIG})
@@ -251,51 +253,12 @@ ELSE()
 	SET(FTE_LIB_DEFINES ${FTE_LIB_DEFINES};NO_OGG)
 ENDIF()
 
-option(FTE_WERROR "Treat compiler warnings as errors." OFF)
-IF(FTE_WERROR)
-	SET(FTE_WERROR_ARG "-Werror")
-ELSE()
-	SET(FTE_WERROR_ARG "")
-ENDIF()
-
-IF(CMAKE_C_COMPILER_ID MATCHES "Clang")
-	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-pointer-sign")
-
-	IF(CMAKE_BUILD_TYPE MATCHES "Debug")
-		set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall ${FTE_WERROR_ARG} -Wno-pointer-sign -Wno-unknown-pragmas -Wno-format-zero-length -Wno-strict-aliasing -Wno-error=cpp")
-	ELSE()
-		set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 ${FTE_WERROR_ARG}")
-	ENDIF()
+# Diagnostics are consistent in optimized and debug builds. Platform APIs are
+# explicit dependencies, rather than an accidental consequence of GNU C mode.
+include(cmake/FTECompilerPolicy.cmake)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_compile_definitions(_POSIX_C_SOURCE=200809L _DEFAULT_SOURCE)
 endif()
-IF(CMAKE_C_COMPILER_ID MATCHES "GNU")
-	SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wstrict-prototypes")			#
-	SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wold-style-definition")		#k&r c is weird and can't cope with 64bit types.
-	SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wmissing-parameter-type")		#k&r c is weird and can't cope with 64bit types.
-	SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wold-style-declaration")		#
-	SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wpointer-arith")				#void* stuff
-	SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wvla")							#msvc doesn't support vla
-	SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wdeclaration-after-statement")	#msvc doesn't allow defs after statements, and they're so very tempting...
-	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wformat-truncation=1")
-	#TODO SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wmissing-prototypes")			#for finding missing statics.
-	#SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-unused-function")			#
-#	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wswitch-enum")					#to warn about omitted enums despite default.
-
-	#might as well do this, public builds use the regular Makefile.
-	IF(CMAKE_SYSTEM_PROCESSOR MATCHES "ppc64le" OR CMAKE_SYSTEM_PROCESSOR MATCHES "ppc64")
-		SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mcpu=native")
-	ELSE()
-		# Keep the compiler baseline for portable binaries.
-	ENDIF()
-	IF(CMAKE_BUILD_TYPE MATCHES "Debug")
-		set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall ${FTE_WERROR_ARG} -Wno-pointer-sign -Wno-unknown-pragmas -Wno-format-zero-length -Wno-strict-aliasing -Wno-error=cpp")
-	ELSE()
-		set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 ${FTE_WERROR_ARG}")
-	ENDIF()
-	IF (NOT FTE_USE_SDL)
-		set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wl,--warn-common")
-	ENDIF()
-	#SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wc++-compat")	#lul, thousands of errors!
-ENDIF()
 IF(CMAKE_BUILD_TYPE MATCHES "Debug")
 	IF(NOT ${WIN32})
 		set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fstack-protector-strong")
@@ -1575,3 +1538,17 @@ IF(FTE_CSADDON AND TARGET fteqcc AND Python3_Interpreter_FOUND)
 		${CMAKE_CURRENT_BINARY_DIR}/csaddon.pk3
 		DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/games/quake/id1/")
 ENDIF()
+
+# Data-free checks also run in desktop CI; game-data tests remain opt-in.
+include(CTest)
+if(BUILD_TESTING)
+    add_executable(c17-endian-check tools/tests/c17_endian.c)
+    target_include_directories(c17-endian-check PRIVATE "${PROJECT_SOURCE_DIR}")
+    add_test(NAME c17-endian COMMAND c17-endian-check)
+    if(TARGET fteqcc AND TARGET qcvm AND Python3_Interpreter_FOUND)
+        add_test(NAME qcc-regression
+            COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/qcc_regression.py"
+                --compiler $<TARGET_FILE:fteqcc> --vm $<TARGET_FILE:qcvm>
+                --out "${CMAKE_BINARY_DIR}/qcc-tests")
+    endif()
+endif()
