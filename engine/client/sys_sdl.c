@@ -1488,6 +1488,12 @@ qboolean Sys_EngineMayUpdate(void)
 #include <errno.h>
 static int QDECL Sys_StdoutWrite (struct vfsfile_s *file, const void *buffer, int bytestowrite)
 {
+#ifdef _WIN32
+	DWORD written;
+	if (!WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), buffer, bytestowrite, &written, NULL))
+		return VFS_ERROR_EOF;
+	return written ? (int)written : (bytestowrite ? VFS_ERROR_EOF : 0);
+#else
 	ssize_t r = write(STDOUT_FILENO, buffer, bytestowrite);
 	if (r == 0 && bytestowrite)
 		return -1;	//eof
@@ -1498,6 +1504,7 @@ static int QDECL Sys_StdoutWrite (struct vfsfile_s *file, const void *buffer, in
 			return 0;
 	}
 	return r;
+#endif
 }
 static int QDECL Sys_StdinRead (struct vfsfile_s *file, void *buffer, int bytestoread)
 {

@@ -208,8 +208,6 @@ static int debuggerstacky;
 #if defined(_WIN32) && !defined(FTE_SDL) && !defined(_XBOX)
 	#include <windows.h>
 	void INS_UpdateGrabs(int fullscreen, int activeapp);
-#else
-	#include <unistd.h>
 #endif
 
 int QCLibEditor(pubprogfuncs_t *prinst, const char *filename, int *line, int *statement, int firststatement, char *error, pbool fatal);
@@ -233,11 +231,7 @@ void QCLoadBreakpoints(const char *vmname, const char *progsname)
 #endif
 		while(debuggerresume == -1 && !wantquit)
 		{
-#if defined(_WIN32) && !defined(FTE_SDL)
-			Sleep(10);
-#else
-			usleep(10*1000);
-#endif
+			Sys_Sleep(1.0/100);
 #ifdef SERVERONLY
 			SV_GetConsoleCommands();
 #else

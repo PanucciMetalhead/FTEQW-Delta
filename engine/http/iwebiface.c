@@ -9,6 +9,22 @@ qboolean HTTP_ServerPoll(qboolean httpserverwanted, int portnum);
 
 #ifdef WEBSVONLY	//we need some functions from quake
 
+#ifdef _WIN32
+#include <direct.h>
+void Sys_mkdir(const char *path)
+{
+    _mkdir(path);
+}
+qboolean Sys_remove(const char *path)
+{
+    return remove(path) == 0;
+}
+qboolean Sys_Rename(const char *oldname, const char *newname)
+{
+    return rename(oldname, newname) == 0;
+}
+#endif
+
 char *NET_SockadrToString(char *s, int slen, struct sockaddr_qstorage *addr, size_t sizeofaddr)
 {
 	switch(((struct sockaddr*)addr)->sa_family)

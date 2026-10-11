@@ -8163,7 +8163,7 @@ void FS_ArbitraryFile_c(int argn, const char *partial, struct xcommandargcomplet
 	#endif
 #endif
 
-#if defined(_WIN32) && !defined(FTE_SDL) && !defined(WINRT) && !defined(_XBOX)
+#if defined(_WIN32) && !(defined(FTE_SDL) && !defined(FTE_SDL3)) && !defined(WINRT) && !defined(_XBOX)
 //so this is kinda screwy
 //"CSIDL_LOCAL_APPDATA/FTE Quake" is what we switched to, but we only use it if the other home dirs don't exist
 //"CSIDL_PERSONAL(My Documents)/My Games/FTE Quake" is what we used to use... but personal now somehow means upload-to-internet in a nicely insecure we-own-all-your-data kind of way...
