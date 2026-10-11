@@ -18,7 +18,7 @@ def main():
     compiler, vm, out = args.compiler.resolve(), args.vm.resolve(), args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
     def run(argv, success=True):
-        proc = subprocess.run([str(a) for a in argv], cwd=out, text=True,
+        proc = subprocess.run([str(a) for a in argv], cwd=out, text=True, encoding='utf-8',
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
         assert (proc.returncode == 0) == success, (argv, proc.returncode, proc.stdout)
         return proc.stdout
@@ -27,7 +27,7 @@ def main():
         output = out/'case.dat'
         if output.exists(): output.unlink()
         log = run([compiler, '-srcfile', 'case.qc', '-o', 'case.dat', *flags], success)
-        (out/f'{name}.log').write_text(log)
+        (out/f'{name}.log').write_text(log, encoding='utf-8')
         assert output.exists() == success, log
         return log
     for topic, marker in [(None, 'Usage:'), ('warnings', 'uninitialized'),
@@ -35,7 +35,7 @@ def main():
                           ('targets', '-Tq1'), ('manual', 'Exit status')]:
         option = '--help' if topic is None else '--manual' if topic == 'manual' else '--help='+topic
         assert marker in run([compiler, option]), option
-        request = subprocess.run([str(compiler), option], cwd=out, capture_output=True, text=True)
+        request = subprocess.run([str(compiler), option], cwd=out, capture_output=True, text=True, encoding='utf-8')
         assert marker in request.stdout and not request.stderr, 'help must use stdout'
     assert 'Unknown help topic' in run([compiler, '--help=unknown'], False)
     assert 'Invalid diagnostics format' in run([compiler, '--diagnostics=invalid'], False)
@@ -84,12 +84,12 @@ def main():
             run([args.baseline.resolve(), *options])
             baseline = (out/'runtime.dat').read_bytes()
         log = run([compiler, *options])
-        (out/f'O{level}.log').write_text(log)
+        (out/f'O{level}.log').write_text(log, encoding='utf-8')
         blob = (out/'runtime.dat').read_bytes()
         if args.baseline:
             assert blob == baseline, f'O{level}: bytecode changed'
         runtime = run([vm, 'runtime.dat'])
-        (out/f'O{level}-vm.log').write_text(runtime)
+        (out/f'O{level}-vm.log').write_text(runtime, encoding='utf-8')
         assert 'QCC_RUNTIME_OK' in runtime and 'FAIL ' not in runtime, runtime
         header = struct.unpack_from('<15i', blob)
         assert header[0] == 6, header
