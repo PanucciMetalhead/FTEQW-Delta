@@ -60,6 +60,10 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #ifdef _WIN32
 	#include <conio.h>
+	#include <malloc.h>
+	#if defined(_MSC_VER) && !defined(alloca)
+		#define alloca _alloca
+	#endif
 	#include <winsock2.h>	//this includes windows.h and is the reason for much compiling slowness with windows builds.
 	#ifdef IPPROTO_IPV6
 		#include <ws2tcpip.h>

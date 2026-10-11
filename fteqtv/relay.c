@@ -32,7 +32,9 @@ we have two types of relay here.
 #include "qtv.h"
 #include <string.h>
 #include <time.h>
+#ifndef NO_ZLIB
 #include <zlib.h>
+#endif
 
 #include "bsd_string.h"
 

@@ -14,6 +14,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <math.h>
+#include <inttypes.h>
 
 enum{false,true};
 

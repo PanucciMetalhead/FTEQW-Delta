@@ -223,9 +223,9 @@ extern "C" {
 	#define max3(a,b,c) max(max(a,b),c)
 #endif
 
-//msvcrt lacks any and all c99 support.
+// Modern Windows runtimes provide the standard integer-format macros.
 #if defined(_WIN32)
-	#ifdef __GNUC__
+	#if defined(__GNUC__) || (defined(_MSC_VER) && _MSC_VER >= 1900)
 		#include <inttypes.h>
 	#else
 		#define PRIxPTR "p"

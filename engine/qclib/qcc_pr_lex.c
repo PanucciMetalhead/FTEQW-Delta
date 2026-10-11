@@ -4534,7 +4534,8 @@ void QCC_PR_LexComment(char **comment)
 			replace = false;
 			oldlen = old?strlen(old):0;
 			*comment = qccHunkAlloc(oldlen + (pr_file_p-start)+1);
-			memcpy(*comment, old, oldlen);
+			if (oldlen)
+				memcpy(*comment, old, oldlen);
 			memcpy(*comment + oldlen, start, pr_file_p - start);
 			(*comment)[oldlen+pr_file_p - start] = 0;
 
