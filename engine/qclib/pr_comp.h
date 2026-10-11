@@ -773,7 +773,9 @@ typedef struct
 	int	secondaryversion;	//Constant - to say that any version 7 progs are actually ours, not someone else's alterations.
 } dprograms_t;
 #define standard_dprograms_t_size offsetof(dprograms_t, ofsfiles)
-_Static_assert(standard_dprograms_t_size == 15 * sizeof(int), "Standard progs header layout changed");
+#ifndef __cplusplus
+_Static_assert(standard_dprograms_t_size == 60, "Standard progs header layout changed");
+#endif
 
 
 
