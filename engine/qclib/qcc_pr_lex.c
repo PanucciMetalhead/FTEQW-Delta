@@ -3913,11 +3913,80 @@ PR_Lex
 Sets pr_token, pr_token_type, and possibly pr_immediate and pr_immediate_type
 ==============
 */
+
+/* Use the source cache, never IO or an inferred token match. Macro/#line
+ * locations can be virtual, in which case the existing context is sufficient. */
+static char *qcc_diagnostic_token;
+static void QCC_PR_PrintSource(const char *file, int line)
+{
+    qcc_cachedsourcefile_t *source;
+    const char *p, *end;
+    char text[241], marker[241];
+    int n, column = -1, offset = 0, display = 0, i;
+    if (!flag_richdiagnostics || flag_msvcstyle || !file || line < 1)
+        return;
+    for (source = qcc_sourcefile; source; source = source->next)
+        if (source->type == FT_CODE && !strcmp(source->filename, file)) break;
+    if (!source) return;
+    end = source->file + source->size;
+    p = source->file;
+    for (n = 1; n < line && p < end; p++)
+        if (*p == '\n') n++;
+    if (n != line || p >= end) return;
+    if (file == s_filen && line == pr_source_line && qcc_diagnostic_token &&
+        (uintptr_t)qcc_diagnostic_token >= (uintptr_t)p &&
+        (uintptr_t)qcc_diagnostic_token < (uintptr_t)end)
+    {
+        const char *q = p;
+        while (q < end && *q != '\n' && *q != '\r') q++;
+        if ((uintptr_t)qcc_diagnostic_token <= (uintptr_t)q)
+            column = qcc_diagnostic_token-p;
+    }
+    /* UTF-8 display width depends on the terminal. Do not claim a caret
+     * column when non-ASCII text precedes the token. */
+    if (column >= 0)
+    {
+        int c;
+        for (c = 0; c < column; c++)
+            if ((unsigned char)p[c] >= 128) { column = -1; break; }
+    }
+    /* Clip long lines around the token, and expand tabs consistently. */
+    if (column > 100) offset = column-60;
+    p += offset;
+    for (i = 0; p < end && *p && *p != '\n' && *p != '\r' && i < 236; p++)
+    {
+        int spaces = (*p == '\t')?4-(i%4):1;
+        if (column >= 0 && offset == column) display = i;
+        offset++;
+        while (spaces-- && i < 236)
+        {
+            text[i] = (*p == '\t')?' ':((unsigned char)*p < 32?'?':*p);
+            marker[i++] = ' ';
+        }
+    }
+    if (column >= 0 && offset == column) display = i;
+    /* Do not clip inside a UTF-8 sequence. */
+    if (p < end && ((unsigned char)*p & 0xc0) == 0x80)
+    {
+        while (i && ((unsigned char)text[i-1] & 0xc0) == 0x80) i--;
+        if (i && (unsigned char)text[i-1] >= 0xc0) i--;
+    }
+    text[i] = 0;
+    externs->Printf("  %5i | %s\n", line, text);
+    if (column >= 0 && column <= offset)
+    {
+        marker[display] = '^';
+        marker[display+1] = 0;
+        externs->Printf("        | %s\n", marker);
+    }
+}
+
 void QCC_PR_Lex (void)
 {
 	int		c;
 
 	pr_token[0] = 0;
+	qcc_diagnostic_token = NULL;
 
 	if (!pr_file_p)
 	{
@@ -3950,6 +4019,7 @@ void QCC_PR_Lex (void)
 		return;
 	}
 
+	qcc_diagnostic_token = pr_file_p;
 	c = *pr_file_p;
 
 	if (!c)
@@ -4177,6 +4247,7 @@ NORETURN void VARGS QCC_PR_ParseError (int errortype, const char *error, ...)
 			externs->Printf ("%s%s(%i) : %serror%s: %s\n", col_location, s_filen, pr_source_line, col_error, col_none, string);
 		else
 			externs->Printf ("%s%s:%i: %serror%s: %s\n", col_location, s_filen, pr_source_line, col_error, col_none, string);
+		QCC_PR_PrintSource(s_filen, pr_source_line);
 	}
 
 	longjmp (pr_parse_abort, 1);
@@ -4200,6 +4271,7 @@ NORETURN void VARGS QCC_PR_ParseErrorPrintDef (int errortype, QCC_def_t *def, co
 	else
 		externs->Printf ("%s%s:%i: %serror%s: %s\n", col_location, s_filen, pr_source_line, col_error, col_none, string);
 
+	QCC_PR_PrintSource(s_filen, pr_source_line);
 	QCC_PR_ParsePrintDef(WARN_ERROR, def);
 
 	longjmp (pr_parse_abort, 1);
@@ -4223,6 +4295,7 @@ NORETURN void VARGS QCC_PR_ParseErrorPrintSRef (int errortype, QCC_sref_t def, c
 	else
 		externs->Printf ("%s%s:%i: %serror%s: %s\n", col_location, s_filen, pr_source_line, col_error, col_none, string);
 
+	QCC_PR_PrintSource(s_filen, pr_source_line);
 	QCC_PR_ParsePrintSRef(WARN_ERROR, def);
 
 	longjmp (pr_parse_abort, 1);
@@ -4273,6 +4346,7 @@ static pbool VARGS QCC_PR_PrintWarning (int type, const char *file, int line, co
 			externs->Printf ("%s%s:%i: %swarning%s%s: %s\n", col_location, file, line, col_warning, wnam, col_none, string);
 		pr_warning_count++;
 	}
+	if (string) QCC_PR_PrintSource(file, line);
 	return true;
 }
 pbool VARGS QCC_PR_Warning (int type, const char *file, int line, const char *error, ...)

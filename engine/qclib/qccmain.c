@@ -153,18 +153,19 @@ static pbool flag_dumpopcodes;
 struct {
 	char *name;
 	int index;
+	const char *description;
 } warningnames[] =
 {
 //	{"", WARN_NOTREFERENCEDCONST},
 //	{"", WARN_CONFLICTINGRETURNS},
-	{" Q100", WARN_PRECOMPILERMESSAGE},
-	{" Q101", WARN_TOOMANYPARAMS},
+	{" Q100", WARN_PRECOMPILERMESSAGE, "Message from #warning"},
+	{" Q101", WARN_TOOMANYPARAMS, "Too many function arguments"},
 	//102: Indirect function: too many parameters
 	//103: vararg func cannot have more than 
 	//104: type mismatch on parm %i
-	{" Q105", WARN_TOOFEWPARAMS},
+	{" Q105", WARN_TOOFEWPARAMS, "Too few function arguments"},
 //	{"", WARN_UNEXPECTEDPUNCT},
-	{" Q106", WARN_ASSIGNMENTTOCONSTANT},
+	{" Q106", WARN_ASSIGNMENTTOCONSTANT, "Assignment to a constant"},
 	//107: Array index should be type int
 	//108: Mixed float and int types
 	//109: Expecting int, float a parameter found
@@ -177,7 +178,7 @@ struct {
 	//117: too many initializers
 	//118: Too many closing braces
 	//119: Too many #endifs
-	{" Q120", WARN_BADPRAGMA},
+	{" Q120", WARN_BADPRAGMA, "Unknown or invalid pragma"},
 	//121: unknown directive
 	//122: strofs exceeds limit
 	//123: numstatements exceeds limit 
@@ -186,18 +187,18 @@ struct {
 	//126: numfielddefs exceeds limit 
 	//127: numpr_globals exceeds limit 
 	//128: rededeclared with different parms 
-	{" F129", WARN_COMPATIBILITYHACK},	//multiple errors are replaced by this, for compat purposes.
+	{" F129", WARN_COMPATIBILITYHACK, "Compatibility workaround changes language behavior"},	//multiple errors are replaced by this, for compat purposes.
 
-	{" Q203", WARN_MISSINGRETURNVALUE},
-	{" Q204", WARN_WRONGRETURNTYPE},
-	{" Q205", WARN_POINTLESSSTATEMENT},
-	{" Q206", WARN_MISSINGRETURN},
-	{" Q207", WARN_DUPLICATEDEFINITION},	//redeclared different scope
-	{" Q208", WARN_SYSTEMCRC},
+	{" Q203", WARN_MISSINGRETURNVALUE, "Return statement is missing a value"},
+	{" Q204", WARN_WRONGRETURNTYPE, "Return value has an incompatible type"},
+	{" Q205", WARN_POINTLESSSTATEMENT, "Statement has no useful effect"},
+	{" Q206", WARN_MISSINGRETURN, "Not all control paths return a value"},
+	{" Q207", WARN_DUPLICATEDEFINITION, "Duplicate definition"},	//redeclared different scope
+	{" Q208", WARN_SYSTEMCRC, "System definitions do not match a recognized engine interface"},
 //	{"", WARN_STRINGTOOLONG},
 //	{"", WARN_BADTARGET},
 	//301: %s defined as local in %s
-	{" Q302", WARN_NOTREFERENCED},			//302: Unreferenced local variable %s from line %i
+	{" Q302", WARN_NOTREFERENCED, "Unused variable"},			//302: Unreferenced local variable %s from line %i
 	//401: In function %s parameter %s is unused
 //	{"", WARN_HANGINGSLASHR},
 //	{"", WARN_NOTDEFINED},
@@ -206,50 +207,50 @@ struct {
 //	{"", WARN_KEYWORDDISABLED},
 //	{"", WARN_ENUMFLAGS_NOTINTEGER},
 //	{"", WARN_ENUMFLAGS_NOTBINARY},
-	{" Q111", WARN_DUPLICATELABEL},
-	{" Q201", WARN_ASSIGNMENTINCONDITIONAL},
-	{" F300", WARN_DEADCODE},
-	{" F301", WARN_NOTUTF8},
-	{" F302", WARN_UNINITIALIZED},
-	{" F303", WARN_EVILPREPROCESSOR},
-	{" F304", WARN_UNARYNOTSCOPE},
-	{" F305", WARN_CASEINSENSITIVEFRAMEMACRO},
-	{" F306", WARN_SAMENAMEASGLOBAL},
-	{" F307", WARN_STRICTTYPEMISMATCH},
-	{" F308", WARN_TYPEMISMATCHREDECOPTIONAL},
-	{" F309", WARN_IGNORECOMMANDLINE},
-	{" F310", WARN_MISUSEDAUTOCVAR},
-	{" F311", WARN_FTE_SPECIFIC},
-	{" F312", WARN_OVERFLOW},
-	{" F313", WARN_DENORMAL},
-	{" F314", WARN_LAXCAST},
-	{" F315", WARN_DUPLICATEPRECOMPILER},
-	{" F316", WARN_IDENTICALPRECOMPILER},
-	{" F317", WARN_STALEMACRO},
-	{" F318", WARN_DUPLICATEMACRO},
-	{" F319", WARN_CONSTANTCOMPARISON},
-	{" F320", WARN_PARAMWITHNONAME},
-	{" F321", WARN_GMQCC_SPECIFIC},
-	{" F322", WARN_IFSTRING_USED},
-	{" F323", WARN_UNREACHABLECODE},
-	{" F324", WARN_FORMATSTRING},
-	{" F325", WARN_NESTEDCOMMENT},
-	{" F326", WARN_DEPRECATEDVARIABLE},
-	{" F327", WARN_ENUMFLAGS_NOTINTEGER},
-	{" F328", WARN_DEPRECACTEDSYNTAX},
-	{" F329", WARN_REDECLARATIONMISMATCH},
-	{" F330", WARN_MUTEDEPRECATEDVARIABLE},
-	{" F331", WARN_SELFNOTTHIS},
-	{" F332", WARN_DIVISIONBY0},
-	{" F333", WARN_ARGUMENTCHECK},
-	{" F334", WARN_MISSINGMEMBERQUALIFIER},
-	{" F335", WARN_MEMBERNOTDEFINED},		//defining a new member function inside a class that didn't list it.
+	{" Q111", WARN_DUPLICATELABEL, "Duplicate label"},
+	{" Q201", WARN_ASSIGNMENTINCONDITIONAL, "Assignment inside a condition"},
+	{" F300", WARN_DEADCODE, "Function is never directly called or referenced"},
+	{" F301", WARN_NOTUTF8, "Source text is not valid UTF-8"},
+	{" F302", WARN_UNINITIALIZED, "Local variable may be read before initialization"},
+	{" F303", WARN_EVILPREPROCESSOR, "Unsupported or invalid preprocessing construct"},
+	{" F304", WARN_UNARYNOTSCOPE, "Ambiguous scope of unary negation"},
+	{" F305", WARN_CASEINSENSITIVEFRAMEMACRO, "Frame macro differs only in letter case"},
+	{" F306", WARN_SAMENAMEASGLOBAL, "Local declaration hides a global"},
+	{" F307", WARN_STRICTTYPEMISMATCH, "Incompatible types"},
+	{" F308", WARN_TYPEMISMATCHREDECOPTIONAL, "Optional parameter differs in a redeclaration"},
+	{" F309", WARN_IGNORECOMMANDLINE, "Source pragma conflicts with a command-line setting"},
+	{" F310", WARN_MISUSEDAUTOCVAR, "Invalid autocvar declaration or use"},
+	{" F311", WARN_FTE_SPECIFIC, "Feature is specific to FTE"},
+	{" F312", WARN_OVERFLOW, "Value overflows or loses precision during conversion"},
+	{" F313", WARN_DENORMAL, "Denormal value may be nonportable"},
+	{" F314", WARN_LAXCAST, "Conversion requires lax type checking"},
+	{" F315", WARN_DUPLICATEPRECOMPILER, "Macro redefined with different contents"},
+	{" F316", WARN_IDENTICALPRECOMPILER, "Macro redefined identically"},
+	{" F317", WARN_STALEMACRO, "Stale macro definition"},
+	{" F318", WARN_DUPLICATEMACRO, "Duplicate macro definition"},
+	{" F319", WARN_CONSTANTCOMPARISON, "Condition compares constant values"},
+	{" F320", WARN_PARAMWITHNONAME, "Parameter has no name"},
+	{" F321", WARN_GMQCC_SPECIFIC, "Feature is specific to the gmqcc dialect"},
+	{" F322", WARN_IFSTRING_USED, "String used as a condition"},
+	{" F323", WARN_UNREACHABLECODE, "Unreachable statement"},
+	{" F324", WARN_FORMATSTRING, "Format string and arguments disagree"},
+	{" F325", WARN_NESTEDCOMMENT, "Nested comment"},
+	{" F326", WARN_DEPRECATEDVARIABLE, "Use of a deprecated symbol"},
+	{" F327", WARN_ENUMFLAGS_NOTINTEGER, "Flag enumeration value is not an integer"},
+	{" F328", WARN_DEPRECACTEDSYNTAX, "Deprecated syntax"},
+	{" F329", WARN_REDECLARATIONMISMATCH, "Incompatible redeclaration"},
+	{" F330", WARN_MUTEDEPRECATEDVARIABLE, "Use of a deprecated symbol explicitly muted by source"},
+	{" F331", WARN_SELFNOTTHIS, "Unexpected self reference in a class method"},
+	{" F332", WARN_DIVISIONBY0, "Division by zero"},
+	{" F333", WARN_ARGUMENTCHECK, "Function argument validation failed"},
+	{" F334", WARN_MISSINGMEMBERQUALIFIER, "Class member is missing a qualifier"},
+	{" F335", WARN_MEMBERNOTDEFINED, "Class member was not declared"},		//defining a new member function inside a class that didn't list it.
 
-	{" F207", WARN_NOTREFERENCEDFIELD},
-	{" F208", WARN_NOTREFERENCEDCONST},
-	{" F209", WARN_EXTRAPRECACHE},	
-	{" F210", WARN_NOTPRECACHED},
-	{" F211", WARN_SYSTEMCRC2},
+	{" F207", WARN_NOTREFERENCEDFIELD, "Unused entity field"},
+	{" F208", WARN_NOTREFERENCEDCONST, "Unused constant or function prototype"},
+	{" F209", WARN_EXTRAPRECACHE, "Resource is precached but not directly used"},
+	{" F210", WARN_NOTPRECACHED, "Resource is used but not directly precached"},
+	{" F211", WARN_SYSTEMCRC2, "Outdated system definitions"},
 
 	//frikqcc errors
 	//Q608: PrecacheSound: numsounds
@@ -265,14 +266,20 @@ struct {
 	//Q618: Ran out of mem pointer space (malloc failure again)
 
 	//we can put longer alternative names here...
-	{" field-redeclared",	WARN_REMOVEDWARNING},
-	{" deprecated",		WARN_DEPRECATEDVARIABLE},
-	{" bounds",			WARN_BOUNDS},
+	{" field-redeclared",	WARN_REMOVEDWARNING, "Legacy warning identifier retained for compatibility"},
+	{" deprecated",		WARN_DEPRECATEDVARIABLE, "Use of a deprecated symbol"},
+	{" bounds",			WARN_BOUNDS, "Array access is out of bounds"},
 
-	{" octal",			WARN_OCTAL_IMMEDIATE},
-	{" unimplemented",	WARN_IGNOREDKEYWORD},
-	{" localptr",		WARN_UNSAFELOCALPOINTER},
-	{" largereturn",	WARN_SLOW_LARGERETURN},
+	{" octal",			WARN_OCTAL_IMMEDIATE, "Leading-zero number is interpreted as octal"},
+	{" unimplemented",	WARN_IGNOREDKEYWORD, "Keyword is not implemented for this use"},
+	{" localptr",		WARN_UNSAFELOCALPOINTER, "Pointer to a local may be unsafe during recursion"},
+	{" largereturn",	WARN_SLOW_LARGERETURN, "Large return value requires extra copies"},
+	{" uninitialized", WARN_UNINITIALIZED, "Local variable may be read before initialization"},
+	{" missing-return", WARN_MISSINGRETURN, "Not all control paths return a value"},
+	{" unused", WARN_NOTREFERENCED, "Unused variable"},
+	{" unreachable", WARN_UNREACHABLECODE, "Unreachable statement"},
+	{" shadow", WARN_SAMENAMEASGLOBAL, "Local declaration hides a global"},
+	{" format", WARN_FORMATSTRING, "Format string and arguments disagree"},
 	{NULL}
 };
 
@@ -452,6 +459,105 @@ compiler_flag_t compiler_flag[] = {
 	{&flag_dumpopcodes,		FLAG_MIDCOMPILE,"dumpopcodes",		"Write a .op.inc file with the supported opcodes in C syntax",	"Writes a .inc file for game engines to include to have opcodes defined. Executes at the end of the compile, and thus respects opcodes added via #pragma."},
 	{NULL}
 };
+
+#include "qcc_manual.h"
+
+pbool flag_richdiagnostics;
+static pbool flag_optreport;
+
+/* Host print callbacks can truncate large messages (the CLI uses 1024 bytes).
+ * Keep each call bounded so --manual works in every compiler embedding. */
+static void QCC_HelpText(progexterns_t *out, const char *text)
+{
+    size_t length = strlen(text), count;
+    while (length)
+    {
+        count = min(length, 512);
+        out->Printf("%.*s", (int)count, text);
+        text += count;
+        length -= count;
+    }
+}
+static void QCC_HelpPrintf(progexterns_t *out, const char *format, ...)
+{
+    char text[8192];
+    va_list args;
+    va_start(args, format);
+    QC_vsnprintf(text, sizeof(text)-1, format, args);
+    va_end(args);
+    text[sizeof(text)-1] = 0;
+    QCC_HelpText(out, text);
+}
+
+pbool QCC_PrintHelp(progexterns_t *out, const char *topic)
+{
+    int i;
+    pbool all = topic && !strcmp(topic, "manual");
+    if (all)
+        QCC_HelpText(out, qcc_manual);
+    else if (!topic || !*topic)
+    {
+        QCC_HelpPrintf(out, "FTEQCC - QuakeC compiler\nUsage: fteqcc [options] [source.src | source.qc ...]\n\n"
+            "  -srcfile PATH     Starting source project (default: progs.src)\n"
+            "  -src DIRECTORY    Source directory\n  -o PATH           Output bytecode filename\n"
+            "  -TNAME            Bytecode target (q1, h2, fte, dp, kk7, qtest)\n"
+            "  -O0/-O1/-O2/-O3   Optimization levels; higher levels affect compatibility\n"
+            "  -ONAME/-Ono-NAME  Enable/disable one optimization\n"
+            "  -Wall/-Wextra     Enable additional warnings\n  -Werror           Treat warnings as errors\n"
+            "  -W[no-|error-]NAME Control one warning by name or code\n"
+            "  -DNAME[=VALUE]    Define a macro\n  -I PATH           Add an include directory\n"
+            "  -std=NAME         Source compatibility dialect\n  -F[no-]NAME       Language flag\n"
+            "  -K[no-]NAME       Keyword\n  -Fwasm            Dump instructions to qc.asm\n"
+            "  --opt-report      Bytecode totals and optimization counters\n  -v                More verbose output\n  --version         Compiler version\n"
+            "  --diagnostics=rich|plain  Source excerpts or original diagnostics\n"
+            "  --help=TOPIC      optimizations, warnings, flags, targets\n"
+            "  --manual          Complete manual and option catalogs\n\n"
+            "Examples:\n  fteqcc -srcfile progs.src -Wall\n  fteqcc --manual | less\n\n"
+            "Packages: -l PACKAGE; -x PACKAGE [FILES]; -p PACKAGE FILE\n"
+            "          -0/-9/-z PACKAGE DIRECTORY; -d BYTECODE (decompile)\n");
+        return true;
+    }
+    if (all || !strcmp(topic, "optimizations") || !strcmp(topic, "optimisations"))
+    {
+        QCC_HelpPrintf(out, "OPTIMIZATION CATALOG\nLevels are cumulative. Defaults are a selected subset of level 1.\n\n");
+        for (i = 0; optimisations[i].enabled; i++)
+            QCC_HelpPrintf(out, "  -O%s (alias -O%s, level %i%s%s)\n    %s\n\n",
+                optimisations[i].fullname, optimisations[i].abbrev,
+                optimisations[i].optimisationlevel,
+                (optimisations[i].flags & FLAG_ASDEFAULT)?", default":"",
+                (optimisations[i].flags & FLAG_KILLSDEBUGGERS)?", affects debug symbols":"",
+                optimisations[i].description);
+        if (!all) return true;
+    }
+    if (all || !strcmp(topic, "warnings"))
+    {
+        QCC_HelpPrintf(out, "WARNING CATALOG\nUse -WNAME, -Wno-NAME, or -Werror-NAME. Codes remain stable.\n"
+            "Defaults depend on the dialect and source pragmas.\n\n");
+        for (i = 0; warningnames[i].name; i++)
+            QCC_HelpPrintf(out, "  %-22s%s\n", warningnames[i].name+1,
+                warningnames[i].description?warningnames[i].description:"Diagnostic identifier");
+        if (!all) return true;
+    }
+    if (all || !strcmp(topic, "flags"))
+    {
+        QCC_HelpPrintf(out, "LANGUAGE FLAGS AND KEYWORDS\nUse -F[no-]NAME or -K[no-]NAME respectively.\n\n");
+        for (i = 0; compiler_flag[i].enabled; i++)
+            QCC_HelpPrintf(out, "  %s%s: %s%s\n    %s\n\n",
+                !strncmp(compiler_flag[i].fullname, "Keyword:", 8)?"-K":"-F",
+                compiler_flag[i].abbrev, compiler_flag[i].fullname,
+                (compiler_flag[i].flags & FLAG_ASDEFAULT)?" (default)":"",
+                compiler_flag[i].description);
+        if (!all) return true;
+    }
+    if (all || !strcmp(topic, "targets"))
+    {
+        QCC_PrintTargets(out);
+        return true;
+    }
+    QCC_HelpPrintf(out, "Unknown help topic '%s'. Use --help or --manual.\n", topic);
+    return false;
+}
+
 
 static const char *QCC_VersionString(void)
 {
@@ -2371,7 +2477,7 @@ static pbool QCC_WriteData (int crc)
 	QCC_SortFields();
 
 	if (dupewarncount > 10 && verbose < VERBOSE_STANDARD)
-		QCC_PR_Note(WARN_NOTREFERENCED, NULL, 0, "suppressed %i more warnings about unreferenced variables, as you clearly don't care about the first 10.", dupewarncount-10);
+		QCC_PR_Note(WARN_NOTREFERENCED, NULL, 0, "suppressed %i additional unused-variable warnings; use -v to show them.", dupewarncount-10);
 	if (extwarncount)
 		QCC_PR_Note(WARN_NOTREFERENCED, NULL, 0, "suppressed %i warnings about unused extensions.", extwarncount);
 
@@ -4607,6 +4713,7 @@ static void QCC_PR_CommandLinePrecompilerOptions (void)
 	const char *name, *val;
 	pbool werror = false;
 	qcc_nopragmaoptimise = false;
+	flag_optreport = false;
 
 	for (i = 1;i<myargc;i++)
 	{
@@ -4713,7 +4820,7 @@ static void QCC_PR_CommandLinePrecompilerOptions (void)
 					if (!stricmp(a, "overlap-locals"))
 						opt_locals_overlapping = state;
 					else
-						QCC_PR_Warning(WARN_BADPARAMS, "cmdline", 0, "Unrecognised optimisation parameter (%s)", myargv[i]);
+						QCC_PR_Warning(WARN_BADPARAMS, "cmdline", 0, "Unrecognised optimisation parameter (%s); see --help=optimizations", myargv[i]);
 				}
 			}
 		}
@@ -4741,7 +4848,7 @@ static void QCC_PR_CommandLinePrecompilerOptions (void)
 			}
 
 			if (!compiler_flag[p].enabled)
-				QCC_PR_Warning(WARN_BADPARAMS, "cmdline", 0, "Unrecognised keyword parameter (%s)", myargv[i]);
+				QCC_PR_Warning(WARN_BADPARAMS, "cmdline", 0, "Unrecognised keyword parameter (%s); see --help=flags", myargv[i]);
 		}
 		else if ( !strnicmp(myargv[i], "-std=", 5))
 		{
@@ -4977,7 +5084,7 @@ static void QCC_PR_CommandLinePrecompilerOptions (void)
 				else if (!stricmp(arg, "bail-on-werror"))
 					;
 				else
-					QCC_PR_Warning(WARN_BADPARAMS, "cmdline", 0, "Unrecognised flag parameter (%s)", myargv[i]);
+					QCC_PR_Warning(WARN_BADPARAMS, "cmdline", 0, "Unrecognised flag parameter (%s); see --help=flags", myargv[i]);
 			}
 		}
 
@@ -4990,7 +5097,7 @@ static void QCC_PR_CommandLinePrecompilerOptions (void)
 			else
 			{
 				if (!QCC_OPCodeSetTargetName(myargv[i]+2))
-					QCC_PR_Warning(WARN_BADPARAMS, "cmdline", 0, "Unrecognised target parameter (%s)", myargv[i]);
+					QCC_PR_Warning(WARN_BADPARAMS, "cmdline", 0, "Unrecognised target parameter (%s); see --help=targets", myargv[i]);
 			}
 		}
 
@@ -5085,7 +5192,7 @@ static void QCC_PR_CommandLinePrecompilerOptions (void)
 				if (p >= 0)
 					qccwarningaction[p] = action;
 				else
-					QCC_PR_Warning(WARN_BADPARAMS, "cmdline", 0, "Unrecognised warning parameter (%s)", myargv[i]);
+					QCC_PR_Warning(WARN_BADPARAMS, "cmdline", 0, "Unrecognised warning parameter (%s); see --help=warnings", myargv[i]);
 			}
 		}
 		else if ( !strcmp(myargv[i], "-stdout") )
@@ -5106,6 +5213,12 @@ static void QCC_PR_CommandLinePrecompilerOptions (void)
 			externs->Printf("%s\n", QCC_VersionString());
 			exit(EXIT_SUCCESS);
 		}
+		else if (!strcmp(myargv[i], "--opt-report"))
+			flag_optreport = true;
+		else if (!strcmp(myargv[i], "--diagnostics=rich"))
+			flag_richdiagnostics = true;
+		else if (!strcmp(myargv[i], "--diagnostics=plain"))
+			flag_richdiagnostics = false;
 		else if ( !strcmp(myargv[i], "--help") || !strcmp(myargv[i], "-help") )
 			;	//hacks... checked later. *sigh*
 		else if (*myargv[i] == '-' || WINDOWSARG(*myargv[i] == '/'))
@@ -5644,35 +5757,7 @@ memset(pr_immediate_string, 0, sizeof(pr_immediate_string));
 
 	if ( QCC_CheckParm ("/?") || QCC_CheckParm ("?") || QCC_CheckParm ("-?") || QCC_CheckParm ("-help") || QCC_CheckParm ("--help"))
 	{
-		externs->Printf ("Compile args:\n");
-//		externs->Printf ("to build a clean data tree: qcc -copy <srcdir> <destdir>\n");
-//		externs->Printf ("to build a clean pak file: qcc -pak <srcdir> <packfile>\n");
-//		externs->Printf ("to bsp all bmodels: qcc -bspmodels <gamedir>\n");
-		externs->Printf (" -src <DIRECTORY> : look for the progs.src and qc files in a different directory\n");
-		externs->Printf (" -srcfile <PATH> : explicit path for your starting .src file\n");
-		externs->Printf (" -O0 : disable optimisations\n");
-		externs->Printf (" -O1 : optimise for size\n");
-		externs->Printf (" -O2 : optimise more - some behaviours may change\n");
-		externs->Printf (" -O3 : optimise lots - experimental or non-future-proof\n");
-		externs->Printf (" -O<NAME> : enable an optimisation\n");
-		externs->Printf (" -Ono-<NAME> : disable optimisations\n");
-		externs->Printf (" -K[no-]<KEYWORD> : activate or deactivate a keyword\n");
-		externs->Printf ("     note that inactive keywords can still be used via __keyword\n");
-		externs->Printf (" -Wall : give a stupid number of warnings\n");
-		externs->Printf (" -T<TARGET> : set an output format\n");
-		externs->Printf ("     q1, h2, qtest, fte_5768, dp, kk7\n");
-		externs->Printf (" -F[no-]<FLAG> : Enable or disable some flagged setting\n");
-		externs->Printf ("     wasm : causes FTEQCC to dump all asm to qc.asm\n");
-		externs->Printf ("     autoproto : enable automatic prototyping\n");
-		externs->Printf ("     subscope : make locals specific to their subscope\n");
-		externs->Printf ("     assumeint : don't force immediates to floats, preserving precision\n");
-		externs->Printf ("     dumpautocvars : write a .cfg containing all autocvars, to be inserted into your mod's default.cfg file\n");
-		externs->Printf ("     dumplocalisation : write a localisation template file\n");
-		externs->Printf ("     dumpopcodes : write an opcodes file\n");
-		externs->Printf (" -D<MACRO>=<VALUE> : define a preprocessor macro via the commandline\n");
-		externs->Printf (" -I<PATH> : specify an alternative path to search for includes\n");
-		externs->Printf (" -std=<STD> : change default settings to be more accepting of code for other compilers\n");
-		externs->Printf ("     qcc(vanilla), hcc(hexen2), C, qccx, reacc(for nehahra)\n");
+		QCC_PrintHelp(externs, NULL);
 
 		qcc_compileactive = false;
 		return true;
@@ -5937,7 +6022,7 @@ void QCC_ContinueCompile(void)
 	if(setjmp(pr_parse_abort))
 	{
 		if (++pr_error_count > MAX_ERRORS)
-			QCC_Error (ERR_PARSEERRORS, "%i errors have occured\n", pr_error_count);
+			QCC_Error (ERR_PARSEERRORS, "%i error%s occurred\n", pr_error_count, pr_error_count == 1?"":"s");
 		return;	//just try move onto the next file, gather errors.
 	}
 	else
@@ -5983,7 +6068,7 @@ void QCC_ContinueCompile(void)
 	QCC_LoadFile (qccmfilename, (void *)&qccmsrc2);
 
 	if (!QCC_PR_CompileFile (qccmsrc2, qccmfilename) )
-		QCC_Error (ERR_PARSEERRORS, "%i errors have occured\n", pr_error_count);
+		QCC_Error (ERR_PARSEERRORS, "%i error%s occurred\n", pr_error_count, pr_error_count == 1?"":"s");
 	*/
 }
 void QCC_FinishCompile(void)
@@ -6047,6 +6132,22 @@ void QCC_FinishCompile(void)
 
 	if (donesomething)
 	{
+        if (flag_optreport)
+        {
+            int i;
+            externs->Printf("Optimization report for %s\n", destfile);
+            externs->Printf("  Output: %i statements, %i functions, %i global slots, %i string bytes\n",
+                numstatements, numfunctions, numpr_globals, strofs);
+            externs->Printf("  Enabled passes:");
+            for (i = 0; optimisations[i].enabled; i++)
+                if (*optimisations[i].enabled) externs->Printf(" %s", optimisations[i].fullname);
+            externs->Printf("\n  Folded constant expressions: %i\n", optres_constantarithmatic);
+            externs->Printf("  Assignment simplifications: %i\n", optres_assignments);
+            externs->Printf("  Jump simplifications: %i\n", optres_compound_jumps);
+            externs->Printf("  Temporary slots reused: %i\n", optres_overlaptemps);
+            externs->Printf("  Duplicate string bytes avoided: %i\n", optres_noduplicatestrings);
+            externs->Printf("  Counts describe this compile; measure VM execution separately for speed.\n");
+        }
 		if (verbose >= VERBOSE_STANDARD)
 		{
 			externs->Printf ("Compile Complete\n\n");
@@ -6158,9 +6259,11 @@ void new_QCC_ContinueCompile(void)
 {
 	if (setjmp(pr_parse_abort))
 	{
+		/* This path aborts immediately, unlike the recovering parser. */
+		pr_error_count++;
 //		if (pr_error_count != 0)
 		{
-			QCC_Error (ERR_PARSEERRORS, "%i errors have occured\n", pr_error_count);
+			QCC_Error (ERR_PARSEERRORS, "%i error%s occurred\n", pr_error_count, pr_error_count == 1?"":"s");
 			return;
 		}
 		QCC_PR_SkipToSemicolon ();
@@ -6171,7 +6274,7 @@ void new_QCC_ContinueCompile(void)
 	if (pr_token_type == tt_eof)
 	{
 		if (pr_error_count)
-			QCC_Error (ERR_PARSEERRORS, "%i errors have occured\n", pr_error_count);
+			QCC_Error (ERR_PARSEERRORS, "%i error%s occurred\n", pr_error_count, pr_error_count == 1?"":"s");
 
 		if (autoprototype && !parseonly)
 		{

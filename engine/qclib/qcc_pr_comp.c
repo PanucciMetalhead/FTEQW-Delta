@@ -1824,6 +1824,35 @@ static struct {
 	{QCF_QTEST,		"qtest",		0},
 	{0,				NULL}
 };
+void QCC_PrintTargets(progexterns_t *out)
+{
+    int i;
+    const char *description;
+    out->Printf("BYTECODE TARGETS\nAliases come from the compiler's accepted target table.\n\n");
+    for (i = 0; targets[i].name; i++)
+    {
+        switch(targets[i].target)
+        {
+        case QCF_STANDARD: description = "Original Quake format"; break;
+        case QCF_QSS: description = "Quakespasm-Spiked extensions"; break;
+        case QCF_HEXEN2: description = "Hexen II format"; break;
+        case QCF_UHEXEN2: description = "Extended Hexen II format"; break;
+        case QCF_KK7: description = "Extended version 7 format"; break;
+        case QCF_FTE: description = "FTE extensions"; break;
+        case QCF_FTEH2: description = "FTE extensions with Hexen II support"; break;
+        case QCF_FTEDEBUG: description = "FTE debugging format"; break;
+        case QCF_DARKPLACES: description = "DarkPlaces extensions"; break;
+        case QCF_QTEST: description = "Quake test format"; break;
+        default: description = "Extended format"; break;
+        }
+        out->Printf("  -T%-12s %s", targets[i].name, description);
+        if (targets[i].defaultrev) out->Printf(" (default revision %u)", targets[i].defaultrev);
+        out->Printf("\n");
+    }
+    out->Printf("\nUse a revision suffix when needed, for example -Tfte_5768.\n"
+        "Match the target and revision to the engine's supported opcodes.\n");
+}
+
 pbool QCC_OPCodeSetTargetName(const char *targ)
 {	//fte_24 -> fmt=QCF_FTE, ver=24
 	const char *ver;
