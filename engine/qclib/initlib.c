@@ -1388,7 +1388,8 @@ void PR_QCGC_Thread(void *ctx, void *data, size_t a, size_t b)
 static void PR_ExpandTempStrings(progfuncs_t *progfuncs, size_t newmax)
 {
 	tempstr_t **ntable = progfuncs->funcs.parms->memalloc(sizeof(*ntable) * newmax);
-	memcpy(ntable, prinst.tempstrings, sizeof(*ntable) * prinst.maxtempstrings);
+	if (prinst.maxtempstrings)
+		memcpy(ntable, prinst.tempstrings, sizeof(*ntable) * prinst.maxtempstrings);
 	memset(ntable+prinst.maxtempstrings, 0, sizeof(*ntable) * (newmax-prinst.maxtempstrings));
 	prinst.maxtempstrings = newmax;
 	if (prinst.tempstrings)

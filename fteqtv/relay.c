@@ -443,7 +443,11 @@ static struct turnclient_s *TURN_Allocate(cluster_t *cluster, netadr_t *clientad
 	struct sockaddr *address;
 	struct sockaddr_in	address4;
 	struct sockaddr_in6	address6;
+#ifdef _WIN32
+	int addrlen;
+#else
 	socklen_t addrlen;
+#endif
 
 	unsigned long nonblocking = true;
 	unsigned long v6only = false;
@@ -493,7 +497,7 @@ static struct turnclient_s *TURN_Allocate(cluster_t *cluster, netadr_t *clientad
 
 #if defined(_WIN32) && defined(SO_EXCLUSIVEADDRUSE)
 	//win32 is so fucked up
-	setsockopt(newsocket, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, (char *)&_true, sizeof(_true));
+	setsockopt(sock, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, (char *)&nonblocking, sizeof(nonblocking));
 #endif
 
 	for (tries = 5; ; tries--)
@@ -707,6 +711,7 @@ static void TURN_AddIntegrity(cluster_t *cluster, netmsg_t *m, const struct turn
 	WriteBigLong(m, crc);
 #endif
 }
+#ifndef NO_ZLIB
 static qboolean TURN_ValidateFingerprint(cluster_t *cluster, netmsg_t *m, unsigned int needcrc)
 {	//this just verifies that its actually a correct non-corrupted STUN packet. otherwise assume some other multiplexed protocol.
 	unsigned int crc;
@@ -721,6 +726,7 @@ static qboolean TURN_ValidateFingerprint(cluster_t *cluster, netmsg_t *m, unsign
 		return true;	//needs to match.
 	return false;		//oops.
 }
+#endif
 qboolean TURN_IsRequest(cluster_t *cluster, netmsg_t *m, netadr_t *from)
 {
 	stunhdr_t hdr;

@@ -7,6 +7,7 @@ Setting them should be fine.
 #ifndef __PR_COMP_H__
 #define __PR_COMP_H__
 #include "progtype.h"
+#include <stddef.h>
 
 /*
 #ifdef USE_MSVCRT_DEBUG
@@ -771,7 +772,8 @@ typedef struct
 
 	int	secondaryversion;	//Constant - to say that any version 7 progs are actually ours, not someone else's alterations.
 } dprograms_t;
-#define standard_dprograms_t_size ((size_t)&((dprograms_t*)NULL)->ofsfiles)
+#define standard_dprograms_t_size offsetof(dprograms_t, ofsfiles)
+_Static_assert(standard_dprograms_t_size == 15 * sizeof(int), "Standard progs header layout changed");
 
 
 
