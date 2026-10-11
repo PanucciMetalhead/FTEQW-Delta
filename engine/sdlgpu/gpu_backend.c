@@ -42,7 +42,7 @@ void GPU_CheckLightingSettings(void)
 
 typedef struct pipeline_s {
     unsigned bits, cull;
-    qboolean lines;
+    qboolean lines, panini;
     SDL_GPUTextureFormat format;
     SDL_GPUGraphicsPipeline *pipeline;
     struct pipeline_s *next;
@@ -55,6 +55,85 @@ typedef struct gpu_target_s {
     struct gpu_target_s *next;
 } gpu_target_t;
 static gpu_target_t *targets;
+
+/* One cached source per view, including split-screen and CSQC render targets.
+ * A later view must not overwrite an image referenced by an earlier warp. */
+struct gpu_panini_view_s {
+    SDL_GPUTexture *color, *depth, *destination, *destinationdepth;
+    SDL_GPUTextureFormat format;
+    unsigned width, height, destinationwidth, destinationheight;
+    pxrect_t rect;
+    float warp;
+    qboolean used, populated;
+    size_t firstdraw;
+    struct gpu_panini_view_s *next;
+};
+static gpu_panini_view_t *paniniviews;
+
+gpu_panini_view_t *GPU_BeginPaniniView(float fovx)
+{
+    gpu_panini_view_t *view, *available = NULL;
+    SDL_GPUTextureCreateInfo ci = {0};
+    unsigned width = max(1, r_refdef.pxrect.width), height = max(1, r_refdef.pxrect.height);
+    for (view = paniniviews; view; view = view->next) if (!view->used) {
+        if (!available) available = view;
+        if (view->width == width && view->height == height && view->format == gpu.targetformat) break;
+    }
+    if (!view) view = available;
+    if (!view) {
+        view = Z_Malloc(sizeof(*view)); view->next = paniniviews; paniniviews = view;
+    }
+    view->used = true; view->firstdraw = gpu.numdraws;
+    if (!view->color || view->width != width || view->height != height || view->format != gpu.targetformat) {
+        if (view->color) SDL_ReleaseGPUTexture(gpu.device, view->color);
+        if (view->depth) SDL_ReleaseGPUTexture(gpu.device, view->depth);
+        ci.type = SDL_GPU_TEXTURETYPE_2D; ci.width = width; ci.height = height;
+        ci.layer_count_or_depth = ci.num_levels = 1; ci.sample_count = SDL_GPU_SAMPLECOUNT_1;
+        ci.format = gpu.targetformat; ci.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
+        view->color = SDL_CreateGPUTexture(gpu.device, &ci);
+        ci.format = gpu.depthformat; ci.usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET;
+        view->depth = SDL_CreateGPUTexture(gpu.device, &ci);
+        if (!view->color || !view->depth) GPU_Error("create Panini view");
+        view->width = width; view->height = height; view->format = gpu.targetformat;
+    }
+    view->destination = gpu.target; view->destinationdepth = gpu.targetdepth;
+    view->destinationwidth = gpu.targetwidth; view->destinationheight = gpu.targetheight;
+    view->rect = r_refdef.pxrect;
+    /* Standard Panini (D=1): x=2*tan(longitude/2). Screen fitting preserves
+     * horizontal coverage and keeps every output sample inside the source.
+     * The same factor on both axes preserves proportions at screen center. */
+    view->warp = tan(bound(0.001f, fovx, 179.0f) * M_PI / 720.0);
+    view->warp *= view->warp;
+    gpu.target = view->color; gpu.targetdepth = view->depth;
+    gpu.targetwidth = width; gpu.targetheight = height;
+    r_refdef.pxrect.x = r_refdef.pxrect.y = 0;
+    return view;
+}
+
+void GPU_EndPaniniView(gpu_panini_view_t *view)
+{
+    gpu_draw_t *draw;
+    size_t i;
+    view->populated = false;
+    for (i = view->firstdraw; i < gpu.numdraws; ++i)
+        if (!gpu.draws[i].shadowonly && gpu.draws[i].target == view->color) { view->populated = true; break; }
+    /* Even an empty CSQC scene needs a defined source image. */
+    if (gpu.numdraws == gpu.maxdraws) {
+        gpu.maxdraws = max(256, gpu.maxdraws*2);
+        gpu.draws = BZ_Realloc(gpu.draws, gpu.maxdraws*sizeof(*gpu.draws));
+    }
+    draw = &gpu.draws[gpu.numdraws++]; memset(draw, 0, sizeof(*draw));
+    draw->panini = true; draw->projection[0] = view->warp;
+    draw->target = view->destination; draw->depth = view->destinationdepth; draw->format = view->format;
+    draw->viewport.x = view->rect.x; draw->viewport.y = view->rect.y;
+    draw->viewport.w = view->rect.width; draw->viewport.h = view->rect.height;
+    draw->viewport.max_depth = 1;
+    draw->scissor.w = view->destinationwidth; draw->scissor.h = view->destinationheight;
+    draw->samplers[0].texture = view->color; draw->samplers[0].sampler = gpu.postsampler;
+    gpu.target = view->destination; gpu.targetdepth = view->destinationdepth;
+    gpu.targetwidth = view->destinationwidth; gpu.targetheight = view->destinationheight;
+    r_refdef.pxrect = view->rect;
+}
 
 /* Separate images per visible plane prevent a later water view from replacing
    a texture already referenced by an earlier queued draw. */
@@ -141,7 +220,7 @@ static SDL_GPUGraphicsPipeline *GPU_Pipeline(unsigned bits, unsigned cull, qbool
     /* Alpha test is a fragment uniform, so it needn't multiply pipeline variants. */
     bits &= ~SBITS_ATEST_BITS;
     for (p = pipelines; p; p = p->next)
-        if (p->bits == bits && p->cull == cull && p->lines == lines && p->format == format) return p->pipeline;
+        if (!p->panini && p->bits == bits && p->cull == cull && p->lines == lines && p->format == format) return p->pipeline;
     buffer.pitch = sizeof(gpu_vertex_t); buffer.input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX;
     info.vertex_shader = gpu.vertexshader; info.fragment_shader = gpu.fragmentshader;
     info.vertex_input_state.vertex_buffer_descriptions = &buffer;
@@ -185,6 +264,26 @@ static SDL_GPUGraphicsPipeline *GPU_Pipeline(unsigned bits, unsigned cull, qbool
     return p->pipeline;
 }
 
+static SDL_GPUGraphicsPipeline *GPU_PaniniPipeline(SDL_GPUTextureFormat format)
+{
+    SDL_GPUGraphicsPipelineCreateInfo info = {0};
+    SDL_GPUColorTargetDescription color = {0};
+    pipeline_t *p;
+    for (p = pipelines; p; p = p->next) if (p->panini && p->format == format) return p->pipeline;
+    info.vertex_shader = gpu.postvertex; info.fragment_shader = gpu.paninifragment;
+    info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+    info.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
+    info.multisample_state.sample_count = SDL_GPU_SAMPLECOUNT_1;
+    color.format = format;
+    info.target_info.color_target_descriptions = &color; info.target_info.num_color_targets = 1;
+    info.target_info.has_depth_stencil_target = true; info.target_info.depth_stencil_format = gpu.depthformat;
+    p = Z_Malloc(sizeof(*p)); p->panini = true; p->format = format;
+    p->pipeline = SDL_CreateGPUGraphicsPipeline(gpu.device, &info);
+    if (!p->pipeline) GPU_Error("create Panini pipeline");
+    p->next = pipelines; pipelines = p;
+    return p->pipeline;
+}
+
 void GPU_BackendInit(void)
 {
     SDL_GPUGraphicsPipelineCreateInfo pi = {0};
@@ -194,6 +293,7 @@ void GPU_BackendInit(void)
     gpu.fragmentshader = GPU_Shader(gpu_scene_frag_spv, sizeof(gpu_scene_frag_spv), gpu_scene_frag_msl, SDL_GPU_SHADERSTAGE_FRAGMENT, GPU_SAMPLERS, 1);
     gpu.postvertex = GPU_Shader(gpu_post_vert_spv, sizeof(gpu_post_vert_spv), gpu_post_vert_msl, SDL_GPU_SHADERSTAGE_VERTEX, 0, 0);
     gpu.postfragment = GPU_Shader(gpu_post_frag_spv, sizeof(gpu_post_frag_spv), gpu_post_frag_msl, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 1);
+    gpu.paninifragment = GPU_Shader(gpu_panini_frag_spv, sizeof(gpu_panini_frag_spv), gpu_panini_frag_msl, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 1);
     pi.vertex_shader = gpu.postvertex; pi.fragment_shader = gpu.postfragment;
     pi.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
     pi.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
@@ -276,6 +376,13 @@ void GPU_BackendShutdown(void)
     pipeline_t *p;
     size_t i;
     GPU_FreeWaterViews();
+    while (paniniviews) {
+        gpu_panini_view_t *view = paniniviews;
+        paniniviews = view->next;
+        SDL_ReleaseGPUTexture(gpu.device, view->color); SDL_ReleaseGPUTexture(gpu.device, view->depth);
+        Z_Free(view);
+    }
+    if (gpu.paninifragment) SDL_ReleaseGPUShader(gpu.device, gpu.paninifragment);
     while ((p = pipelines)) {
         pipelines = p->next; SDL_ReleaseGPUGraphicsPipeline(gpu.device, p->pipeline); Z_Free(p);
     }
@@ -314,6 +421,8 @@ void GPU_BeginFrame(void)
     if (gpu.benchmarking) gpu.framebegin = Sys_DoubleTime();
     gpu.numvertices = gpu.numindices = gpu.numdraws = numtempbatches = numshadowlights = 0;
     collectshadowonly = false;
+    gpu.sceneonlygamma = !!vid_sceneonlygamma.ival;
+    for (gpu_panini_view_t *view = paniniviews; view; view = view->next) view->used = false;
     numwaterviews = 0; currentwater = NULL; clipenabled = false;
     if (vid_vsync.modified) {
         SDL_GPUPresentMode present = vid_vsync.ival ? SDL_GPU_PRESENTMODE_VSYNC : SDL_GPU_PRESENTMODE_IMMEDIATE;
@@ -441,12 +550,98 @@ static void GPU_DrawShadows(void)
     gpu.shadowinitialized = true;
 }
 
+typedef struct gpu_overlay_snapshot_s {
+    SDL_GPUTexture *texture;
+    struct gpu_overlay_snapshot_s *next;
+} gpu_overlay_snapshot_t;
+
+static void GPU_SnapshotOverlay(size_t index, gpu_overlay_snapshot_t **snapshots)
+{
+    gpu_draw_t *draw = &gpu.draws[index];
+    unsigned slot;
+    for (slot = 0; slot < GPU_SAMPLERS; ++slot) {
+        SDL_GPUTexture *source = draw->samplers[slot].texture;
+        gpu_target_t *target;
+        gpu_overlay_snapshot_t *snapshot;
+        SDL_GPUTextureCreateInfo ci = {0};
+        SDL_GPUBlitInfo blit = {0};
+        size_t later;
+        unsigned other;
+        /* Deferred HUD draws must see the RTT contents from their original
+         * place in the command stream, not a later repaint of that texture. */
+        for (target = targets; target; target = target->next)
+            if (target->color == source) break;
+        if (!target) continue;
+        for (later = index+1; later < gpu.numdraws; ++later)
+            if (!gpu.draws[later].shadowonly && gpu.draws[later].target == source) break;
+        if (later == gpu.numdraws) continue;
+        ci.type = SDL_GPU_TEXTURETYPE_2D; ci.format = target->image->gpuimage->format;
+        ci.width = target->width; ci.height = target->height;
+        ci.layer_count_or_depth = ci.num_levels = 1;
+        ci.sample_count = SDL_GPU_SAMPLECOUNT_1;
+        ci.usage = SDL_GPU_TEXTUREUSAGE_SAMPLER | SDL_GPU_TEXTUREUSAGE_COLOR_TARGET;
+        snapshot = Z_Malloc(sizeof(*snapshot));
+        snapshot->texture = SDL_CreateGPUTexture(gpu.device, &ci);
+        if (!snapshot->texture) GPU_Error("create overlay texture snapshot");
+        snapshot->next = *snapshots; *snapshots = snapshot;
+        blit.source.texture = source; blit.source.w = target->width; blit.source.h = target->height;
+        blit.destination.texture = snapshot->texture;
+        blit.destination.w = target->width; blit.destination.h = target->height;
+        blit.load_op = SDL_GPU_LOADOP_DONT_CARE; blit.filter = SDL_GPU_FILTER_NEAREST;
+        SDL_BlitGPUTexture(gpu.command, &blit);
+        for (other = slot; other < GPU_SAMPLERS; ++other)
+            if (draw->samplers[other].texture == source) draw->samplers[other].texture = snapshot->texture;
+    }
+}
+
+static void GPU_DrawCommands(SDL_GPURenderPass *pass, size_t first, size_t end, qboolean overlays)
+{
+    SDL_GPUBufferBinding vb = {gpu.vertices,0}, ib = {gpu.indices,0};
+    SDL_GPUGraphicsPipeline *boundpipeline = NULL;
+    gpu_draw_t *previous = NULL;
+    size_t i;
+    if (gpu.vertices && gpu.indices) {
+        SDL_BindGPUVertexBuffers(pass, 0, &vb, 1);
+        SDL_BindGPUIndexBuffer(pass, &ib, sizeof(index_t) == 2 ? SDL_GPU_INDEXELEMENTSIZE_16BIT : SDL_GPU_INDEXELEMENTSIZE_32BIT);
+    }
+    for (i = first; i < end; ++i) {
+        gpu_draw_t *d = &gpu.draws[i];
+        SDL_GPUGraphicsPipeline *pipeline;
+        if (d->shadowonly || (gpu.sceneonlygamma && d->screenoverlay) != overlays) continue;
+        if (d->panini) {
+            SDL_BindGPUGraphicsPipeline(pass, GPU_PaniniPipeline(d->format));
+            SDL_SetGPUViewport(pass, &d->viewport); SDL_SetGPUScissor(pass, &d->scissor);
+            SDL_PushGPUFragmentUniformData(gpu.command, 0, d->projection, sizeof(d->projection));
+            SDL_BindGPUFragmentSamplers(pass, 0, d->samplers, 1);
+            SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
+            previous = NULL; boundpipeline = NULL;
+            continue;
+        }
+        /* Overlay pipelines target the corrected SDR image, including when
+         * world rendering used an HDR scene buffer. Blend after correction so
+         * translucent UI retains its source colors and alpha. */
+        pipeline = GPU_Pipeline(d->bits, d->cull, d->lines, overlays ? gpu.colorformat : d->format);
+        if (pipeline != boundpipeline) {
+            SDL_BindGPUGraphicsPipeline(pass, pipeline);
+            boundpipeline = pipeline;
+        }
+        if (!previous || memcmp(&previous->viewport,&d->viewport,sizeof(d->viewport))) SDL_SetGPUViewport(pass, &d->viewport);
+        if (!previous || memcmp(&previous->scissor,&d->scissor,sizeof(d->scissor))) SDL_SetGPUScissor(pass, &d->scissor);
+        if (!previous || memcmp(&previous->vert,&d->vert,sizeof(d->vert))) SDL_PushGPUVertexUniformData(gpu.command, 0, &d->vert, sizeof(d->vert));
+        if (!previous || memcmp(&previous->frag,&d->frag,sizeof(d->frag))) SDL_PushGPUFragmentUniformData(gpu.command, 0, &d->frag, sizeof(d->frag));
+        if (!previous || memcmp(previous->samplers,d->samplers,sizeof(d->samplers))) SDL_BindGPUFragmentSamplers(pass, 0, d->samplers, GPU_SAMPLERS);
+        SDL_DrawGPUIndexedPrimitives(pass, d->numindices, 1, d->firstindex, d->vertexoffset, 0);
+        previous = gpu.batching ? d : NULL;
+    }
+}
+
 void GPU_EndFrame(void)
 {
     SDL_GPUColorTargetInfo color = {0};
     SDL_GPUDepthStencilTargetInfo depth = {0};
     SDL_GPURenderPass *pass;
-    SDL_GPUBufferBinding vb = {0}, ib = {0};
+    qboolean sceneinitialized = false;
+    gpu_overlay_snapshot_t *snapshots = NULL;
     size_t i;
     float post[12] = {0};
     SDL_GPUTextureSamplerBinding sampler;
@@ -454,19 +649,30 @@ void GPU_EndFrame(void)
     if (!gpu.command || !gpu.swapchain) return;
     GPU_UploadGeometry();
     GPU_DrawShadows();
+    for (gpu_panini_view_t *view = paniniviews; view; view = view->next) if (view->used && !view->populated) {
+        color.texture = view->color; color.load_op = SDL_GPU_LOADOP_CLEAR;
+        color.store_op = SDL_GPU_STOREOP_STORE; color.clear_color.a = 1;
+        pass = SDL_BeginGPURenderPass(gpu.command, &color, 1, NULL);
+        if (!pass) GPU_Error("clear Panini source");
+        SDL_EndGPURenderPass(pass);
+    }
     /* Consecutive draws retain their destination. A target may be sampled after
        its pass ends, and resumed later without discarding earlier contents. */
     for (i = 0; i < gpu.numdraws;) {
         size_t first = i, j, end;
         gpu_draw_t *initial = &gpu.draws[i];
-        gpu_draw_t *previous = NULL;
-        SDL_GPUGraphicsPipeline *boundpipeline = NULL;
         qboolean seen = false;
         if (initial->shadowonly) { ++i; continue; }
+        if (gpu.sceneonlygamma && initial->screenoverlay) {
+            GPU_SnapshotOverlay(i, &snapshots);
+            ++i; continue;
+        }
         for (j = 0; j < first; ++j)
-            if (!gpu.draws[j].shadowonly && gpu.draws[j].target == initial->target) { seen = true; break; }
+            if (!gpu.draws[j].shadowonly && !(gpu.sceneonlygamma && gpu.draws[j].screenoverlay) &&
+                gpu.draws[j].target == initial->target) { seen = true; break; }
         for (end = i+1; end < gpu.numdraws; ++end)
-            if (!gpu.draws[end].shadowonly && gpu.draws[end].target != initial->target) break;
+            if (!gpu.draws[end].shadowonly && ((gpu.sceneonlygamma && gpu.draws[end].screenoverlay) ||
+                gpu.draws[end].target != initial->target)) break;
         color.texture = initial->target; color.load_op = seen ? SDL_GPU_LOADOP_LOAD : SDL_GPU_LOADOP_CLEAR;
         color.store_op = SDL_GPU_STOREOP_STORE; color.clear_color.a = 1;
         depth.texture = initial->depth; depth.clear_depth = 1;
@@ -475,29 +681,12 @@ void GPU_EndFrame(void)
         depth.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE; depth.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
         pass = SDL_BeginGPURenderPass(gpu.command, &color, 1, &depth);
         if (!pass) GPU_Error("begin material render pass");
-        vb.buffer = gpu.vertices; ib.buffer = gpu.indices;
-        SDL_BindGPUVertexBuffers(pass, 0, &vb, 1);
-        SDL_BindGPUIndexBuffer(pass, &ib, sizeof(index_t) == 2 ? SDL_GPU_INDEXELEMENTSIZE_16BIT : SDL_GPU_INDEXELEMENTSIZE_32BIT);
-        for (; i < end; ++i) {
-            gpu_draw_t *d = &gpu.draws[i];
-            SDL_GPUGraphicsPipeline *pipeline;
-            if (d->shadowonly) continue;
-            pipeline = GPU_Pipeline(d->bits, d->cull, d->lines, d->format);
-            if (pipeline != boundpipeline) {
-                SDL_BindGPUGraphicsPipeline(pass, pipeline);
-                boundpipeline = pipeline;
-            }
-            if (!previous || memcmp(&previous->viewport,&d->viewport,sizeof(d->viewport))) SDL_SetGPUViewport(pass, &d->viewport);
-            if (!previous || memcmp(&previous->scissor,&d->scissor,sizeof(d->scissor))) SDL_SetGPUScissor(pass, &d->scissor);
-            if (!previous || memcmp(&previous->vert,&d->vert,sizeof(d->vert))) SDL_PushGPUVertexUniformData(gpu.command, 0, &d->vert, sizeof(d->vert));
-            if (!previous || memcmp(&previous->frag,&d->frag,sizeof(d->frag))) SDL_PushGPUFragmentUniformData(gpu.command, 0, &d->frag, sizeof(d->frag));
-            if (!previous || memcmp(previous->samplers,d->samplers,sizeof(d->samplers))) SDL_BindGPUFragmentSamplers(pass, 0, d->samplers, GPU_SAMPLERS);
-            SDL_DrawGPUIndexedPrimitives(pass, d->numindices, 1, d->firstindex, d->vertexoffset, 0);
-            previous = gpu.batching ? d : NULL;
-        }
+        GPU_DrawCommands(pass, first, end, false);
+        i = end;
+        if (initial->target == gpu.scene) sceneinitialized = true;
         SDL_EndGPURenderPass(pass);
     }
-    if (!gpu.numdraws) {
+    if (!sceneinitialized) {
         color.texture = gpu.scene; color.load_op = SDL_GPU_LOADOP_CLEAR; color.store_op = SDL_GPU_STOREOP_STORE;
         pass = SDL_BeginGPURenderPass(gpu.command, &color, 1, NULL); SDL_EndGPURenderPass(pass);
     }
@@ -509,9 +698,22 @@ void GPU_EndFrame(void)
     post[0] = 1.0f/gpu.width; post[1] = 1.0f/gpu.height; post[2] = r_bloom.value;
     post[3] = v_gammainverted.ival ? v_gamma.value : 1.0f/max(0.1f, v_gamma.value);
     post[4] = v_contrast.value; post[5] = v_brightness.value; post[6] = v_contrastboost.value; post[8] = r_fxaa.value;
+    if (gpu.sceneonlygamma && !sceneinitialized) {
+        post[2] = post[5] = post[8] = 0;
+        post[3] = post[4] = post[6] = 1;
+    }
     SDL_PushGPUFragmentUniformData(gpu.command, 0, post, sizeof(post));
     SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
     SDL_EndGPURenderPass(pass);
+    if (gpu.sceneonlygamma && gpu.numdraws) {
+        color.texture = gpu.present; color.load_op = SDL_GPU_LOADOP_LOAD;
+        depth.texture = gpu.depth; depth.clear_depth = 1;
+        depth.load_op = sceneinitialized ? SDL_GPU_LOADOP_LOAD : SDL_GPU_LOADOP_CLEAR;
+        pass = SDL_BeginGPURenderPass(gpu.command, &color, 1, &depth);
+        if (!pass) GPU_Error("begin screen overlay pass");
+        GPU_DrawCommands(pass, 0, gpu.numdraws, true);
+        SDL_EndGPURenderPass(pass);
+    }
     {
         SDL_GPUBlitInfo blit = {0};
         blit.source.texture = gpu.present; blit.source.w = gpu.width; blit.source.h = gpu.height;
@@ -520,6 +722,11 @@ void GPU_EndFrame(void)
         SDL_BlitGPUTexture(gpu.command, &blit);
     }
     if (!SDL_SubmitGPUCommandBuffer(gpu.command)) GPU_Error("submit frame");
+    while (snapshots) {
+        gpu_overlay_snapshot_t *snapshot = snapshots;
+        snapshots = snapshot->next;
+        SDL_ReleaseGPUTexture(gpu.device, snapshot->texture); Z_Free(snapshot);
+    }
     if (gpu.benchmarking) GPU_BenchmarkFrame(encodebegin, Sys_DoubleTime());
     gpu.command = NULL; gpu.swapchain = NULL;
     extern cvar_t in_windowed_mouse;
@@ -765,6 +972,9 @@ static void GPU_DrawMesh(shader_t *shader, mesh_t *mesh, vbo_t *vbo, texnums_t *
     }
     if (!prepared) {
         d->shadowonly = collectshadowonly;
+        /* Offscreen 2D images must remain in submission order: later world
+         * and UI draws may sample them. Only main-screen overlays bypass gamma. */
+        d->screenoverlay = gpu.drawing2d && gpu.target == gpu.scene;
         d->target = gpu.target; d->depth = gpu.targetdepth; d->format = gpu.targetformat;
         d->castshadow = !gpu.drawing2d && !(flags & BEF_NOSHADOWS) &&
             !(entity->flags & (RF_NOSHADOW|RF_WEAPONMODEL)) &&

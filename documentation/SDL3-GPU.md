@@ -20,6 +20,8 @@ The lighting menu retains upstream's Apply/video restart behavior.
 
 | Effect | Console controls | Notes |
 | --- | --- | --- |
+| View projection | `r_projection 0/6` | **Options → View Projection**: Regular or Panini. Panini reduces edge stretching at wide FOVs and keeps vertical lines straight. Applies immediately and saves in configs. |
+| FOV convention | `scr_fov_mode 4` | The default menu label is **Classic 4:3 / Widescreen**; classic vertical coverage expands sideways on wider screens. |
 | Map lighting | `r_fullbright 0/1` | Zero uses BSP lightmaps; one forces full brightness. |
 | Normal maps | `r_normalmapping 0/1` | Normal textures are loaded independently of this switch so enabling it works immediately. |
 | Specular highlights | `gl_specular 0/1`, `gl_specular_power` | Uses material gloss/specular maps and realtime lights; directional lightmaps also support static highlights. |
@@ -38,7 +40,16 @@ The lighting menu retains upstream's Apply/video restart behavior.
 | Exposure adaptation | `r_hdr_irisadaptation 0/1` | Retains the engine's exposure calculation. |
 | Antialiasing | `r_fxaa 0/1` | Post-process FXAA. |
 | Texture filtering | `gl_texturemode`, `gl_texturemode2d`, `gl_texture_anisotropic_filtering` | Separate world/UI filtering, mip limits and anisotropy. |
-| Display adjustments | `gamma`, `contrast`, `brightness` | Applied in the GPU presentation shader. |
+| Display adjustments | `gamma`, `contrast`, `brightness`, `v_contrastboost` | Applied in the GPU presentation shader. |
+| Scene-only display adjustments | `vid_sceneonlygamma 0/1` | **Options → Video → Scene-Only Gamma**. Off adjusts the full image; on adjusts the 3D view before drawing HUD, menu, console, and other screen overlays. Takes effect immediately and is saved in configs. |
+
+The old Gamma Mode selector has been replaced by Scene-Only Gamma. SDL3 GPU
+always uses shader correction; legacy `vid_hardwaregamma` values do not select
+a display method or bake gamma into newly loaded textures in this renderer.
+When scene-only correction is enabled, bloom and FXAA also run before screen
+overlays, keeping interface colors and text out of those effects. Offscreen
+CSQC 2D textures retain their normal render order and are corrected with the
+scene or overlay that displays them.
 
 The renderer also handles fullbright textures, player-color overlays, animated
 textures and model interpolation, CPU skeletal animation, classic layered skies
@@ -65,7 +76,7 @@ The following work remains before that claim is appropriate:
   need implementation and asset coverage. Height mapping is a simple offset,
   rather than the upstream relief-mapping path.
 - Q3/CSQC portal cameras, skyrooms, recursive mirrors, VR/stereo, and nonstandard
-  projections have not been ported. Water subviews exclude other reflective or
+  projections other than Panini have not been ported. Water subviews exclude other reflective or
   refractive surfaces to prevent recursion. Particle-driven ripple maps are not
   implemented; water styles 4/5 currently use style 3.
 - At most 32 intersecting lights are selected per draw, ranked by contribution;
@@ -328,3 +339,59 @@ requires `build/all/fteqcc` (or `--qcc`), and image checks require Pillow.
 macOS Metal validation passed all four cases. Copies of the reported rocket
 launcher TGA and quad-damage PNG also rendered correctly after this lookup fix.
 Vulkan runtime validation remains pending.
+
+## Scene-only gamma regression
+
+`tools/gpu_gamma.py` prepares isolated owned-game data and runs pixel checks
+for whole-image versus scene-only correction, opaque and translucent overlays,
+two successive paints of the same CSQC offscreen texture, SDR and HDR scene
+buffers, live toggling, video restart, menu text, console-only rendering,
+legacy gamma configuration, and saving the new setting. The fixture and outputs
+are separate from the original Quake installation.
+
+```sh
+python3 tools/gpu_gamma.py prepare /path/to/Quake --out /tmp/fte-gamma-test
+python3 tools/gpu_gamma.py run --out /tmp/fte-gamma-test
+```
+
+Use a new output directory for preparation. The run enables SDL GPU validation
+and writes screenshots, `gamma.log`, and `gamma-results.json` there. Metal was
+tested locally; Vulkan runtime validation still requires Windows/Linux hardware.
+
+## Panini projection
+
+Select **Options → View Projection → Panini**, or enter `r_projection 6`.
+`r_projection 0` restores Regular. Only those two choices appear in the menu;
+the older projection enums, shaders, and renderer implementations remain in
+the source tree with their original numeric values for reference.
+
+The SDL3 GPU implementation uses standard Panini with projection distance D=1,
+following the [Pannini projection equations](https://www.mdpi.com/1424-8220/22/1/197).
+Each 3D view is rendered once into a cached texture, then an inverse projection
+pass maps it to the screen before drawing the HUD and menus. No-world 3D
+model previews keep their normal perspective projection. Split views and
+CSQC offscreen views have separate source textures, including HDR formats.
+Gamma, bloom, and FXAA still run through the usual presentation path.
+
+The implementation follows the normal FOV setting and FOV mode, capped at 170°
+for the perspective source. It preserves horizontal coverage and fits the
+projection within that source: the center is magnified and some vertical
+coverage is cropped. Objects near the edges stretch less horizontally, while
+horizontal lines away from the horizon can curve. It is most apparent at wide
+FOVs. It does not provide a 180°/360° panorama or use the old cubemap renderer.
+Regular does not allocate new projection targets or run a projection pass.
+
+To test with owned Quake data, use a new output directory:
+
+```sh
+python3 tools/gpu_panini.py prepare /path/to/Quake --out /tmp/fte-panini-test
+python3 tools/gpu_panini.py run --out /tmp/fte-panini-test
+```
+
+The runner checks rendered pixels against independently constructed Panini
+rays at 90°, 140°, and 170° horizontal FOV, SDR/HDR, split views, offscreen
+rendering, reflective/refractive liquids, 3D model previews, HUD colors,
+scene-only gamma, video restart, and saved selection.
+Screenshots and results remain separate from the original game installation.
+Metal runtime validation passed; Vulkan shaders are compiled and checked
+with `spirv-val`, but Vulkan runtime validation requires Windows/Linux hardware.

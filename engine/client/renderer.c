@@ -492,6 +492,7 @@ cvar_t r_vertexdlights						= CVARD	("r_vertexdlights", "0", "Determine model li
 cvar_t vid_preservegamma					= CVARD ("vid_preservegamma", "0", "Restore initial hardware gamma ramps when quitting.");
 cvar_t vid_hardwaregamma					= CVARFD ("vid_hardwaregamma", "1",
 												CVAR_ARCHIVE | CVAR_RENDERERLATCH, "Use hardware gamma ramps. 0=ugly texture-based gamma, 1=glsl(windowed) or hardware(fullscreen), 2=always glsl, 3=always hardware gamma (disabled if hardware doesn't support), 4=scene-only gamma.");
+cvar_t vid_sceneonlygamma = CVARFD("vid_sceneonlygamma", "0", CVAR_ARCHIVE, "Apply gamma, contrast, contrast boost, and brightness only to the 3D view, preserving HUD, menu, and console colors. Takes effect immediately in the SDL3 GPU renderer.");
 cvar_t vid_desktopgamma						= CVARFD ("vid_desktopgamma", "0",
 												CVAR_ARCHIVE | CVAR_RENDERERLATCH, "Apply gamma ramps upon the desktop rather than the window.");
 
@@ -712,6 +713,7 @@ void Renderer_Init(void)
 	Cvar_Register (&vid_desktopsettings, VIDCOMMANDGROUP);
 	Cvar_Register (&vid_preservegamma, GLRENDEREROPTIONS);
 	Cvar_Register (&vid_hardwaregamma, GLRENDEREROPTIONS);
+	Cvar_Register (&vid_sceneonlygamma, GLRENDEREROPTIONS);
 	Cvar_Register (&vid_desktopgamma, GLRENDEREROPTIONS);
 
 

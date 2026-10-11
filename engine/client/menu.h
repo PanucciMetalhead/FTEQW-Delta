@@ -222,6 +222,7 @@ typedef struct {
 	float smallchange;
 	float largechange;
 	float vx;
+	float vwidth;
 	cvar_t *var;
 	int textwidth;
 	const char *text;

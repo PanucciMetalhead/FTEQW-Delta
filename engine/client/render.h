@@ -727,6 +727,7 @@ extern cvar_t r_meshpitch;
 extern cvar_t r_meshroll;	//gah!
 #endif
 extern cvar_t vid_hardwaregamma;
+extern cvar_t vid_sceneonlygamma;
 
 enum {
 	RSPEED_TOTALREFRESH,

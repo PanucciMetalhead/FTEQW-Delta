@@ -262,20 +262,12 @@ void M_Menu_Options_f (void)
 
 	static const char *projections[] = {
 		"Regular",
-		"Stereographic",
-		"Fisheye",
-		"Panoramic",
-		"Lambert Azimuthal Equal-Area",
-		"Equirectangular",
+		"Panini",
 		NULL
 	};
 	static const char *projectionvalues[] = {
 		"0",
-		"1",
-		"2",
-		"3",
-		"4",
-		"5",
+		"6",
 		NULL
 	};
 
@@ -351,7 +343,7 @@ void M_Menu_Options_f (void)
 		"Minor+",
 		"Horizontal",
 		"Vertical",
-		"4:3 stretched",
+		"Classic 4:3 / Widescreen",
 		NULL
 	};
 	static const char *fovmodevalues[] = {
@@ -374,7 +366,7 @@ void M_Menu_Options_f (void)
 		MB_CONSOLECMD("^bUpdates and Packages", "menu_download\n", "Configure additional content and plugins."),
 #endif
 		MB_CONSOLECMD("Go to console", "toggleconsole\nplay misc/menu2.wav\n", "Open up the engine console."),
-		MB_COMBOCVAR("View Projection", r_projection, projections, projectionvalues, NULL),
+		MB_COMBOCVAR("View Projection", r_projection, projections, projectionvalues, "Regular uses perspective. Panini reduces stretching at wide fields of view while keeping vertical lines straight. HUD and menu shapes are unchanged."),
 		MB_COMBOCVAR("FOV Mode", scr_fov_mode, fovmodes, fovmodevalues, NULL),
 		MB_SLIDER("Field of View", scr_fov, 70, 360, 5, NULL),
 		MB_SLIDER("Mouse Speed", sensitivity, 1, 10, 0.2, NULL),
@@ -2983,23 +2975,6 @@ void M_Menu_Video_f (void)
 	extern cvar_t vid_desktopsettings, vid_conautoscale;
 	extern cvar_t vid_bpp, vid_refreshrate, vid_multisample, vid_srgb;
 
-	static const char *gammamodeopts[] = {
-		"Off",
-		"Auto",
-		"GLSL",
-		"Hardware",
-		"Scene-Only",
-		NULL
-	};
-	static const char *gammamodevalues[] = {
-		"0",
-		"1",
-		"2",
-		"3",
-		"4",
-		NULL
-	};
-
 	static const char *srgbopts[] = {
 		"Non-Linear",	//0 (legacy buggy linear->srgb non-transforms)
 		"sRGB-Aware",	//1 (linear->srgb transforms)
@@ -3291,7 +3266,7 @@ void M_Menu_Video_f (void)
 			MB_EDITCVARSLIMRETURN("Height", "vid_conheight", info->height2d),
 			MB_SPACING(4),
 			MB_COMBOCVAR("sRGB", vid_srgb, srgbopts, srgbvalues, "Controls the colour space to try to use."),
-			MB_COMBOCVAR("Gamma Mode", vid_hardwaregamma, gammamodeopts, gammamodevalues, "Controls how gamma is applied"),
+			MB_CHECKBOXCVARTIP("Scene-Only Gamma", vid_sceneonlygamma, 0, "Apply gamma, contrast, and brightness to the 3D view while keeping HUD, menu, and console colors unchanged."),
 			MB_SLIDER("Gamma", v_gamma, 1.5, 0.25, -0.05, NULL),
 			MB_SLIDER("Contrast", v_contrast, 0.8, 3, 0.05, NULL),
 			MB_SLIDER("Brightness", v_brightness, 0.0, 0.5, 0.05, NULL),

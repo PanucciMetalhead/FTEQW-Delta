@@ -740,8 +740,14 @@ static void MenuDrawItems(int xpos, int ypos, menuoption_t *option, emenu_t *men
 				int	i;
 				int x = xpos+option->common.posx;
 				int y = ypos+option->common.posy;
-				int s;
+				int s, segments;
+				char value[32];
 
+				/* Show the effective value, including pending latched settings and
+				 * changes made through the console while the menu is open. */
+				option->slider.current = option->slider.var->latched_string ?
+					atof(option->slider.var->latched_string) : option->slider.var->value;
+				Q_snprintfz(value, sizeof(value), "%.6g", (double)(option->slider.current == 0 ? 0 : option->slider.current));
 				range = (option->slider.current - option->slider.min)/(option->slider.max-option->slider.min);
 
 				if (option->slider.text)
@@ -754,16 +760,23 @@ static void MenuDrawItems(int xpos, int ypos, menuoption_t *option, emenu_t *men
 					range = 0;
 				if (range > 1)
 					range = 1;
+				/* Reserve a stable value column, including decimal values reached
+				 * by dragging. Shorten the bar at small logical UI resolutions. */
+				segments = bound(1, (vid.width-x-(max(7, (int)strlen(value))+2)*8)/8, SLIDER_RANGE);
 				option->slider.vx = x;
+				option->slider.vwidth = segments*8;
 				x -= 8;
 				Font_BeginString(font_default, x, y, &x, &y);
 				x = Font_DrawChar(x, y, CON_WHITEMASK, 0xe080);
 				s = x;
-				for (i=0 ; i<SLIDER_RANGE ; i++)
+				for (i=0 ; i<segments ; i++)
 					x = Font_DrawChar(x, y, CON_WHITEMASK, 0xe081);
 				Font_DrawChar(x, y, CON_WHITEMASK, 0xe082);
 				Font_DrawChar(s + (x-s) * range - Font_CharWidth(CON_WHITEMASK, 0xe083)/2, y, CON_WHITEMASK, 0xe083);
 				Font_EndString(font_default);
+				/* vx remains in logical menu coordinates; Font_BeginString has
+				 * converted x/y to framebuffer coordinates above. */
+				Draw_FunString(option->slider.vx + (segments+2)*8, ypos+option->common.posy, value);
 			}
 			break;
 		case mt_checkbox:
@@ -1397,7 +1410,7 @@ menuslider_t *MC_AddSlider(emenu_t *menu, int tx, int sx, int y, const char *tex
 	n->common.posx = tx;
 	n->common.posy = y;
 	n->common.height = 8;
-	n->common.width = sx-tx + (SLIDER_RANGE+5)*8;
+	n->common.width = sx-tx + (SLIDER_RANGE+13)*8;
 	n->common.tooltip = var->description;
 	n->var = var;
 	n->textwidth = sx-tx;
@@ -1417,6 +1430,7 @@ menuslider_t *MC_AddSlider(emenu_t *menu, int tx, int sx, int y, const char *tex
 	n->min = min;
 	n->max = max;
 	n->smallchange = delta;
+	n->vwidth = SLIDER_RANGE*8;
 	n->largechange = delta*5;
 
 	n->common.next = menu->options;
@@ -1681,7 +1695,7 @@ void MC_Slider_Key(menuslider_t *option, int key)
 	float delta;
 
 	float ix = option->vx;
-	float ex = ix + 10*8;
+	float ex = ix + option->vwidth;
 
 	if (option->smallchange)
 		delta = option->smallchange;

@@ -13791,7 +13791,7 @@ struct pendingtextureinfo *Image_LoadMipsFromMemory(int flags, const char *iname
 	{
 #ifdef HAVE_CLIENT
 		extern cvar_t vid_hardwaregamma;
-		if (!(flags&IF_NOGAMMA) && !vid_hardwaregamma.value)
+		if (!(flags&IF_NOGAMMA) && !vid_hardwaregamma.value && qrenderer != QR_SDLGPU)
 			BoostGamma(rgbadata, imgwidth, imgheight, format);
 #endif
 
@@ -14054,7 +14054,7 @@ static struct pendingtextureinfo *Image_LoadCubemapTextureData(const char *nicen
 								mips->mip[0].needfree = true;
 							}
 
-							if (!(texflags&IF_NOGAMMA) && !vid_hardwaregamma.value)
+							if (!(texflags&IF_NOGAMMA) && !vid_hardwaregamma.value && qrenderer != QR_SDLGPU)
 								BoostGamma(data, width, height, format);
 							Image_FlipImage(data, (qbyte*)mips->mip[0].data + i*width*height*bb, &width, &height, bb, cmscheme[j][i].flipx, cmscheme[j][i].flipy, cmscheme[j][i].flipd);
 							BZ_Free(data);

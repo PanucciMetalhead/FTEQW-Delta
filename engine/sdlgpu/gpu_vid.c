@@ -247,10 +247,17 @@ void GPU_Set2D(void)
 
 static void GPU_RenderView(void)
 {
+    extern cvar_t r_projection;
+    gpu_panini_view_t *panini = NULL;
+    qboolean project = r_projection.ival == PROJ_PANINI && !r_refdef.recurse &&
+        r_refdef.useperspective && !(r_refdef.flags & RDF_NOWORLDMODEL);
     float fx = r_refdef.fov_x, fy = r_refdef.fov_y;
     if (r_norefresh.value) return;
     if (R2D_Flush) R2D_Flush();
     gpu.drawing2d = false;
+    if (project) {
+        fx = bound(0.001f, fx, 170.0f); fy = bound(0.001f, fy, 170.0f);
+    }
     AngleVectors(r_refdef.viewangles, vpn, vright, vup);
     VectorCopy(r_refdef.vieworg, r_origin);
     if (r_viewcontents & FTECONTENTS_FLUID && r_waterwarp.value) {
@@ -266,6 +273,8 @@ static void GPU_RenderView(void)
     r_refdef.pxrect.y = floor(r_refdef.vrect.y*vid.fbpheight/vid.height);
     r_refdef.pxrect.width = ceil(r_refdef.vrect.width*vid.fbpwidth/vid.width);
     r_refdef.pxrect.height = ceil(r_refdef.vrect.height*vid.fbpheight/vid.height);
+    if (project && r_refdef.pxrect.width > 0 && r_refdef.pxrect.height > 0)
+        panini = GPU_BeginPaniniView(fx);
     GPU_CheckLightingSettings();
     Surf_SetupFrame();
     if (!(r_refdef.flags & RDF_NOWORLDMODEL)) {
@@ -284,6 +293,7 @@ static void GPU_RenderView(void)
         (r_worldentity.model && r_worldentity.model->loadstate == MLS_LOADED && cl.worldmodel))
         Surf_DrawWorld();
     RQ_RenderBatchClear();
+    if (panini) GPU_EndPaniniView(panini);
     GPU_Set2D();
 }
 
