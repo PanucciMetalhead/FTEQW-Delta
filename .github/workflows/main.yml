@@ -30,7 +30,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxkbcommon-dev libwayland-dev libasound2-dev libpulse-dev libudev-dev libpng-dev libjpeg-dev zlib1g-dev libgnutls28-dev pkg-config
+          sudo apt-get install -y ninja-build libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxkbcommon-dev libwayland-dev libasound2-dev libpulse-dev libudev-dev libpng-dev libjpeg-dev zlib1g-dev libgnutls28-dev pkg-config libxss-dev libxtst-dev libxdamage-dev libgl1-mesa-dev libegl1-mesa-dev libgbm-dev libdrm-dev libdecor-0-dev wayland-protocols
       - name: Select Linux compiler
         if: runner.os == 'Linux'
         shell: bash
@@ -46,14 +46,14 @@ jobs:
       - name: Build SDL3
         shell: bash
         run: |
-          cmake -S build-deps/SDL -B build-deps/sdl-build -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TESTS=OFF -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/build-deps/install"
-          cmake --build build-deps/sdl-build --config Release --parallel
+          cmake -S build-deps/SDL -B build-deps/sdl-build -DCMAKE_BUILD_TYPE=Release -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TESTS=OFF -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/build-deps/install"
+          cmake --build build-deps/sdl-build --config Release --parallel 2
           cmake --install build-deps/sdl-build --config Release
       - name: Configure fork
         shell: bash
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/build-deps/install" -DFTE_WERROR=OFF -DFTE_TOOL_QCCGUI=OFF -DFTE_TOOL_QCVM=ON -DFTE_ENGINE_CLIENT_ONLY=ON -DBUILD_TESTING=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
       - name: Compile engine, server and tools
-        run: cmake --build build --config Release --parallel
+        run: cmake --build build --config Release --parallel 2
       - name: Run data-free regression checks
         run: ctest --test-dir build -C Release --output-on-failure
       - name: Check C17 gameplay instructions
@@ -68,7 +68,7 @@ jobs:
         run: cmake -S . -B build-sanitize -DCMAKE_BUILD_TYPE=Debug -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/build-deps/install" -DFTE_SANITIZERS=ON -DFTE_ENGINE=OFF -DFTE_ENGINE_SERVER_ONLY=OFF -DFTE_TOOL_QCCGUI=OFF -DFTE_TOOL_QCVM=ON -DBUILD_TESTING=ON
       - name: Build sanitizer tools
         if: runner.os != 'Windows'
-        run: cmake --build build-sanitize --target fteqcc qcvm c17-endian-check --parallel
+        run: cmake --build build-sanitize --target fteqcc qcvm c17-endian-check --parallel 2
       - name: Run sanitizer compiler and VM checks
         if: runner.os != 'Windows'
         env:

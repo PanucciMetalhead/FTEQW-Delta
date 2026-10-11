@@ -1195,7 +1195,7 @@ ENDIF()
 
 #vpk package format plugin (halflife2)
 SET(FTE_PLUG_HL2 true CACHE BOOL "Compile support for hl2 file formats.")
-IF(FTE_PLUG_HL2)
+IF(FTE_PLUG_HL2 AND ZLIB_FOUND)
 	ADD_LIBRARY(plug_hl2 MODULE
 		plugins/plugin.c
 		plugins/hl2/hl2.c
@@ -1212,6 +1212,8 @@ IF(FTE_PLUG_HL2)
 	TARGET_LINK_LIBRARIES(plug_hl2 ${SYS_LIBS} ${ZLIB_LIBRARIES})
 
 	EMBED_PLUGIN_META(hl2 "HalfLife2 Formats Plugin" "Adds support for reading various file formats used by HalfLife2. Requires mod support to be useful.")
+ELSEIF(FTE_PLUG_HL2)
+	MESSAGE(STATUS "Skipping HalfLife2 formats plugin: zlib library and headers required.")
 ENDIF()
 
 #model formats plugin
