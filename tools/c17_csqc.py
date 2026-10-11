@@ -6,6 +6,7 @@ linked into an isolated directory; the original files are never modified.
 """
 import argparse
 import json
+import os
 import socket
 import subprocess
 import time
@@ -31,7 +32,7 @@ def main():
         if (source/name).is_file() and not target.exists():
             target.symlink_to(source/name)
     (out/'id1/c17-csqc.qc').write_bytes((ROOT/'tools/tests/c17_csqc.qc').read_bytes())
-    suffix = '.exe' if __import__('os').name == 'nt' else ''
+    suffix = '.exe' if os.name == 'nt' else ''
     def binary(name):
         path = build/(name+suffix)
         if not path.is_file():

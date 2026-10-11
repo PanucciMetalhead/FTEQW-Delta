@@ -1,8 +1,8 @@
 # Building the SDL3 GPU fork
 
 Use CMake 3.21 or newer and a compiler with C17 support on Windows, Linux,
-and macOS (Clang/GCC, or Visual Studio 2019 16.8 or newer). The old platform-specific OpenGL make
-targets are removed. `engine/Makefile`, `build_setup.sh`, and `build_wip.sh` are
+and macOS (Clang/GCC, or Visual Studio 2019 16.8 or newer). The old
+platform-specific OpenGL make targets are removed. `engine/Makefile`, `build_setup.sh`, and `build_wip.sh` are
 small wrappers around CMake.
 
 Install [dependencies](Dependencies.md), then configure and build:
