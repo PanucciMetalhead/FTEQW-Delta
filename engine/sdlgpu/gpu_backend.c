@@ -827,7 +827,10 @@ static void GPU_DrawMesh(shader_t *shader, mesh_t *mesh, vbo_t *vbo, texnums_t *
             if (mask) {
                 /* Builtin cutout permutations perform their alpha test in the
                  * program rather than setting a fixed-function alphafunc bit. */
-                d->frag.material[2] = strstr(program->name, "#MASKLT") ? 4 : 5;
+                /* Sprite MASK rejects transparent texels before vertex fading.
+                 * Wall/skin MASK permutations also support the inverse pass. */
+                d->frag.material[2] = !strncmp(program->name, "defaultsprite", 13) ? 6 :
+                    strstr(program->name, "#MASKLT") ? 4 : 5;
                 d->frag.upper[3] = bound(0, atof(mask+6), 1);
             }
         }

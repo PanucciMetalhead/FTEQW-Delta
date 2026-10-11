@@ -49,7 +49,9 @@ void main() {
         outputcolor=vec4(mix(sky,clouds.rgb,clouds.a),1);
         return;
     }
-    vec4 albedo=texture(base,tc)*v_color;
+    vec4 texel=texture(base,tc);
+    if(u.material.z==6 && texel.a<u.upper.a) discard;
+    vec4 albedo=texel*v_color;
     if((u.material.z==1 && albedo.a<=0) || (u.material.z==2 && albedo.a>=0.5) || (u.material.z==3 && albedo.a<0.5)) discard;
     if((u.material.z==4 && albedo.a<u.upper.a) || (u.material.z==5 && albedo.a>=u.upper.a)) discard;
     if(u.material.z==4 || u.material.z==5) albedo.a=1;

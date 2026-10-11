@@ -332,6 +332,8 @@ static struct
 	struct dtlspeercred_s peercred;
 } connectinfo;
 
+static unsigned int connectgeneration; // invalidate asynchronous DNS results
+
 qboolean	nomaster;
 
 double		oldrealtime;			// last frame run
@@ -620,6 +622,8 @@ static void CL_ConnectAbort(const char *format, ...)
 		NET_DTLS_Disconnect(cls.sockets, &connectinfo.adr[--connectinfo.numadr]);
 #endif
 	connectinfo.numadr = 0;
+	connectinfo.resolving = false;
+	connectgeneration++;
 	SCR_EndLoadingPlaque();
 	connectinfo.trying = false;
 
@@ -957,6 +961,8 @@ struct resolvectx_s
 {
 	netadr_t adr[countof(connectinfo.adr)];
 	size_t found;
+	int defaultport;
+	unsigned int generation;
 	char servername[1];
 	/*servername text*/
 };
@@ -966,12 +972,17 @@ static void CL_ResolvedServer(void *vctx, void *data, size_t a, size_t b)
 	struct resolvectx_s *ctx = vctx;
 
 	//something screwed us over...
-	if (strcmp(ctx->servername, cls.servername))
+	if (!connectinfo.trying || !connectinfo.resolving ||
+		ctx->generation != connectgeneration || strcmp(ctx->servername, cls.servername))
+	{
+		Z_Free(ctx);
 		return;
+	}
 
 	if (!ctx->found)
 	{
 		CL_ConnectAbort("Unable to resolve server address \"%s\"\n", ctx->servername);
+		Z_Free(ctx);
 		return;
 	}
 
@@ -999,6 +1010,7 @@ static void CL_ResolvedServer(void *vctx, void *data, size_t a, size_t b)
 	connectinfo.nextadr = 0;
 	connectinfo.resolving = false;
 	memcpy(connectinfo.adr, ctx->adr, sizeof(*connectinfo.adr)*ctx->found);
+	Z_Free(ctx);
 
 }
 static void CL_ResolveServer(void *vctx, void *data, size_t a, size_t b)
@@ -1014,7 +1026,7 @@ static void CL_ResolveServer(void *vctx, void *data, size_t a, size_t b)
 	else
 		host = ctx->servername;
 
-	ctx->found = NET_StringToAdr2 (host, connectinfo.defaultport, ctx->adr, countof(ctx->adr), NULL);
+	ctx->found = NET_StringToAdr2 (host, ctx->defaultport, ctx->adr, countof(ctx->adr), NULL);
 
 	COM_AddWork(WG_MAIN, CL_ResolvedServer, ctx, data, a, b);
 }
@@ -1043,6 +1055,20 @@ Resend a connect message if the last one has timed out
 
 =================
 */
+static double CL_ConnectRetryInterval(int tries, int addresses)
+{
+	// Quickly try alternate DNS answers once, then back off to legacy pacing.
+	if (addresses > 1 && tries < addresses)
+		return 0.25;
+	if (tries <= 1)
+		return 1.0;
+	if (tries == 2)
+		return 2.0;
+	if (tries == 3)
+		return 4.0;
+	return 5.0;
+}
+
 void CL_CheckForResend (void)
 {
 	char	data[2048];
@@ -1368,7 +1394,7 @@ void CL_CheckForResend (void)
 	if (startuppending || r_blockvidrestart || FS_DownloadingPackage())
 		return;	//don't send connect requests until we've actually initialised fully. this isn't a huge issue, but makes the startup prints a little more sane.
 
-	if (connectinfo.time && realtime - connectinfo.time < 5.0)
+	if (connectinfo.time && realtime - connectinfo.time < CL_ConnectRetryInterval(connectinfo.tries, connectinfo.numadr))
 	{
 		if (!connectinfo.clogged)
 			return;
@@ -1380,16 +1406,16 @@ void CL_CheckForResend (void)
 		NET_InitClient(false);
 
 #ifdef HAVE_DTLS
-	if (connectinfo.numadr>0 && connectinfo.adr[0].prot == NP_DTLS)
+	if (connectinfo.numadr>0 && connectinfo.adr[connectinfo.nextadr%connectinfo.numadr].prot == NP_DTLS)
 	{	//get through the handshake first, instead of waiting for a 5-sec timeout between polls.
-		switch(NET_SendPacket (cls.sockets, 0, NULL, &connectinfo.adr[0]))
+		switch(NET_SendPacket (cls.sockets, 0, NULL, &connectinfo.adr[connectinfo.nextadr%connectinfo.numadr]))
 		{
 		case NETERR_CLOGGED:	//temporary failure
 			connectinfo.clogged = true;
 			return;
 		case NETERR_DISCONNECTED:
-			CL_ConnectAbort("DTLS Certificate Verification Failure\n");
-			break;
+			CL_ConnectAbort("DTLS handshake failed (certificate verification or transport error)\n");
+			return;
 		case NETERR_NOROUTE:	//not an error here, just means we need to send a new handshake.
 			break;
 		default:
@@ -1405,6 +1431,8 @@ void CL_CheckForResend (void)
 		{
 			struct resolvectx_s *rctx = Z_Malloc(sizeof(*rctx) + strlen(cls.servername));
 			strcpy(rctx->servername, cls.servername);
+			rctx->defaultport = connectinfo.defaultport;
+			rctx->generation = ++connectgeneration;
 			connectinfo.resolving = true;
 			COM_AddWork(WG_LOADER, CL_ResolveServer, rctx, NULL, 0, 0);
 		}
@@ -1584,7 +1612,9 @@ void CL_CheckForResend (void)
 
 	if (!keeptrying)
 	{
-		if (to->prot != NP_DGRAM && connectinfo.nextadr+1 < connectinfo.numadr)
+		if (to->prot == NP_DGRAM && connectinfo.tries < connectinfo.numadr)
+			connectinfo.time = 0; // a failed address must not block the next DNS answer
+		else if (to->prot != NP_DGRAM && connectinfo.nextadr+1 < connectinfo.numadr)
 		{
 			connectinfo.nextadr++;	//cycle hosts with each connection failure (if we got multiple addresses).
 			connectinfo.tries = 0;
@@ -1708,7 +1738,7 @@ static void CL_BeginServerConnect(char *chain, int port, qboolean noproxy, enum 
 	connectinfo.protocol = CP_UNKNOWN;
 	connectinfo.mode = mode;
 	connectinfo.spec = spec;
-	connectinfo.clchallenge = rand()^(rand()<<16);
+	connectinfo.clchallenge = Netchan_GenerateChallenge();
 
 	connectinfo.peercred.name = cls.servername;
 	if (arglist)
@@ -1773,10 +1803,12 @@ void CL_BeginServerReconnect(void)
 		Cvar_Set(&cl_disconnectreason, "");
 	connectinfo.trying = true;
 	connectinfo.istransfer = false;
+	connectinfo.resolving = false;
+	connectgeneration++;
 	connectinfo.time = 0;
 	connectinfo.tries = 0;	//re-ensure routes.
 	connectinfo.nextadr = 0; //should at least be consistent, other than packetloss. yay.
-	connectinfo.clchallenge = rand()^(rand()<<16);
+	connectinfo.clchallenge = Netchan_GenerateChallenge();
 
 	NET_InitClient(false);
 }

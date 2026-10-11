@@ -87,6 +87,9 @@
 		GNUTLS_FUNC(gnutls_dtls_cookie_send,int,(gnutls_datum_t *key, void *client_data, size_t client_data_size, gnutls_dtls_prestate_st *prestate, gnutls_transport_ptr_t ptr, gnutls_push_func push_func)) \
 		GNUTLS_FUNC(gnutls_dtls_prestate_set,void,(gnutls_session_t session, gnutls_dtls_prestate_st *prestate)) \
 		GNUTLS_FUNC(gnutls_dtls_set_mtu,void,(gnutls_session_t session, unsigned int mtu)) \
+		GNUTLS_FUNC(gnutls_dtls_get_data_mtu,unsigned int,(gnutls_session_t session)) \
+		GNUTLS_FUNC(gnutls_dtls_get_timeout,unsigned int,(gnutls_session_t session)) \
+		GNUTLS_FUNC(gnutls_record_discard_queued,size_t,(gnutls_session_t session)) \
 		GNUTLS_FUNC(gnutls_psk_allocate_server_credentials,int,(gnutls_psk_server_credentials_t *sc)) \
 		GNUTLS_FUNC(gnutls_psk_set_server_credentials_function,void,(gnutls_psk_server_credentials_t cred, gnutls_psk_server_credentials_function *func)) \
 		GNUTLS_FUNC(gnutls_psk_set_server_credentials_hint,int,(gnutls_psk_server_credentials_t res, const char *hint)) \
@@ -208,7 +211,17 @@ static qboolean Init_GNUTLS(void)
 		{NULL, NULL}
 	};
 	
-#ifdef GNUTLS_SONUM
+#ifdef __APPLE__
+	#ifdef FTE_GNUTLS_LIBRARY
+		gnutls.hmod = Sys_LoadLibrary(FTE_GNUTLS_LIBRARY, functable);
+	#endif
+	#ifdef GNUTLS_SONUM
+		if (!gnutls.hmod)
+			gnutls.hmod = Sys_LoadLibrary("libgnutls."STRINGIFY(GNUTLS_SONUM)".dylib", functable);
+	#endif
+	if (!gnutls.hmod)
+		gnutls.hmod = Sys_LoadLibrary("libgnutls.dylib", functable);
+#elif defined(GNUTLS_SONUM)
 	#ifdef __CYGWIN__
 		gnutls.hmod = Sys_LoadLibrary("cyggnutls"GNUTLS_SOPREFIX"-"STRINGIFY(GNUTLS_SONUM)".dll", functable);
 	#else
@@ -242,6 +255,7 @@ typedef struct
 
 	int pullerror;	//adding these two because actual networking errors are not getting represented properly, at least with regard to timeouts.
 	int pusherror;
+	neterr_t datagramerror;
 
 	gnutls_certificate_credentials_t certcred;
 	hashfunc_t *peerhashfunc;
@@ -753,6 +767,8 @@ static ssize_t DTLS_Push(gnutls_transport_ptr_t p, const void *data, size_t size
 	gnutlsfile_t *file = p;
 
 	neterr_t ne = file->cbpush(file->cbctx, data, size);
+	file->datagramerror = ne;
+	file->pusherror = (ne == NETERR_DISCONNECTED)?VFS_ERROR_EOF:VFS_ERROR_TRYLATER;
 
 //	Sys_Printf("DTLS_Push: %u, err=%i\n", (unsigned)size, (int)ne);
 
@@ -1267,7 +1283,15 @@ static qboolean SSL_InitConnection(gnutlsfile_t *newf, qboolean isserver, qboole
 	qgnutls_transport_set_pull_function(newf->session, datagram?DTLS_Pull:SSL_Pull);
 #ifdef HAVE_DTLS
 	if (datagram)
+	{
 		qgnutls_transport_set_pull_timeout_function(newf->session, DTLS_Pull_Timeout);
+		unsigned int mtu = 1440;
+#ifndef MASTERONLY
+		// net_mtu describes the UDP payload including DTLS record overhead.
+		mtu = bound(508, net_mtu.ival?net_mtu.ival:1440, 65507);
+#endif
+		qgnutls_dtls_set_mtu(newf->session, mtu);
+	}
 #endif
 
 	newf->handshaking = true;
@@ -1487,12 +1511,20 @@ static neterr_t GNUDTLS_Transmit(void *ctx, const qbyte *data, size_t datasize)
 
 	if (!datasize)
 		return NETERR_SENT;
+	if (datasize > qgnutls_dtls_get_data_mtu(f->session))
+		return NETERR_MTU;
 
+	f->datagramerror = NETERR_SENT;
 	ret = qgnutls_record_send(f->session, data, datasize);
 	if (ret < 0)
 	{
-		if (ret == GNUTLS_E_LARGE_PACKET)
+		// Netchan owns retransmits. GnuTLS must not replay an old queued
+		// datagram when the next frame supplies a different packet.
+		qgnutls_record_discard_queued(f->session);
+		if (ret == GNUTLS_E_LARGE_PACKET || f->datagramerror == NETERR_MTU)
 			return NETERR_MTU;
+		if (f->datagramerror == NETERR_CLOGGED || f->datagramerror == NETERR_NOROUTE)
+			return f->datagramerror;
 
 		if (qgnutls_error_is_fatal(ret))
 			return NETERR_DISCONNECTED;
@@ -1550,7 +1582,6 @@ static neterr_t GNUDTLS_Received(void *ctx, sizebuf_t *message)
 		f->challenging = false;
 
 		qgnutls_dtls_prestate_set(f->session, &f->prestate);
-		qgnutls_dtls_set_mtu(f->session, 1440);
 
 		f->handshaking = true;
 	}
@@ -1569,6 +1600,9 @@ static neterr_t GNUDTLS_Received(void *ctx, sizebuf_t *message)
 			return NETERR_DISCONNECTED;
 	}
 
+	// Reserve the sentinel byte required by connectionless parsers.
+	if (message->maxsize < 1)
+		return NETERR_CLOGGED;
 	ret = qgnutls_record_recv(f->session, message->data, message->maxsize);
 //Sys_Printf("DTLS_Received returned %i of %i\n", ret, f->readsize);
 	f->readsize = 0;
@@ -1590,6 +1624,13 @@ static neterr_t GNUDTLS_Received(void *ctx, sizebuf_t *message)
 		if (ret == GNUTLS_E_WARNING_ALERT_RECEIVED)
 			Con_DPrintf(CON_WARNING"GNUDTLS_Received: alert %s\n", qgnutls_alert_get_name(qgnutls_alert_get(f->session)));
 //		Sys_Printf("DTLS_Received temp error\n");
+		return NETERR_CLOGGED;
+	}
+	// A full output buffer may contain a truncated datagram and leaves no
+	// room for the sentinel. Reject it rather than parsing partial game data.
+	if (ret >= message->maxsize)
+	{
+		message->cursize = 0;
 		return NETERR_CLOGGED;
 	}
 	message->cursize = ret;
@@ -1644,7 +1685,6 @@ static qboolean GNUDTLS_CheckConnection(void *cbctx, void *peeraddr, size_t peer
 
 	//and this is the result...
 	qgnutls_dtls_prestate_set(f->session, &prestate);
-	qgnutls_dtls_set_mtu(f->session, 1400);
 
 	//still need to do the whole certificate thing though.
 	f->handshaking = true;
@@ -1657,8 +1697,12 @@ static neterr_t GNUDTLS_Timeouts(void *ctx)
 	int ret;
 	if (f->challenging)
 		return NETERR_CLOGGED;
+	if (!f->session)
+		return NETERR_DISCONNECTED;
 	if (f->handshaking)
 	{
+		if (qgnutls_dtls_get_timeout(f->session))
+			return NETERR_CLOGGED;
 		f->readsize = 0;
 		ret = SSL_DoHandshake(f);
 		f->readsize = 0;

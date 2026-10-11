@@ -14221,7 +14221,8 @@ qboolean Image_LocateHighResTexture(image_t *tex, flocation_t *bestloc, char *be
 		//strip it and try replacements if we do, otherwise assume that we're meant to be loading progs/foo.mdl_0.tga or whatever
 		if (e == tex_extensions_count || exactext)
 		{
-			exactext = true;
+			// Keep .mdl_0 in direct names, but still derive model_0 for
+			// textures/models unless an exact extension was requested.
 			Q_strncpyz(nicename, altname, sizeof(nicename));
 		}
 		else

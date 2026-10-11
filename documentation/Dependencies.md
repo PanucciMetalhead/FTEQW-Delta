@@ -22,6 +22,12 @@ On macOS with Homebrew:
 brew install cmake ninja sdl3 libpng jpeg-turbo freetype fontconfig libvorbis gnutls
 ```
 
+GnuTLS support is enabled by `FTE_DEP_GNUTLS` when CMake finds its headers
+and library. On macOS, the runtime loader uses the library path found by CMake,
+then tries native `.dylib` names; rerun CMake if you move the installation.
+`GNUTLS_STATIC=ON` selects direct linking (including shared libraries), despite
+its historical option name. It is not required to load Homebrew GnuTLS.
+
 On Linux, install your distribution's SDL3 development package if its version is
 at least 3.4, together with the development packages for the optional libraries.
 Otherwise build SDL from an official SDL 3.4 release and set `CMAKE_PREFIX_PATH`

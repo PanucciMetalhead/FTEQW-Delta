@@ -35,7 +35,9 @@ fragment float4 main0(Input v [[stage_in]],constant Fragment &u [[buffer(0)]],
         float4 clouds=glow.sample(gs,skyuv+u.eye.w*0.0625f);
         return float4(mix(sky,clouds.rgb,clouds.a),1);
     }
-    float4 albedo=base.sample(bs,tc)*v.color;
+    float4 texel=base.sample(bs,tc);
+    if(u.material.z==6 && texel.a<u.upper.a) discard_fragment();
+    float4 albedo=texel*v.color;
     if((u.material.z==1 && albedo.a<=0) || (u.material.z==2 && albedo.a>=0.5f) || (u.material.z==3 && albedo.a<0.5f)) discard_fragment();
     if((u.material.z==4 && albedo.a<u.upper.w) || (u.material.z==5 && albedo.a>=u.upper.w)) discard_fragment();
     if(u.material.z==4 || u.material.z==5) albedo.a=1;

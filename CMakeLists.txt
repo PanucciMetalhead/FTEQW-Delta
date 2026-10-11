@@ -330,6 +330,8 @@ IF(FTE_DEP_GNUTLS)
 		MESSAGE(WARNING "gnutls library NOT available. HTTPS/DTLS will not be available.")
 		SET(FTE_LIB_DEFINES ${FTE_LIB_DEFINES};NO_GNUTLS)
 	ELSE()
+		set_property(SOURCE engine/common/net_ssl_gnutls.c APPEND PROPERTY
+			INCLUDE_DIRECTORIES "${GNUTLS_INCLUDE_DIR}")
 		IF(WIN32)
 			SET(GNUTLS_STATIC true CACHE BOOL "Link gnutls statically.") #usually as an .so though. :/
 		ELSE()
@@ -339,6 +341,10 @@ IF(FTE_DEP_GNUTLS)
 			SET(FTE_LIB_DEFINES ${FTE_LIB_DEFINES};GNUTLS_STATIC)
 			SET(FTE_LIBS ${FTE_LIBS} ${GNUTLS_LIBRARY})
 			SET(FTESV_LIBS ${FTESV_LIBS} ${GNUTLS_LIBRARY})
+		ELSEIF(APPLE)
+			# Homebrew libraries may be outside the dynamic loader's search paths.
+			set_property(SOURCE engine/common/net_ssl_gnutls.c APPEND PROPERTY
+				COMPILE_DEFINITIONS FTE_GNUTLS_LIBRARY="${GNUTLS_LIBRARY}")
 		ENDIF()
 	ENDIF()
 ENDIF()

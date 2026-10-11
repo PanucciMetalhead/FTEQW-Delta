@@ -274,3 +274,57 @@ across normal/nice/realtime and video restart with no missing base textures or
 lightmap fallbacks. The optimized Debug client was compiled separately and is
 retained locally as `build/fteqw-debug-optimized`; performance figures above
 refer to Release.
+
+### Explosion sprite regression
+
+`defaultsprite#MASK` rejects transparent texture pixels before vertex alpha is
+applied. Its mask differs from the inverse opaque pass used by wall/skin programs.
+The SDL GPU sprite mask now follows that rule without forcing the surviving
+pixels opaque, preserving fades. Metal and Vulkan use the same comparison.
+
+The fixture renders Quake's actual explosion sprite frames 0, 3, and 5 over a
+uniform backdrop. It checks transparent corners, quarter-alpha fades, premultiplied
+and additive sprite modes, and restoration after `vid_restart`:
+
+```sh
+python3 tools/gpu_sprites.py prepare /path/to/Quake --qcc build/all/fteqcc
+./build/fteqw -nohome -basedir build/spritedata -quake -window -width 800 -height 600 -gpu_debug +exec gpu-test.cfg > build/sprite-after.log 2>&1
+python3 tools/gpu_sprites.py check
+```
+
+macOS Metal validation reproduced the inverted explosion mask before the fix
+and passed all fixture cases after the fix. The existing Arcane Dimensions
+foliage test also passed. Vulkan shader binaries passed SPIR-V validation;
+Vulkan runtime testing remains pending.
+
+## Model replacement textures
+
+With `gl_load24bit 1`, Quake model skins can be replaced in the active game
+folder's `textures/models` directory. For example, `qw/textures/models/g_rock2_0.tga`
+replaces skin 0 of `progs/g_rock2.mdl`, and
+`qw/textures/models/quaddama_0.png` replaces skin 0 of `progs/quaddama.mdl`.
+PNG and TGA are supported; use `_1`, `_2`, etc. for other skin indices.
+Existing explicit FTE paths such as `qw/progs/g_rock2.mdl_0.tga` retain priority.
+Multiplayer rulesets can restrict replacements of sensitive models.
+Restart the renderer with `vid_restart` after adding or changing files.
+
+The model texture regression renders actual Quake models with distinct PNG/TGA
+skins, checks explicit-path priority, tests `gl_load24bit 0` and missing-image
+fallbacks, and compares captures before and after a video restart:
+
+```sh
+python3 tools/gpu_model_textures.py prepare /path/to/Quake
+for case in compat direct disabled missing; do
+    ./build/fteqw -nohome -basedir "build/modeldata/$case" -quake -game qw \
+        -window -width 800 -height 600 -gpu_debug +vid_renderer sdlgpu \
+        +exec gpu-test.cfg > "build/modeldata/$case.log" 2>&1
+done
+python3 tools/gpu_model_textures.py check
+```
+
+Game data and generated images stay in the ignored build directory. Preparation
+requires `build/all/fteqcc` (or `--qcc`), and image checks require Pillow.
+
+macOS Metal validation passed all four cases. Copies of the reported rocket
+launcher TGA and quad-damage PNG also rendered correctly after this lookup fix.
+Vulkan runtime validation remains pending.

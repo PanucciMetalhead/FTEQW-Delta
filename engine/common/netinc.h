@@ -190,6 +190,7 @@
 	//this madness is because winsock defines its own errors instead of using system error codes.
 	//*AND* microsoft then went and defined names for all the unix ones too... with different values! oh the insanity of it all!
 	#define NET_EINTR			WSAEINTR
+	#define NET_ENOBUFS			WSAENOBUFS
 	#define NET_EWOULDBLOCK		WSAEWOULDBLOCK
 	#define NET_EINPROGRESS		WSAEINPROGRESS
 	#define NET_EMSGSIZE		WSAEMSGSIZE
@@ -211,6 +212,7 @@
 #ifndef NET_EWOULDBLOCK
 	//assume unix codes instead, so our prefix still works.
 	#define NET_EINTR			EINTR
+	#define NET_ENOBUFS			ENOBUFS
 	#define NET_EWOULDBLOCK		EWOULDBLOCK
 	#define NET_EINPROGRESS		EINPROGRESS
 	#define NET_EMSGSIZE		EMSGSIZE

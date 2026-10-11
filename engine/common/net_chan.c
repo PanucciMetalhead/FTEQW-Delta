@@ -264,6 +264,17 @@ unsigned int Net_PextMask(unsigned int protover, qboolean fornq)
 	return mask;
 }
 
+int Netchan_GenerateChallenge(void)
+{
+	// Keep the legacy PRNG advances so unrelated game randomness is unchanged.
+	unsigned int value = ((unsigned int)rand()<<16) ^ (unsigned int)rand();
+	// Use OS entropy for the token; retain legacy behavior if unavailable.
+	unsigned int entropy;
+	if (Sys_RandomBytes((qbyte *)&entropy, sizeof(entropy)))
+		value = entropy;
+	return value;
+}
+
 /*
 ===============
 Netchan_Init
@@ -1222,6 +1233,10 @@ qboolean Netchan_Process (netchan_t *chan)
 		offset = (unsigned short)MSG_ReadShort();
 	else
 		offset = 0;
+
+	// Reject truncated headers before touching sequence or fragment state.
+	if (msg_badread || MSG_GetReadCount() > net_message.cursize)
+		return false;
 
 	reliable_message = sequence >> 31;
 	reliable_ack = sequence_ack >> 31;

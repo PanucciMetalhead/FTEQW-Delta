@@ -3219,6 +3219,8 @@ struct dtlspeer_s
 	struct dtlspeer_s **link;
 };
 
+static void NET_DTLS_DisconnectPeer(ftenet_connections_t *col, struct dtlspeer_s *peer);
+
 static void NET_DTLS_Timeouts(ftenet_connections_t *col)
 {
 	struct dtlspeer_s *peer, **link;
@@ -3228,12 +3230,15 @@ static void NET_DTLS_Timeouts(ftenet_connections_t *col)
 	{
 		if (peer->timeout < realtime)
 		{
-			peer->funcs->DestroyContext(peer->dtlsstate);
-			*link = peer->next;
+			NET_DTLS_DisconnectPeer(col, peer);
 			continue;
 		}
 
-		peer->funcs->Timeouts(peer->dtlsstate);
+		if (peer->funcs->Timeouts(peer->dtlsstate) == NETERR_DISCONNECTED)
+		{
+			NET_DTLS_DisconnectPeer(col, peer);
+			continue;
+		}
 		link = &peer->next;
 	}
 }
@@ -3943,7 +3948,7 @@ qboolean FTENET_Datagram_GetPacket(ftenet_generic_connection_t *con)
 	{
 		err = neterrno();
 
-		if (err == NET_EWOULDBLOCK)
+		if (err == NET_EWOULDBLOCK || err == NET_EINTR || err == NET_ENOBUFS)
 			return false;
 		if (err == NET_EMSGSIZE)
 		{
@@ -3954,6 +3959,7 @@ qboolean FTENET_Datagram_GetPacket(ftenet_generic_connection_t *con)
 				SockadrToNetadr (&from, fromlen, &net_from);
 				Con_TPrintf ("Warning:  Oversize packet from %s\n",
 				NET_AdrToString (adr, sizeof(adr), &net_from));
+				resettime = curtime;
 			}
 			return false;
 		}
@@ -3961,7 +3967,7 @@ qboolean FTENET_Datagram_GetPacket(ftenet_generic_connection_t *con)
 		{
 			static unsigned int resettime;
 			unsigned int curtime = Sys_Milliseconds();
-			if (curtime-resettime >= 5000 || err == NET_ECONNRESET)	//throttle prints to once per 5 secs (even if they're about different clients, yay ddos)
+			if (curtime-resettime >= 5000)	//throttle prints to once per 5 secs (even if they're about different clients, yay ddos)
 			{
 				if (((struct sockaddr*)&from)->sa_family != AF_UNSPEC)
 				{
@@ -3971,17 +3977,9 @@ qboolean FTENET_Datagram_GetPacket(ftenet_generic_connection_t *con)
 				else
 					Con_TPrintf ("Connection lost or aborted\n");	//server died/connection lost.
 				resettime = curtime;
-#ifdef HAVE_CLIENT
-				//fixme: synthesise a reset packet for the caller to handle? "\xff\xff\xff\xffreset" ?
-				if (cls.state != ca_disconnected && !con->islisten)
-				{
-					if (cls.lastarbiatarypackettime+5 < Sys_DoubleTime())	//too many mvdsv
-						Cbuf_AddText("disconnect\nreconnect\n", RESTRICT_LOCAL);	//retry connecting.
-					else
-						Con_Printf("Packet was not delivered - server might be badly configured\n");
-					return false;
-				}
-#endif
+				// ICMP errors on a shared UDP socket do not identify the failed
+				// peer reliably. Let the existing netchan timeout decide instead
+				// of reconnecting an unrelated, healthy game connection.
 			}
 			return false;
 		}
@@ -4057,7 +4055,7 @@ neterr_t FTENET_Datagram_SendPacket(ftenet_generic_connection_t *con, int length
 	{
 		int ecode = neterrno();
 // wouldblock is silent
-		if (ecode == NET_EWOULDBLOCK)
+		if (ecode == NET_EWOULDBLOCK || ecode == NET_EINTR || ecode == NET_ENOBUFS)
 			return NETERR_CLOGGED;
 
 		if (ecode == NET_ECONNREFUSED)
@@ -4092,6 +4090,7 @@ neterr_t FTENET_Datagram_SendPacket(ftenet_generic_connection_t *con, int length
 #endif
 			}
 		}
+		return NETERR_NOROUTE; // never acknowledge an unsuccessful send
 	}
 	else if (ret < length)
 		return NETERR_MTU;

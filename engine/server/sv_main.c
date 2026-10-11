@@ -1615,7 +1615,7 @@ int SV_NewChallenge (void)
 	}
 
 	// overwrite the oldest
-	svs.challenges[oldest].challenge = (rand() << 16) ^ rand();
+	svs.challenges[oldest].challenge = Netchan_GenerateChallenge();
 	svs.challenges[oldest].adr = net_from;
 	svs.challenges[oldest].time = realtime;
 

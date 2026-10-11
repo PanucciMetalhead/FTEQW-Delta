@@ -338,6 +338,7 @@ void Netchan_OutOfBand (unsigned int ncflags, netadr_t *adr, int length, const q
 void VARGS Netchan_OutOfBandPrint (unsigned int ncflags, netadr_t *adr, char *format, ...) LIKEPRINTF(3);
 void VARGS Netchan_OutOfBandTPrintf (unsigned int ncflags, netadr_t *adr, int language, translation_t text, ...);
 qboolean Netchan_Process (netchan_t *chan);
+int Netchan_GenerateChallenge(void);
 void Netchan_Setup (unsigned int ncflags, netchan_t *chan, netadr_t *adr, int qport, unsigned int mtu);
 unsigned int Net_PextMask(unsigned int protover, qboolean fornq);
 extern cvar_t net_mtu;
