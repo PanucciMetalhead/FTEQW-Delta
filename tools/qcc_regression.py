@@ -61,7 +61,8 @@ def main():
     compile_case(invalid.replace('\n', '\r\n').replace('float second', '\tfloat second'), success=False, name='crlf-tabs')
     # A macro's synthetic filename must not produce an unrelated source caret.
     macro = '#define BROKEN ;\nfloat value = BROKEN\n'
-    assert 'macro' in compile_case(macro, success=False, name='macro')
+    macro_log = compile_case(macro, success=False, name='macro')
+    assert 'macro' in macro_log, macro_log
     (out/'broken.qh').write_text(invalid)
     assert 'broken.qh' in compile_case('#include "broken.qh"\n', success=False, name='include')
     unicode = 'float first = 1; /* 世界 */ float broken = ;\n'

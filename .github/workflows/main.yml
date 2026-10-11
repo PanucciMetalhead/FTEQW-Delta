@@ -75,3 +75,15 @@ jobs:
           ASAN_OPTIONS: detect_leaks=0
           UBSAN_OPTIONS: halt_on_error=1
         run: ctest --test-dir build-sanitize --output-on-failure
+      - name: Preserve failed regression logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diagnostics-${{ matrix.os }}-${{ matrix.cc || 'default' }}
+          path: |
+            build/Testing/Temporary/LastTest.log
+            build/qcc-tests/*.log
+            build-sanitize/Testing/Temporary/LastTest.log
+            build-sanitize/qcc-tests/*.log
+            build/c17-compat/
+          if-no-files-found: ignore

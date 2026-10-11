@@ -20365,7 +20365,7 @@ void QCC_PR_ParseDefs (const char *classname, pbool fatal_unused)
 					flag_assumevar = true;
 					pr_subscopedlocals = true;
 				}
-				else if (!strcasecmp(pr_token, "QC"))
+				else if (!QC_strcasecmp(pr_token, "QC"))
 				{
 					flag_qcfuncs = true;	//no promotion, func references are simply references, etc
 					//flag_cpriority = false; //refrain from changing it
