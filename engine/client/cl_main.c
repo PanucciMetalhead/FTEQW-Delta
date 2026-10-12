@@ -20,6 +20,10 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // cl_main.c  -- client main loop
 
 #include "quakedef.h"
+#ifdef FTE_SDL3
+#include <SDL3/SDL.h>
+extern SDL_Window *sdlwindow;
+#endif
 #include "winquake.h"
 #include <sys/types.h>
 #include "netinc.h"
@@ -4654,8 +4658,16 @@ void CL_ConnectionlessPacket (void)
 			return;
 		}
 #if defined(_WIN32) && !defined(WINRT)
+#ifdef FTE_SDL3
+		if (sdlwindow)
+		{
+			SDL_RestoreWindow(sdlwindow);
+			SDL_RaiseWindow(sdlwindow);
+		}
+#else
 		ShowWindow (mainwindow, SW_RESTORE);
 		SetForegroundWindow (mainwindow);
+#endif
 #endif
 		s = MSG_ReadString ();
 
@@ -5394,6 +5406,12 @@ CL_Minimize_f
 */
 void CL_Windows_f (void)
 {
+#ifdef FTE_SDL3
+	if (sdlwindow)
+		SDL_MinimizeWindow(sdlwindow);
+	else
+		Con_Printf("Cannot comply\n");
+#else
 	if (!mainwindow)
 	{
 		Con_Printf("Cannot comply\n");
@@ -5403,6 +5421,7 @@ void CL_Windows_f (void)
 //		ShowWindow(mainwindow, SW_MINIMIZE);
 //	else
 		SendMessage(mainwindow, WM_SYSKEYUP, VK_TAB, 1 | (0x0F << 16) | (1<<29));
+#endif
 }
 #endif
 

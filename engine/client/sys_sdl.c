@@ -1169,7 +1169,8 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char **argv)
 #ifdef SUBSERVERS
 	if (COM_CheckParm("-clusterslave"))
 	{
-		isDedicated = isClusterSlave = true;
+		isDedicated = true;
+		isClusterSlave = true;
 		SSV_SetupControlPipe(Sys_GetStdInOutStream(), false);
 	}
 #endif
@@ -1179,7 +1180,7 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char **argv)
 	if (parms.binarydir)
 		Sys_Printf("Binary is located at \"%s\"\n", parms.binarydir);
 
-#ifdef HAVE_CLIENT
+#if defined(HAVE_CLIENT) && !defined(CLIENTONLY)
 	if (COM_CheckParm ("-dedicated"))
 		isDedicated = true;
 	if (isDedicated)    //compleate denial to switch to anything else - many of the client structures are not initialized.
@@ -1487,6 +1488,12 @@ qboolean Sys_EngineMayUpdate(void)
 #include <errno.h>
 static int QDECL Sys_StdoutWrite (struct vfsfile_s *file, const void *buffer, int bytestowrite)
 {
+#ifdef _WIN32
+	DWORD written;
+	if (!WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), buffer, bytestowrite, &written, NULL))
+		return VFS_ERROR_EOF;
+	return written ? (int)written : (bytestowrite ? VFS_ERROR_EOF : 0);
+#else
 	ssize_t r = write(STDOUT_FILENO, buffer, bytestowrite);
 	if (r == 0 && bytestowrite)
 		return -1;	//eof
@@ -1497,6 +1504,7 @@ static int QDECL Sys_StdoutWrite (struct vfsfile_s *file, const void *buffer, in
 			return 0;
 	}
 	return r;
+#endif
 }
 static int QDECL Sys_StdinRead (struct vfsfile_s *file, void *buffer, int bytestoread)
 {

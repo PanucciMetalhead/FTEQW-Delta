@@ -17,13 +17,7 @@ along with this program; if not, write to the Free Software
 Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 */
 
-#ifdef __GNUC__
-	#define LittleLong(x) ({ typeof(x) _x = (x); _x = (((unsigned char *)&_x)[0]|(((unsigned char *)&_x)[1]<<8)|(((unsigned char *)&_x)[2]<<16)|(((unsigned char *)&_x)[3]<<24)); _x; })
-	#define LittleShort(x) ({ typeof(x) _x = (x); _x = (((unsigned char *)&_x)[0]|(((unsigned char *)&_x)[1]<<8)); _x; })
-#else
-	#define LittleLong(x) (x)
-	#define LittleShort(x) (x)
-#endif
+#include "endian.h"
 
 //this is for a future version
 //#define COMMENTARY
@@ -66,6 +60,10 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #ifdef _WIN32
 	#include <conio.h>
+	#include <malloc.h>
+	#if defined(_MSC_VER) && !defined(alloca)
+		#define alloca _alloca
+	#endif
 	#include <winsock2.h>	//this includes windows.h and is the reason for much compiling slowness with windows builds.
 	#ifdef IPPROTO_IPV6
 		#include <ws2tcpip.h>
@@ -157,7 +155,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 	#define ioctlsocket ioctl
 	#define closesocket close
 
-#elif (defined(unix) && !defined(__CYGWIN__)) || defined(ixemul) || defined(MACOSX) // I hope by adding MACOSX here it doesnt stop it from being natively built on macosx
+#elif ((defined(__unix__) || defined(unix)) && !defined(__CYGWIN__)) || defined(ixemul) || defined(MACOSX) // I hope by adding MACOSX here it doesnt stop it from being natively built on macosx
 	#include <sys/time.h>
 	#include <sys/types.h>
 	#include <sys/socket.h>

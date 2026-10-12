@@ -62,8 +62,8 @@ def prepare(game, out, qcc):
     capture('menu-neutral', 'gamma 1', 'contrast 1', 'brightness 0')
     capture('legacy-off', 'closemenu', 'gamma 0.65', 'contrast 1.2', 'brightness 0.04',
             'vid_hardwaregamma 0', 'vid_reload')
-    capture('console-only-adjusted', 'disconnect')
-    capture('console-only-neutral', 'gamma 1', 'contrast 1', 'brightness 0')
+    capture('console-only-adjusted', 'disconnect', 'clear', 'echo GAMMA_FONT_FIXTURE')
+    capture('console-only-neutral', 'gamma 1', 'contrast 1', 'brightness 0', 'clear', 'echo GAMMA_FONT_FIXTURE')
     commands += [f'defer {time:g} cfg_save gamma-scene-test', f'defer {time + 1:g} quit force']
     (out / 'id1/gpu-test.cfg').write_text('\n'.join(commands) + '\n')
 
@@ -131,13 +131,13 @@ def check(out):
     assert len(glyphs) >= 50, 'Menu label was not visible'
     assert all(max(abs(u-v) for u,v in zip(x,y)) <= 1 for x,y in glyphs), 'Menu label colors changed'
     a, b = image('console-only-adjusted'), image('console-only-neutral')
-    # Disconnect automatically opens the console. Its history changes because
-    # taking the first screenshot adds a line; compare the untouched backdrop.
-    backdrop = (0, a.height//2 + 32, a.width, a.height)
+    # History is cleared before each capture. Exclude the input cursor and
+    # footer; their blink timing is independent of display correction.
+    backdrop = (0, 0, a.width, a.height - round(32 * a.height / 600))
     assert a.crop(backdrop).tobytes() == b.crop(backdrop).tobytes(), 'Console-only colors changed'
     from collections import Counter
     def text_color(im):
-        colors = Counter(c for c in im.crop((0,0,im.width,im.height//2)).getdata()
+        colors = Counter(c for c in im.getdata()
                          if max(c)-min(c) <= 1 and min(c) >= 60)
         return colors.most_common(1)[0][0]
     assert text_color(a) == text_color(b), 'Console font colors changed'

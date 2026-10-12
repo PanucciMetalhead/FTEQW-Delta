@@ -1547,9 +1547,6 @@ static qintptr_t Q3G_SystemCalls(void *offset, quintptr_t mask, qintptr_t fn, co
 		AngleVectors(VM_POINTER(arg[0]), VM_POINTER(arg[1]), VM_POINTER(arg[2]), VM_POINTER(arg[3]));
 		break;
 	case G_PERPENDICULARVECTOR:		Con_Printf("Q3Game: builtin %s is not implemented\n", "G_PERPENDICULARVECTOR");		return ret;
-		VALIDATEPOINTER(arg[1], sizeof(vec3_t));
-		PerpendicularVector(VM_POINTER(arg[0]), VM_POINTER(arg[1]));
-		break;
 
 	//case G_DEFAULTCASEWARNINGDISABLE: NOT A REAL VALUE
 //	notimplemented:

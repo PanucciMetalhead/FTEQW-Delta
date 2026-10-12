@@ -29,7 +29,7 @@ def function(file,name):
 for name, funcs in {'core':[('engine/common/net_chan.c','Netchan_GenerateChallenge'),('engine/client/cl_main.c','CL_ResolvedServer'),('engine/client/cl_main.c','CL_ConnectRetryInterval'),('engine/common/net_wins.c','FTENET_Datagram_SendPacket'),('engine/common/net_wins.c','FTENET_Datagram_GetPacket'),('engine/common/net_wins.c','NET_DTLS_DisconnectPeer'),('engine/common/net_wins.c','NET_DTLS_Timeouts'),('engine/common/net_chan.c','Netchan_Process')], 'dtls':[('engine/common/net_ssl_gnutls.c','DTLS_Push'),('engine/common/net_ssl_gnutls.c','DTLS_Pull'),('engine/common/net_ssl_gnutls.c','GNUDTLS_Transmit'),('engine/common/net_ssl_gnutls.c','GNUDTLS_Received')]}.items():
  s=(root/f'tools/tests/network_{name}.c').read_text().replace('/* ENGINE_FUNCTIONS */','\n'.join(function(f,n) for f,n in funcs))
  (out/f'{name}-generated.c').write_text(s)
- cmd=[args.cc,'-g','-O1','-fsanitize=address,undefined','-Wno-pointer-sign','-Wno-macro-redefined',str(out/f'{name}-generated.c'),'-o',str(out/name)]
+ cmd=[args.cc,'-std=c17','-g','-O1','-fsanitize=address,undefined','-Wno-pointer-sign','-Wno-macro-redefined',str(out/f'{name}-generated.c'),'-o',str(out/name)]
  if name=='dtls':cmd+=shlex.split(subprocess.check_output(['pkg-config','--cflags','--libs','gnutls'],text=True))
  subprocess.run(cmd,check=True)
  subprocess.run([str(out/name)],check=True)

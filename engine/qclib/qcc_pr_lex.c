@@ -3110,12 +3110,13 @@ void QCC_PR_PreProcessor_Define(pbool append)
 		s++;
 	while(1)
 	{
-		if ((d - dbuf) + 2 >= dbuflen)
+		if (!dbuf || (d - dbuf) + 2 >= dbuflen)
 		{
-			int len = d - dbuf;
+			int len = dbuf ? d - dbuf : 0;
 			dbuflen = (len+128) * 2;
 			dbuf = qccHunkAlloc(dbuflen);
-			memcpy(dbuf, d - len, len);
+			if (len)
+				memcpy(dbuf, d - len, len);
 			d = dbuf + len;
 		}
 
@@ -4533,7 +4534,8 @@ void QCC_PR_LexComment(char **comment)
 			replace = false;
 			oldlen = old?strlen(old):0;
 			*comment = qccHunkAlloc(oldlen + (pr_file_p-start)+1);
-			memcpy(*comment, old, oldlen);
+			if (oldlen)
+				memcpy(*comment, old, oldlen);
 			memcpy(*comment + oldlen, start, pr_file_p - start);
 			(*comment)[oldlen+pr_file_p - start] = 0;
 

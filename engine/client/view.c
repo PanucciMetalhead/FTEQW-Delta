@@ -453,9 +453,21 @@ static void QDECL V_Gamma_Callback(struct cvar_s *var, char *oldvalue)
 }
 
 #if defined(_WIN32) && !defined(_XBOX)
+#ifdef FTE_SDL3
+#include <SDL3/SDL.h>
+extern SDL_Window *sdlwindow;
+#endif
 void W32_BlowChunk(vec3_t pos, float radius)
 {
+#ifdef FTE_SDL3
+	HWND window = sdlwindow ? (HWND)SDL_GetPointerProperty(
+		SDL_GetWindowProperties(sdlwindow), SDL_PROP_WINDOW_WIN32_HWND_POINTER, NULL) : NULL;
+#else
+	HWND window = mainwindow;
+#endif
 	vec3_t center;
+	if (!window)
+		return;
 	if (Matrix4x4_CM_Project(pos, center, r_refdef.viewangles, r_refdef.vieworg, r_refdef.fov_x, r_refdef.fov_y))
 	{
 		int mid_x = center[0]*r_refdef.vrect.width+r_refdef.vrect.x;
@@ -465,11 +477,11 @@ void W32_BlowChunk(vec3_t pos, float radius)
 		HRGN newrgn = CreateRectRgn(0,0,0,0);
 		HRGN oldrgn = CreateRectRgn(0,0,0,0);
 		HRGN hole = CreateEllipticRgn(mid_x-radius, mid_y-radius, mid_x+radius, mid_y+radius);
-		if (GetWindowRgn(mainwindow, oldrgn) <= NULLREGION)
+		if (GetWindowRgn(window, oldrgn) <= NULLREGION)
 		{
 			RECT rect;
 			DeleteObject(oldrgn);
-			GetWindowRect(mainwindow, &rect);
+			GetWindowRect(window, &rect);
 			oldrgn = CreateRectRgn(0,0,rect.right-rect.left,rect.bottom-rect.top);
 		}
 		CombineRgn(tmp, oldrgn, hole, RGN_XOR);
@@ -477,7 +489,7 @@ void W32_BlowChunk(vec3_t pos, float radius)
 		DeleteObject(oldrgn);
 		DeleteObject(hole);
 		DeleteObject(tmp);
-		SetWindowRgn(mainwindow, newrgn, TRUE);
+		SetWindowRgn(window, newrgn, TRUE);
 	}
 }
 #endif
