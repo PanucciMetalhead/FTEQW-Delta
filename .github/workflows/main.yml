@@ -3,7 +3,7 @@ name: SDL3 GPU desktop build
 on:
   workflow_dispatch:
   push:
-    branches: ["dev/c17"]
+    branches: ["master", "dev/c17"]
   pull_request:
     branches: [master]
 jobs:
