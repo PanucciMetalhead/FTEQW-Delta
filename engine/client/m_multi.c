@@ -778,7 +778,7 @@ void M_Menu_GameOptions_f (void)
 	y+=4;
 	info->hostnameedit	= MC_AddEdit	(menu, 64, 160, y,			localtext("Hostname"), name.string);y+=info->hostnameedit->common.height;
 	info->publicgame	= MC_AddCombo	(menu, 64, 160, y,			localtext("Public"), publicoptions, bound(0, sv_public.ival+1, 4));y+=8;
-#if !defined(FTE_TARGET_WEB) && defined(HAVE_DTLS)
+#if defined(HAVE_DTLS)
 	{
 		static const char *encoptions[] =
 		{

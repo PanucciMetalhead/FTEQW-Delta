@@ -94,11 +94,22 @@ The following work remains before that claim is appropriate:
   Controllers, microphone capture, IME, multi-monitor fullscreen, and the full
   collection of supported games/mods need additional hardware/content coverage.
 
-Only the desktop CMake build is supported by this fork. Old web/mobile/console
+Only the desktop CMake build is supported by this fork. Old mobile/console
 and distribution files are retained as upstream history, not supported recipes.
 The obsolete automated Forgejo publication workflow has been removed; GitHub's
 replacement workflow is manual and has no upload/publish step. Upstream binary
 self-updates are disabled so they cannot replace the fork with an upstream build.
+
+## Desktop validation
+
+On macOS/Metal, the client, dedicated server, compiler, QuakeC VM, QTV, and
+configured plugins built successfully. The compiler/VM regressions and
+sanitizer networking tests passed, along with native HTTP file transfers and
+a WebSocket game connection delivering reliable chat. The Quake 1 graphics
+integration checks passed, including lighting, graphics switches, offscreen
+rendering, video restart, and Ogg decoding. OpenArena checks passed for camera
+turning, movement, weapon visibility, and video restart. Native Windows/Linux
+runtime coverage remains pending.
 
 ## Reproduce the integration test
 

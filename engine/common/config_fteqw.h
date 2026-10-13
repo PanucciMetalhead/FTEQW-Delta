@@ -2,7 +2,7 @@
 // to use: make FTE_CONFIG=fteqw
 
 // Features should either be commented or not. If you change undefs to defines or vice versa then expect problems.
-// Later code will disable any features if they're not supported on the current platform, so don't worry about win/lin/mac/android/web/etc here - any such issues should be fixed elsewhere.
+// Later code will disable any features if they're not supported on the current platform, so don't worry about win/lin/mac/android/etc here - any such issues should be fixed elsewhere.
 
 //general rebranding
 //#define DISTRIBUTION			"FTE"							//should be kept short. 8 or less letters is good, with no spaces.
@@ -202,14 +202,12 @@
 #ifndef AVAIL_ZLIB
 //-DNO_ZLIB	//disable zlib
 #endif
-#ifndef FTE_TARGET_WEB
 	#ifdef AVAIL_PNGLIB
 		-DLINK_PNG
 	#endif
 	#ifdef AVAIL_JPEGLIB
 		-DLINK_JPEG
 	#endif
-#endif
 #if defined(PLUGINS) && (defined(Q3SERVER) || defined(Q3CLIENT))
 -DLINK_QUAKE3	//ask the makefile to bake the quake3 plugin into the engine itself.
 #endif
@@ -219,22 +217,18 @@
 #ifndef AVAIL_BOTLIB
 -DNO_BOTLIB	//disable static botlib
 #endif
-#ifndef FTE_TARGET_WEB
 -DLINK_VORBISFILE	//disable static vorbisfile
-#endif
 
 
 //enable some staticaly linked libraries
-#ifndef FTE_TARGET_WEB
 -DLINK_FREETYPE		//international text requires international fonts.
-#endif
 
 #if defined(USE_INTERNAL_ODE) && !defined(ODE_DYNAMIC)
 -DLINK_ODE
 #endif
 
 #if defined(PLUGINS)
-//-DLINK_EZHUD		//uncomment this line to statically link the ezhud plugin (eg for the web-rel target).
+//-DLINK_EZHUD		//uncomment this line to statically link the ezhud plugin.
 #endif
 //-DLINK_OPENSSL	//statically link our openssl plugin into the engine instead of being separate. NOTE: openssl<3 is a license no-go, 3 still requires gpl3 (2 prohits patent).
 

@@ -2388,7 +2388,7 @@ static void SV_Status_f (void)
 		if (net_enable_rtcbroker.ival)
 			Con_TPrintf(" ^[RTC\\tip\\This server is set up to act as a webrtc broker, allowing clients+servers to locate each other instead of playing on this server.^]");
 		if (net_enable_websockets.ival)
-			Con_TPrintf(" ^[WebSocket\\tip\\Clients can use the ws:// or possibly wss:// schemes to connect to this server, potentially from browser ports. This may be laggy.^]");
+			Con_TPrintf(" ^[WebSocket\\tip\\Clients can use the ws:// or possibly wss:// schemes to connect to this server. This may be laggy.^]");
 #endif
 		if (net_enable_qizmo.ival)
 			Con_TPrintf(" ^[Qizmo\\tip\\Compatible with the tcp connection feature of qizmo, equivelent to 'connect tcp://ip:port' in FTE.^]");

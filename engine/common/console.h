@@ -95,7 +95,7 @@ extern conchar_t q3codemasks[MAXQ3COLOURS];
 #define CON_WARNING "^&E0"
 #define CON_ERROR   "^&C0"
 #define CON_NOTICE  "^&-1"
-#if defined(_DEBUG) || defined(FTE_TARGET_WEB)/*urgh...*/
+#if defined(_DEBUG)/*urgh...*/
 #define CON_DEBUG	CON_WARNING __FILE__":"STRINGIFY(__LINE__)" "
 #endif
 

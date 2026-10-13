@@ -7,7 +7,7 @@
 #	obtained sourcecode revision must match the binary you're trying to duplicate (pre-5601 will insist on updating to latest svn (which may not even have a public build), so expect problems trying to duplicate older builds when the scripts instead try to grab the most recent build).
 #for regular use you should probably set up schroot so you don't need to remember so many args
 #requires about 2.3gb for the chroot+win64 build.
-#android and emscripten targets require proper mounting of /proc and /dev and are NOT supported by this script. don't try enabling them
+#android targets require proper mounting of /proc and /dev and are NOT supported by this script. don't try enabling them
 
 FTEBUILD=/tmp/ftebuild #change freely
 CHUID=1000 #should generally be your non-root user id, giving you the same access in or out of the chroot...

@@ -3,13 +3,16 @@
 Fork of [fte-team/fteqw](https://github.com/fte-team/fteqw), based on upstream commit
 `f937b9d88` (revision 6729). The desktop client uses SDL3 for windowing,
 input, controllers, audio, and GPU rendering. It explicitly selects **Vulkan
-on Windows and Linux** and **Metal on macOS**.
+on Windows and Linux** and **Metal on macOS**. Supported targets are native
+desktop applications for these three platforms.
 
 The OpenGL renderer and its platform context implementations have been removed.
 CMake builds one desktop GPU renderer, `sdlgpu`. The dedicated server and the
 engine's game, network, map, model, particle, and QuakeC systems are retained.
 Some shared rendering helpers keep their upstream `engine/gl` paths; these
-helpers do not implement an OpenGL backend.
+helpers do not implement an OpenGL backend. Native HTTP/HTTPS downloads,
+WebSocket connections, and ICE networking remain available; see
+[Networking.md](documentation/Networking.md) for transport settings and tests.
 
 Build and run:
 

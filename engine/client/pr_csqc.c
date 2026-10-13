@@ -6867,7 +6867,6 @@ static struct {
 	{"json_get_child_at_index",	PF_json_get_child_at_index,	0},
 	{"json_get_name",			PF_json_get_name,			0},
 
-	{"js_run_script",			PF_js_run_script,	0},
 
 	{"stoi",					PF_stoi,			259},
 	{"itos",					PF_itos,			260},
@@ -7790,7 +7789,6 @@ static void *CSQC_FindMainProgs(size_t *sz, const char *name, unsigned int check
 					//this is unreliable though, and redundant if we're writing the csqc into the demos themselves.
 					//also kinda irrelevant with sv_pure.
 					//FIXME: don't back up if it was in a package.
-#ifndef FTE_TARGET_WEB
 					if (file && !sv_state && !FS_WhichPackForLocation(&loc, false)
 #if !defined(CLIENTONLY) && defined(MVD_RECORDING)
 						&& !sv_demo_write_csqc.ival
@@ -7798,7 +7796,6 @@ static void *CSQC_FindMainProgs(size_t *sz, const char *name, unsigned int check
 						)
 						//back it up
 						COM_WriteFile(newname, FS_GAMEONLY, file, *sz);
-#endif
 				}
 			}
 		}

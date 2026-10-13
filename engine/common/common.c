@@ -25,9 +25,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include <ctype.h>
 #include <errno.h>
 
-#if defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_major__) //ffs
-#include <emscripten/version.h>
-#endif
 
 qboolean sys_nounload;
 double		host_frametime;
@@ -3364,7 +3361,7 @@ void unicode_strpad(char *out, size_t outsize, const char *in, qboolean leftalig
 }
 
 
-#if defined(FTE_TARGET_WEB) || defined(__DJGPP__)
+#if defined(__DJGPP__)
 //targets that don't support towupper/towlower...
 #define towupper Q_towupper
 #define towlower Q_towlower
@@ -5374,7 +5371,6 @@ void COM_InitArgv (int argc, const char **argv)	//not allowed to tprint
 	qboolean	safe;
 	int			i;
 
-#if !defined(FTE_TARGET_WEB)
 	FILE *f;
 
 	if (argv && argv[0])
@@ -5423,7 +5419,6 @@ void COM_InitArgv (int argc, const char **argv)	//not allowed to tprint
 
 		fclose(f);
 	}
-#endif
 
 	safe = false;
 
@@ -5529,9 +5524,6 @@ static void COM_Version_f (void)
 	Con_Printf("Compiled with Cygwin\n");
 #endif
 
-#ifdef FTE_TARGET_WEB
-	Con_Printf("Compiled with emscripten %i.%i.%i\n", __EMSCRIPTEN_major__, __EMSCRIPTEN_minor__, __EMSCRIPTEN_tiny__);
-#endif
 
 #ifdef __clang__
 	Con_Printf("^3Compiler:^7 clang %i.%i.%i (%s)\n",__clang_major__, __clang_minor__, __clang_patchlevel__, __VERSION__);
@@ -5693,9 +5685,6 @@ static void COM_Version_f (void)
 	Con_Printf("\n");
 
 	Con_Printf("^3Audio Decoders:^7");
-	#ifdef FTE_TARGET_WEB
-		Con_Printf(" Browser");
-	#endif
 	#ifndef AVAIL_OGGVORBIS
 		Con_DPrintf(" ^h(disabled: Ogg Vorbis)^7");
 	#elif defined(LIBVORBISFILE_STATIC)
@@ -5743,12 +5732,7 @@ static void COM_Version_f (void)
 	Con_DPrintf(" ^h(disabled: freetype2)^7");
 #endif
 #ifdef AVAIL_OPENAL
-	#ifdef FTE_TARGET_WEB
-		Con_Printf(" WebAudio");
-		Con_DPrintf("^h(static)");
-	#else
 		Con_Printf(" OpenAL^h(dynamic)");
-	#endif
 #else
 	Con_DPrintf(" ^h(disabled: openal)^7");
 #endif
@@ -5846,14 +5830,11 @@ static void COM_Version_f (void)
 #ifdef FTPSERVER
 	Con_Printf(" FTPServer");
 #endif
-#if (defined(SUPPORT_ICE)&&defined(HAVE_DTLS)) || defined(FTE_TARGET_WEB)
+#if (defined(SUPPORT_ICE)&&defined(HAVE_DTLS))
 	Con_Printf(" WebRTC");
 #elif defined(SUPPORT_ICE)
 	Con_Printf(" ICE");
 #endif
-#ifdef FTE_TARGET_WEB
-	Con_Printf(" WebSocket/WSS");
-#else
 	#if defined(HAVE_TCP)
 		#ifdef TCPCONNECT
 			Con_Printf(" TCPConnect");
@@ -5861,7 +5842,6 @@ static void COM_Version_f (void)
 	#else
 		Con_Printf(" ^h(disabled: TCP)");
 	#endif
-#endif
 #ifdef HAVE_GNUTLS             //on linux
 	Con_Printf(" GnuTLS");
 #endif

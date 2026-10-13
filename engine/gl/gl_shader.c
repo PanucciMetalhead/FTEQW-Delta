@@ -4413,13 +4413,9 @@ qboolean Shader_Init (void)
 			extern cvar_t r_max_gpu_bones;
 			if (!*r_max_gpu_bones.string)
 			{
-#ifdef FTE_TARGET_WEB
-				sh_config.max_gpu_bones = 0;	//webgl tends to crap out if this is too high, so 32 is a good enough value to play safe. some browsers have really shitty uniform performance too, so lets just default to pure-cpu transforms. in javascript. yes, its that bad.
-#else
 				//some of our APIs will set their own guesses from queries. don't stomp on that.
 				if (!sh_config.max_gpu_bones)
 					sh_config.max_gpu_bones = 64;	//ATI drivers bug out and start to crash if you put this at 128.
-#endif
 			}
 			else
 				sh_config.max_gpu_bones = bound(0, r_max_gpu_bones.ival, MAX_BONES);

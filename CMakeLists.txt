@@ -427,7 +427,6 @@ SET(FTE_COMMON_FILES
 	engine/client/screen.h
 	engine/client/sound.h
 	engine/client/spritegn.h
-#	engine/client/sys_plugfte.h
 	engine/client/vid.h
 	engine/client/view.h
 	engine/client/wad.h
@@ -479,7 +478,6 @@ SET(FTE_COMMON_FILES
 	#engine/sw/sw.h
 	#engine/sw/sw_spans.h
 	engine/sdlgpu/gpu_local.h
-	engine/web/ftejslib.h
 
 
 	#sigh

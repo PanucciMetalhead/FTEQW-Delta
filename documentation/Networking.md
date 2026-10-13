@@ -36,6 +36,22 @@ packet pacing, state encoding, and protocol negotiation formats are unchanged.
 Existing encryption preferences and certificate verification remain in effect.
 These fixes do not add encryption support to legacy servers.
 
+## Native transports and file transfers
+
+The desktop engine retains UDP, TCP/TLS, WebSocket, ICE/WebRTC, and HTTP/HTTPS
+support when their dependencies are enabled. Outgoing URL downloads use the
+native transfer implementation. The dedicated server can serve permitted game
+files over HTTP; this follows its existing `allow_download` and file-type
+settings. QTV retains its status/admin pages and `.qtv` stream links.
+
+`sv_port_tcp` selects the listening TCP interface and port. In the client and
+dedicated-server builds, `net_enable_http` defaults to `0`; set it to `1` to
+accept HTTP requests. It does not affect outgoing HTTP/HTTPS downloads.
+`net_enable_websockets` defaults to `1`, but accepting connections still
+requires a listening TCP port. The standalone master-server build uses different
+defaults: HTTP enabled and WebSocket game connections disabled. ICE and WebRTC
+signaling continue to use the native networking implementation.
+
 ## Validation
 
 ```sh
@@ -66,6 +82,10 @@ updated client's by 1.01 seconds. Both clients joined and delivered reliable cha
 under the relay's losses; the updated client also survived the malformed headers.
 The encrypted connection passed with every captured datagram at or below its
 1200-byte configured MTU, and the incorrect fingerprint was rejected.
+
+Additional macOS checks verified byte-exact native HTTP file serving and
+outgoing downloads, plus a native WebSocket game connection that joined and
+delivered reliable chat. These checks used isolated local servers and game data.
 
 Client, dedicated server, and master-server targets built successfully. Native
 Windows/Linux runtime testing remains pending. These local measurements describe

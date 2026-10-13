@@ -1284,17 +1284,17 @@ void M_Menu_MediaFiles_f (void)
 	info->ext[info->numext] = ".wav";
 	info->command[info->numext] = "media_add";
 	info->numext++;
-#if defined(AVAIL_OGGOPUS) || defined(FTE_TARGET_WEB) || defined(PLUGINS)
+#if defined(AVAIL_OGGOPUS) || defined(PLUGINS)
 	info->ext[info->numext] = ".opus";
 	info->command[info->numext] = "media_add";
 	info->numext++;
 #endif
-#if defined(AVAIL_OGGVORBIS) || defined(FTE_TARGET_WEB) || defined(PLUGINS)
+#if defined(AVAIL_OGGVORBIS) || defined(PLUGINS)
 	info->ext[info->numext] = ".ogg";
 	info->command[info->numext] = "media_add";
 	info->numext++;
 #endif
-#if defined(AVAIL_MP3_ACM) || defined(FTE_TARGET_WEB) || defined(PLUGINS)
+#if defined(AVAIL_MP3_ACM) || defined(PLUGINS)
 	info->ext[info->numext] = ".mp3";
 	info->command[info->numext] = "media_add";
 	info->numext++;

@@ -14,11 +14,7 @@
 
 
 
-#ifdef FTE_TARGET_WEB	//for stuff that doesn't work right...
-#define FORWEB(a,b) a
-#else
 #define FORWEB(a,b) b
-#endif
 
 static char *vidfilenames[] =	//list of filenames to check to see if graphics stuff needs reloading on filesystem changes
 {
@@ -34,8 +30,6 @@ static char *vidfilenames[] =	//list of filenames to check to see if graphics st
 	#define ZFIXHACK
 #elif defined(ANDROID) //on android, these numbers seem to be generating major weirdness, so disable these.
 	#define ZFIXHACK
-#elif defined(FTE_TARGET_WEB) //on firefox (but not chrome or ie), these numbers seem to be generating major weirdness, so tone them down significantly by default.
-	#define ZFIXHACK "set r_polygonoffset_submodel_offset 1\nset r_polygonoffset_submodel_factor 0.05\n"
 #else	//many quake maps have hideous z-fighting. this provides a way to work around it, although the exact numbers are gpu and bitdepth dependant, and trying to fix it can actually break other things.
 	#define ZFIXHACK "set r_polygonoffset_submodel_offset 25\nset r_polygonoffset_submodel_factor 0.05\n"
 #endif
@@ -1209,7 +1203,6 @@ static void FS_Manifest_SetDefaultSettings(ftemanifest_t *man, const gamemode_in
 #ifdef PACKAGEMANAGER
 		if (!man->downloadsurl && game->downloadsurl)
 		{
-#ifndef FTE_TARGET_WEB
 			if (*game->downloadsurl == '/')
 			{
 				conchar_t musite[256], *e;
@@ -1226,7 +1219,6 @@ static void FS_Manifest_SetDefaultSettings(ftemanifest_t *man, const gamemode_in
 				man->downloadsurl = Z_StrDupf("%s%s", site, game->downloadsurl);
 			}
 			else
-#endif
 				man->downloadsurl = Z_StrDup(game->downloadsurl);
 			FS_Manifest_ParseTokens(man);
 		}
@@ -2029,7 +2021,6 @@ static void QDECL FS_AddFileHash(int depth, const char *fname, fsbucket_t *fileh
 	fs_hash_files++;
 }
 
-#ifndef FTE_TARGET_WEB
 static void FS_RebuildFSHash(qboolean domutex)
 {
 	int depth = 1;
@@ -2081,7 +2072,6 @@ static void FS_RebuildFSHash(qboolean domutex)
 
 	Con_DPrintf("%i unique files, %i duplicates\n", fs_hash_files, fs_hash_dups);
 }
-#endif
 
 static void FS_RebuildFSHash_Update(const char *fname)
 {
@@ -4103,11 +4093,7 @@ static void FS_AddManifestPackages(searchpath_t **oldpaths, const char *purepath
 		{
 			Q_snprintfz(qhash, sizeof(qhash), "%#x", fs_manifest->package[i].crc);
 			FS_AddHashedPackage(oldpaths,purepath,logicalpaths,search,loadstuff, fs_manifest->package[i].path,fs_manifest->package[i].crcknown?qhash:NULL,fs_manifest->package[i].prefix, SPF_COPYPROTECTED|
-#ifdef FTE_TARGET_WEB
-					0	//web targets consider manifest packages as trusted, because they're about as trusted as the engine/html that goes with it.
-#else
 					(fs_manifest->security==MANIFEST_SECURITY_NOT?SPF_UNTRUSTED:0)
-#endif
 					);
 		}
 	}
@@ -4375,16 +4361,11 @@ void COM_FlushFSCache(qboolean purge, qboolean domutex)
 		}
 	}
 
-#ifdef FTE_TARGET_WEB
-	//web target doesn't support filesystem enumeration, so make sure the cache is kept invalid and disabled.
-	com_fschanged = true;
-#else
 	if (com_fs_cache.ival && com_fschanged)
 	{
 		//rebuild it if needed
 		FS_RebuildFSHash(domutex);
 	}
-#endif
 }
 
 /*since should start as 0, otherwise this can be used to poll*/
@@ -6079,7 +6060,7 @@ static qboolean Sys_SteamDirsWithFile(char *steamdir, char *fname, void(*callbac
 }
 #endif
 
-#if defined(HAVE_CLIENT) //this is *really* unfortunate, but doing this crashes the browser
+#if defined(HAVE_CLIENT) //Directory prompts are client-only.
 static qboolean Sys_DoDirectoryPrompt(char *basepath, size_t basepathsize, const char *poshname, const char *savedname)
 {
 	return false;
@@ -6197,7 +6178,7 @@ static qboolean Sys_FindGameData(const char *poshname, const char *gamename, cha
 	struct sys_findgamedata_ctx_s ctx = {basepath, basepathlen, false};
 	Sys_FindBaseDirs(poshname, gamename, Sys_FoundGameData,&ctx);
 
-#if defined(HAVE_CLIENT) //this is *really* unfortunate, but doing this crashes the browser
+#if defined(HAVE_CLIENT) //Directory prompts are client-only.
 	if (!ctx.found && allowprompts && poshname && *gamename && !COM_CheckParm("-manifest"))
 	{
 		if (Sys_DoDirectoryPrompt(basepath,basepathlen, poshname, gamename))
@@ -6871,7 +6852,7 @@ qboolean FS_ChangeGame(ftemanifest_t *man, qboolean allowreloadconfigs, qboolean
 			confpath[i] = NULL;
 	}
 
-#if defined(FTE_TARGET_WEB) || defined(ANDROID) || defined(WINRT)
+#if defined(ANDROID) || defined(WINRT)
 	//these targets are considered to be sandboxed already, and have their own app-based base directory which they will always use.
 	Q_strncpyz (newbasedir, host_parms.basedir, sizeof(newbasedir));
 	fixedbasedir = true;
@@ -6979,7 +6960,6 @@ qboolean FS_ChangeGame(ftemanifest_t *man, qboolean allowreloadconfigs, qboolean
 #ifdef PACKAGEMANAGER
 				if (!man->downloadsurl && gamemode_info[i].downloadsurl)
 				{
-#ifndef FTE_TARGET_WEB
 					if (*gamemode_info[i].downloadsurl == '/')
 					{
 						conchar_t musite[256], *e;
@@ -6996,7 +6976,6 @@ qboolean FS_ChangeGame(ftemanifest_t *man, qboolean allowreloadconfigs, qboolean
 						Cmd_TokenizeString(va("downloadsurl \"%s%s\"", site, gamemode_info[i].downloadsurl), false, false);
 					}
 					else
-#endif
 						Cmd_TokenizeString(va("downloadsurl \"%s\"", gamemode_info[i].downloadsurl), false, false);
 					FS_Manifest_ParseTokens(man);
 				}
@@ -8325,7 +8304,7 @@ static qboolean FS_GetBestHomeDir(ftemanifest_t *manifest)
 }
 #elif defined(NOSTDIO)
 static qboolean FS_GetBestHomeDir(ftemanifest_t *man)
-{	//no studio? webgl port? no file system access = no homedirs!
+{	//No filesystem access means no home directories.
 	return false;
 }
 #else

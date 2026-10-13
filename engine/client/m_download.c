@@ -2232,11 +2232,6 @@ static void PM_PreparePackageList(void)
 
 			while ((s = COM_Parse(s)))
 			{
-#ifdef FTE_TARGET_WEB
-				if (*com_token == '/' && !(fl&SRCFL_DISABLED))
-					PM_AddSubList(com_token, NULL, fl|SRCFL_ENABLED);	//enable it by default, its too annoying otherwise.
-				else
-#endif
 					PM_AddSubList(com_token, NULL, fl);
 			}
 		}

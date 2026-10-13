@@ -9,11 +9,7 @@
 #define	MAX_Q3MAP_VERTEXES	0x800000	//just a sanity limit
 //#define MAX_CM_PATCH_VERTS		(4096)
 //#define MAX_CM_FACES			(MAX_Q2MAP_FACES)
-#ifdef FTE_TARGET_WEB
-#define MAX_CM_PATCHES			(0x1000)		//fixme
-#else
 #define MAX_CM_PATCHES			(0x10000)		//fixme
-#endif
 //#define MAX_CM_LEAFFACES		(MAX_Q2MAP_LEAFFACES)
 #define	MAX_CM_AREAS			MAX_Q2MAP_AREAS
 

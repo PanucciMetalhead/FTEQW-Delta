@@ -5,7 +5,7 @@
 #include <sys/stat.h>
 #endif
 
-#if !defined(FTE_TARGET_WEB) && (!defined(_WIN32) || defined(WEBSVONLY))
+#if (!defined(_WIN32) || defined(WEBSVONLY))
 
 #ifdef WEBSVONLY
 	#define Z_Free free

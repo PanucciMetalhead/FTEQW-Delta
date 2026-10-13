@@ -314,7 +314,7 @@ $(PLUG_PREFIX)bullet$(PLUG_NATIVE_EXT): bullet/bulletplug.cpp plugin.c $(BULLET_
 ######################################
 
 ######################################
-#Regarding CEF Versions: Cef 2526 is reportedly the most recent _WORKING_ version of libcef. Later versions have screwed webgl etc, and are just generally unstable.
+#Regarding CEF Versions: Cef 2526 is reportedly the most recent _WORKING_ version of libcef. Later versions have compatibility problems and are generally unstable.
 #However, that's now impossible to get hold of since the old cefbuilds server went down. New builds are hosted by spotify and they're all randomly broken, so we might as well just use whatever seems fairly recent.
 
 #WARNING: Changing CEF_VER requires updating downloadables.php etc

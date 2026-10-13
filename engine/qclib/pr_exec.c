@@ -1880,7 +1880,7 @@ void PDECL PR_ExecuteProgram (pubprogfuncs_t *ppf, func_t fnum)
 		void *caller = __builtin_return_address(0);
 		dladdr(caller, &info);
 		externs->Printf("PR_ExecuteProgram: NULL function from %s+%p(%s)\n", info.dli_fname, (void*)((intptr_t)caller - (intptr_t)info.dli_fbase), info.dli_sname?info.dli_sname:"<function not known>");
-#elif defined(__GNUC__) && !defined(FTE_TARGET_WEB)
+#elif defined(__GNUC__)
 		externs->Printf("PR_ExecuteProgram: NULL function from exe (address %p)\n", __builtin_return_address(0));
 #else
 		externs->Printf("PR_ExecuteProgram: NULL function from exe\n");

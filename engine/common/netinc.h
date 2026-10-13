@@ -238,11 +238,6 @@
 	#define INADDR_LOOPBACK 0x7f000001
 #endif
 
-#if defined(FTE_TARGET_WEB)
-	#undef HAVE_IPV4
-	#undef HAVE_IPV6
-	#undef HAVE_IPX
-#endif
 
 #if 1//def SUPPORT_ICE
 struct icecandinfo_s

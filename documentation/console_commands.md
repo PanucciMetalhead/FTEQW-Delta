@@ -364,7 +364,7 @@ Jump to [input actions](#held-input-actions), [menus](#built-in-menu-entry-point
 | `cripple` | Both | Block the player's ability to move. |
 | `ctfscores` | Client | Apply Capture the Flag team-score updates sent by a server; a protocol helper rather than a user scoreboard toggle. |
 | `cuff` | Both | Slap handcuffs on the player, preventing them from being able to attack. |
-| `curl` | Client | Compatibility command for Xonotic URL-transfer requests; behavior depends on its download subcommands and web-client support. |
+| `curl` | Client | Compatibility command for Xonotic URL-transfer requests; behavior depends on its download subcommands and native HTTP transfer support. |
 | `cvar_lockdefaults` | Both | Make current eligible cvar values the mod's reset defaults; skips read-only and cheat variables. |
 | `cvar_purgedefaults` | Both | Resets all cvar defaults to back to the engine's default. Does not change their active value. |
 | `cvar_resettodefaults_all` | Both | Resets all cvars to the mod's default value. |
@@ -1713,13 +1713,13 @@ Jump to [symbols and A–C](#cvars-symbols-and-ac), [D–H](#cvars-dh),
 | `net_dns_ipv4` | `"1"` | If 0, disables dns resolution of names to ipv4 addresses (removing any associated error messages). Also hides ipv4 addresses in address:port listings. |
 | `net_dns_ipv6` | `"1"` | If 0, disables dns resolution of names to ipv6 addresses (removing any associated error messages). Also hides ipv6 addresses in address:port listings. |
 | `net_enable_dtls` (alias: `sv_listen_dtls`) | `""` | Controls serverside dtls support.<br>0: dtls blocked, not advertised.<br>1: clientside choice.<br>2: used where possible (recommended setting).<br>3: disallow non-dtls clients (sv_port_tcp should be eg tls://[::]:27500 to also disallow unencrypted tcp connections). |
-| `net_enable_http` | `"0"` | If enabled, tcp ports will accept inbound http clients, potentially serving large files which could distrupt gameplay (This does not affect outgoing http(s) requests). |
+| `net_enable_http` | `"0"` | Accept incoming HTTP file requests on a configured TCP listener. Server download permissions still apply. Does not affect outgoing HTTP/HTTPS downloads. The standalone master-server build defaults to `1`. |
 | `net_enable_q2e` | `"0"` | If enabled, accept connection requests from the quake2-remaster engine on our listening udp ports.<br>Note that this defaults to disabled due to it being highly vulnerable to applification attacks. |
 | `net_enable_qizmo` | `"1"` | Enables serverside support for 'connect tcp://foo' or 'connect tls://foo' (with net_enable_tls), as well as qizmo's tcp connections and compatibles. |
 | `net_enable_qtv` | `"2"` | Controls whether inbound qtv requests will be honoured (both proxies and clients using qtvplay).<br>0: Don't accept qtv connections.<br>1: Accept connections.<br>2: Accept qtv connections only from host-scopped addresses (read: 127.*.*.*, ::1, or unix sockets). |
 | `net_enable_rtcbroker` | `"0"` | If 1, tcp ports will accept websocket connections from clients trying to broker direct webrtc connections. This should be low traffic, but might involve a lot of mostly-idle connections. |
 | `net_enable_tls` | `"1"` | If enabled, binary data sent to a non-tls tcp port will be interpretted as a tls handshake (enabling https or wss over the same tcp port. |
-| `net_enable_websockets` | `"1"` | If enabled, tcp ports will accept websocket game clients. |
+| `net_enable_websockets` | `"1"` | Accept WebSocket game connections on a configured TCP listener; use `sv_port_tcp` to select the listener. The standalone master-server build defaults to `0`. |
 | `net_enabled` | `"1"` | If 0, disables all network access, including name resolution and socket creation. Does not affect loopback/internal connections. |
 | `net_fakeloss` | `"0"` | Simulates packetloss in both receiving and sending, on a scale from 0 to 1. [cheat/ruleset restricted.] |
 | `net_fakemtu` | `"0"` | Cripples packet reception sizes. [cheat/ruleset restricted.] |
@@ -1732,7 +1732,7 @@ Jump to [symbols and A–C](#cvars-symbols-and-ac), [D–H](#cvars-dh),
 | `net_ice_exchangeprivateips` | `"0"` | Boolean. When set to 0, hides private IP addresses from your peers - only addresses determined from the other side of your router will be shared. You should only need to set this to 1 if mdns is unavailable. |
 | `net_ice_relayonly` | `"0"` | Boolean. When set to 1, blocks reporting non-relay local candidates, does not attempt to connect to remote candidates other than via a relay. |
 | `net_ice_servers` | `""` | A space-separated list of ICE servers, eg stun:host.example:3478 or turn:host.example:3478?user=foo?auth=blah |
-| `net_ice_usewebrtc` | `""` | Use webrtc's extra overheads rather than simple ICE. This makes packets larger and is slower to connect, but is compatible with the web port. |
+| `net_ice_usewebrtc` | `""` | Use webrtc's extra overheads rather than simple ICE. This makes packets larger and is slower to connect, for compatibility with WebRTC peers. |
 | `net_master1` (alias: `sv_master1`) | `""` | default protocol master-server address in the built-in master list; used for server discovery/advertising as appropriate. |
 | `net_master2` (alias: `sv_master2`) | `""` | default protocol master-server address in the built-in master list; used for server discovery/advertising as appropriate. |
 | `net_master3` (alias: `sv_master3`) | `""` | default protocol master-server address in the built-in master list; used for server discovery/advertising as appropriate. |

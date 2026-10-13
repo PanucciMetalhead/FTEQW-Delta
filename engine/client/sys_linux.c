@@ -1539,16 +1539,7 @@ int main (int c, const char **v)
 		isPlugin = 3;
 		nostdout = true;	//only spew debugging messages.
 	}
-	else
-	{
-		isPlugin = !!COM_CheckParm("-plugin");
-		if (isPlugin)
-		{
-			printf("status Starting up!\n");
-			fflush(stdout);
-			nostdout = true;
-		}
-	}
+
 
 #if _POSIX_C_SOURCE >= 200809L
 	{

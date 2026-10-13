@@ -4489,15 +4489,10 @@ static void Mods_Draw(int x, int y, struct menucustom_s *c, struct emenu_s *m)
 		R_DrawTextField(x, y, c->common.width, c->common.height,
 					va(
 					"No games or mods known.\n"
-#ifdef FTE_TARGET_WEB
-					"Try providing packages/gamedirs via drag+drop.\n"
-					"%s", Cmd_Exists("sys_openfile")?"Or click to add a package\n":""
-#else
 	#ifndef ANDROID
 					"You may need to use -basedir $PATHTOGAME on the commandline.\n"
 	#endif
 					"\nExpected data path:\n^a%s", com_gamepath
-#endif
 					), CON_WHITEMASK, 0, font_default, scale);
 		return;
 	}

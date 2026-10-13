@@ -27,8 +27,11 @@ vid_conwidth 800
 vid_conheight 600
 cl_yawspeed 140
 plug_load quake3
-defer 1 map oa_dm1
+set bot_enable 0
+defer 1 devmap pxlfan
 defer 5 closemenu
+defer 5.5 cmd noclip
+defer 6 cmd setviewpos 0 -680 400 90
 defer 8 screenshot oa-start.png
 defer 9 +right
 defer 9.3 -right

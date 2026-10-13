@@ -598,11 +598,6 @@ void QCBUILTIN PF_json_find_object_child	(pubprogfuncs_t *prinst, struct globalv
 void QCBUILTIN PF_json_get_length			(pubprogfuncs_t *prinst, struct globalvars_s *pr_globals);
 void QCBUILTIN PF_json_get_child_at_index	(pubprogfuncs_t *prinst, struct globalvars_s *pr_globals);
 void QCBUILTIN PF_json_get_name				(pubprogfuncs_t *prinst, struct globalvars_s *pr_globals);
-#ifdef FTE_TARGET_WEB
-void QCBUILTIN PF_js_run_script				(pubprogfuncs_t *prinst, struct globalvars_s *pr_globals);
-#else
-#define PF_js_run_script PF_Ignore
-#endif
 void QCBUILTIN PF_base64encode(pubprogfuncs_t *prinst, struct globalvars_s *pr_globals);
 void QCBUILTIN PF_base64decode(pubprogfuncs_t *prinst, struct globalvars_s *pr_globals);
 

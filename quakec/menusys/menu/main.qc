@@ -125,7 +125,6 @@ nonstatic void(mitem_desktop desktop) M_Main =
 	if (checkcommand2("qi", FALSE))						{menuitemtext_cladd16(m, _("Quake Injector"),		"m_pop;qi",				y); y += 16;}
 	if (checkbuiltin2(getgamedirinfo,TRUE))				{menuitemtext_cladd16(m, _("Mods"),					"m_pop;m_mods",			y); y += 16;}
 	if (checkcommand2("sys_openfile", FALSE))			{menuitemtext_cladd16(m, _("Open/Add External File"),"m_pop;sys_openfile",	y); y += 16;}	//opens a file chooser dialog in eg chromium.
-	if (checkcommand2("xr_toggle", FALSE))				{menuitemtext_cladd16(m, _("Toggle VR"),			"m_pop;xr_toggle",		y); y += 16;}	//for webxr support
 														{menuitemtext_cladd16(m, _("Options"),				"m_pop;m_options",		y); y += 16;}
 														{menuitemtext_cladd16(m, _("Quit"), 				"m_pop;m_quit",			y); y += 16;}
 

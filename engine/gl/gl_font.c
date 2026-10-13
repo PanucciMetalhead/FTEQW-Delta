@@ -2190,7 +2190,7 @@ static texid_t Font_LoadFallbackConchars(void)
 		lump[i*4+2] = 255;
 	}
 	if (width == 256 && height == 256)
-	{	//make up some scroll-bar/download-progress-bar chars, so that webgl doesn't look so buggy with the initial pak file(s).
+	{	//Provide built-in scrollbar and download-progress glyphs.
 		Font_CopyGlyph('[', 128, lump);
 		Font_CopyGlyph('-', 129, lump);
 		Font_CopyGlyph(']', 130, lump);

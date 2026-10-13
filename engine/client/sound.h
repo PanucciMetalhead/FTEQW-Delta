@@ -62,9 +62,6 @@ typedef struct sfx_s
 
 typedef enum
 {
-#ifdef FTE_TARGET_WEB
-		QAF_BLOB=0,
-#endif
 		QAF_S8=1,
 		//QAF_U8=0x80|1,
 		QAF_S16=2,

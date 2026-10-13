@@ -52,14 +52,14 @@ char *r_defaultimageextensions =
 	"tga"	//fairly fast to load
 	//" htga"
 #endif
-#if defined(IMAGEFMT_PNG) || defined(FTE_TARGET_WEB)
+#if defined(IMAGEFMT_PNG)
 	" png"	//pngs, fairly common, but slow
 #endif
 #ifdef IMAGEFMT_BMP
 	//" bmp"	//wtf? at least not lossy
 	//" ico"	//noone wants this...
 #endif
-#if defined(IMAGEFMT_JPG) || defined(FTE_TARGET_WEB)
+#if defined(IMAGEFMT_JPG)
 	" jpg"	//q3 uses some jpegs, for some reason
 	//" jpeg"	//thankfuly the quake community stuck to .jpg instead
 #endif
@@ -121,12 +121,12 @@ static image_t *imagelist;
 #endif
 
 #ifdef AVAIL_STBI
-	#if defined(IMAGEFMT_PNG) && !defined(AVAIL_PNGLIB) && !defined(FTE_TARGET_WEB)
+	#if defined(IMAGEFMT_PNG) && !defined(AVAIL_PNGLIB)
 		#define STBI_ONLY_PNG
 		#define STBIW_ONLY_PNG
 		#undef IMAGEFMT_PNG
 	#endif
-	#if defined(IMAGEFMT_JPG) && !defined(AVAIL_JPEGLIB) && !defined(FTE_TARGET_WEB)
+	#if defined(IMAGEFMT_JPG) && !defined(AVAIL_JPEGLIB)
 		#define STBI_ONLY_JPEG
 		#define STBIW_ONLY_JPEG
 		#undef IMAGEFMT_JPG
@@ -159,26 +159,23 @@ static image_t *imagelist;
 	#endif
 #endif
 
-#if defined(IMAGEFMT_GIF) && !defined(FTE_TARGET_WEB)
+#if defined(IMAGEFMT_GIF)
 	#pragma message("IMAGEFMT_GIF requires AVAIL_STBI")
 	#undef IMAGEFMT_GIF
 #endif
-#if defined(IMAGEFMT_PNG) && !defined(AVAIL_PNGLIB) && !defined(FTE_TARGET_WEB)
+#if defined(IMAGEFMT_PNG) && !defined(AVAIL_PNGLIB)
 	#pragma message("IMAGEFMT_PNG requires AVAIL_PNGLIB or AVAIL_STBI")
 	#undef IMAGEFMT_PNG
 #elif !defined(IMAGEFMT_PNG) && defined(AVAIL_PNGLIB)
 	#undef AVAIL_PNGLIB
 #endif
-#if defined(IMAGEFMT_JPG) && !defined(AVAIL_JPEGLIB) && !defined(FTE_TARGET_WEB)
+#if defined(IMAGEFMT_JPG) && !defined(AVAIL_JPEGLIB)
 	#pragma message("IMAGEFMT_JPG requires AVAIL_JPEGLIB or AVAIL_STBI")
 	#undef IMAGEFMT_JPG
 #elif !defined(IMAGEFMT_JPG) && defined(AVAIL_JPEGLIB)
 	#undef AVAIL_JPEGLIB
 #endif
 
-#if defined(IMAGEFMT_EXR) && defined(FTE_TARGET_WEB)
-	#undef IMAGEFMT_EXR
-#endif
 
 #ifndef LIBPNG_STATIC
 #define DYNAMIC_LIBPNG
@@ -5094,9 +5091,6 @@ qboolean Image_WriteKTXFile(const char *filename, enum fs_relative fsroot, struc
 	case PTI_DEPTH32:			header.glinternalformat = 0x81A7/*GL_DEPTH_COMPONENT32*/;	header.glbaseinternalformat = 0x1902/*GL_DEPTH_COMPONENT*/;	header.glformat = 0x1902/*GL_DEPTH_COMPONENT*/;	header.gltype = 0x1406/*GL_FLOAT*/;							header.gltypesize = 4; break;
 	case PTI_DEPTH24_8:			header.glinternalformat = 0x88F0/*GL_DEPTH24_STENCIL8*/;	header.glbaseinternalformat = 0x84F9/*GL_DEPTH_STENCIL*/;	header.glformat = 0x84F9/*GL_DEPTH_STENCIL*/;	header.gltype = 0x84FA/*GL_UNSIGNED_INT_24_8*/;				header.gltypesize = 4; break;
 
-#ifdef FTE_TARGET_WEB
-	case PTI_WHOLEFILE:
-#endif
 	case PTI_EMULATED:
 	case PTI_MAX:
 		return false;
@@ -6927,9 +6921,6 @@ qboolean Image_WriteDDSFile(const char *filename, enum fs_relative fsroot, struc
 	case PTI_DEPTH24:			return false;	//unsupported, should fall back on dx9 formats.
 	case PTI_P8:				return false;	//unsupported, technically R8_UNORM but would load back in wrongly.
 
-#ifdef FTE_TARGET_WEB
-	case PTI_WHOLEFILE:
-#endif
 	case PTI_EMULATED:
 	case PTI_MAX:
 		return false;
@@ -11704,9 +11695,6 @@ void Image_BlockSizeForEncoding(uploadfmt_t encoding, unsigned int *blockbytes, 
 	case TF_MIP4_SOLID8:
 	case TF_MIP4_8PAL24:
 	case TF_MIP4_8PAL24_T255:
-#ifdef FTE_TARGET_WEB
-	case PTI_WHOLEFILE: //UNKNOWN!
-#endif
 	case PTI_MAX:
 		break;
 	}
@@ -11867,9 +11855,6 @@ qboolean Image_FormatHasAlpha(uploadfmt_t encoding)
 		return true;
 
 	case PTI_EMULATED:
-#ifdef FTE_TARGET_WEB
-	case PTI_WHOLEFILE: //UNKNOWN!
-#endif
 	case PTI_MAX:
 		return false;
 	}
@@ -12022,9 +12007,6 @@ const char *Image_FormatName(uploadfmt_t fmt)
 	case PTI_ASTC_6X6X6_LDR:	return "ASTC_6X6X6_LDR";
 #endif
 
-#ifdef FTE_TARGET_WEB
-	case PTI_WHOLEFILE:			return "Whole File";
-#endif
 	case TF_INVALID:			return "INVALID";
 	case TF_BGR24_FLIP:			return "BGR24_FLIP";
 	case TF_MIP4_P8:			return "MIP4_P8";
@@ -13365,9 +13347,6 @@ static qboolean Image_GenMip0(struct pendingtextureinfo *mips, unsigned int flag
 		case PTI_ASTC_6X6X6_SRGB:
 		case PTI_ASTC_6X6X6_LDR:
 #endif
-#ifdef FTE_TARGET_WEB
-		case PTI_WHOLEFILE:
-#endif
 			//erk. meh.
 			break;
 		case PTI_L8:
@@ -13832,34 +13811,6 @@ struct pendingtextureinfo *Image_LoadMipsFromMemory(int flags, const char *iname
 		}
 		Z_Free(mips);
 	}
-#ifdef FTE_TARGET_WEB
-	else if (1)
-	{
-		struct pendingtextureinfo *mips;
-		mips = Z_Malloc(sizeof(*mips));
-		mips->type = (flags & IF_TEXTYPEMASK)>>IF_TEXTYPESHIFT;
-		mips->mipcount = 1;
-		mips->encoding = PTI_WHOLEFILE;
-		mips->extrafree = NULL;
-		//evil ensues:
-		if (filesize >= 32 && !strncmp(filedata, "\x89PNG", 4) && !strncmp(filedata+12, "IHDR", 4))
-		{	//need to do this to get png sizes working right for the quake rerelease's content
-			mips->mip[0].width  = (filedata[0x13]<<0)|(filedata[0x12]<<8)|(filedata[0x11]<<16)|(filedata[0x10]<<24);
-			mips->mip[0].height = (filedata[0x17]<<0)|(filedata[0x16]<<8)|(filedata[0x15]<<16)|(filedata[0x14]<<24);
-		}
-		else
-		{
-			mips->mip[0].width  = 1;
-			mips->mip[0].height = 1;
-		}
-		mips->mip[0].depth = 1;
-		mips->mip[0].data = filedata;
-		mips->mip[0].datasize = filesize;
-		mips->mip[0].needfree = true;
-		//width+height are not yet known. bah.
-		return mips;
-	}
-#endif
 	else
 		Con_TPrintf("Unable to load file %s (format unsupported)\n", fname);
 

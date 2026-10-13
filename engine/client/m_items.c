@@ -2430,10 +2430,6 @@ static int M_Main_AddExtraOptions(emenu_t *mainm, int y)
 	if (Cmd_Exists("sys_openfile"))
 		{MC_AddConsoleCommandQBigFont(mainm, 72, y,	localtext("Open File     "), "sys_openfile\n");	y += 20;}
 
-#ifdef FTE_TARGET_WEB
-	if (Cmd_Exists("xr_toggle"))
-		{MC_AddConsoleCommandQBigFont(mainm, 72, y,	localtext("Toggle WebXR  "), "xr_toggle\n");	y += 20;}
-#endif
 
 	return y;
 }
@@ -2660,11 +2656,7 @@ void M_Menu_Main_f (void)
 			else
 				{MC_AddConsoleCommandQBigFont(mainm, 72, y,	localtext("Help          "), "help\n");			y += 20;}
 			y = M_Main_AddExtraOptions(mainm, y);
-#ifdef FTE_TARGET_WEB
-			MC_AddConsoleCommandQBigFont	(mainm, 72, y,	localtext("Save Settings "), "menu_quit\n");		y += 20;
-#else
 			MC_AddConsoleCommandQBigFont	(mainm, 72, y,	localtext("Quit          "), "menu_quit\n");		y += 20;
-#endif
 
 			mainm->cursoritem = (menuoption_t *)MC_AddCursor(mainm, &resel, 54, mainm->selecteditem->common.posy);
 		}
@@ -2710,11 +2702,7 @@ void M_Menu_Main_f (void)
 			b->common.width = width;
 			b->common.height = 20;
 			b=MC_AddConsoleCommand	(mainm, 72, 312, 112,	"", "menu_quit\n");
-#ifdef FTE_TARGET_WEB
-			b->common.tooltip = localtext("Save settings to local storage.");
-#else
 			b->common.tooltip = localtext("Exit to DOS.");
-#endif
 			b->common.width = width;
 			b->common.height = 20;
 

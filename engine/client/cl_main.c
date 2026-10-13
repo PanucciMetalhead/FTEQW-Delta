@@ -132,11 +132,7 @@ cvar_t cl_demospeed = CVARF("cl_demospeed", "1", 0);
 cvar_t	cl_demoreel = CVARFD("cl_demoreel", "0", CVAR_SAVE, "When enabled, the engine will begin playing a demo loop on startup.");
 
 cvar_t cl_loopbackprotocol = CVARD("cl_loopbackprotocol", "qw", "Which protocol to use for single-player/the internal client. Should be one of: qw, qwid, nqid, nq, fitz, bjp3, dp6, dp7, auto. If 'auto', will use qw protocols for qw mods, and nq protocols for nq mods.");
-#ifdef FTE_TARGET_WEB
-static cvar_t cl_verify_urischeme = CVARAFD("cl_verify_urischeme", "2", "cl_verify_qwprotocol"/*ezquake, inappropriate for misc schemes*/, CVAR_NOSAVE/*checked at startup, so its only really default.cfg that sets it*/, "0: Do nothing.\n1: Check whether our protocol scheme is registered and prompt the user to register associations.\n2: Always re-register on every startup, without prompting. Sledgehammer style.");
-#else
 static cvar_t cl_verify_urischeme = CVARAFD("cl_verify_urischeme", "0", "cl_verify_qwprotocol"/*ezquake, inappropriate for misc schemes*/, CVAR_NOSAVE/*checked at startup, so its only really default.cfg that sets it*/, "0: Do nothing.\n1: Check whether our protocol scheme is registered and prompt the user to register associations.\n2: Always re-register on every startup, without prompting. Sledgehammer style.");
-#endif
 
 cvar_t cl_fakeframes = CVARD("cl_fakeframes", "0", "Slow GPU? Want to see higher framerates get reported! Unleash the power of the lie to see much higher framerates! Many people said it couldn't be done, that the people wouldn't accept it, but to hell with the neighsayers and non-believers! WE WANT BIGGER NUMBERS AND WE'RE DAMN WELL GONNA GET THEM!... For best results, combine with an external tool like fluid motion frames...");
 
@@ -3569,10 +3565,6 @@ Contents allows \n escape character
 */
 void CL_Packet_f (void)
 {
-#ifdef FTE_TARGET_WEB
-	//either this creates some expensive alternative rtc connection that screws us over, or just generally fails. don't allow it.
-	Con_Printf (CON_WARNING "Ignoring 'packet %s' request.\n", Cmd_Argv(1));
-#else
 	char	send[2048];
 	int		i, l;
 	char	*in, *out;
@@ -3680,7 +3672,6 @@ void CL_Packet_f (void)
 		cls.realip_ident = atoi(Cmd_Argv(2));
 		Z_Free(temp);
 	}
-#endif
 }
 
 
@@ -6052,10 +6043,7 @@ void CL_Init (void)
 	Cmd_AddCommandAD ("connectbr", CL_ConnectBestRoute_f, CL_Connect_c, "connect address:port\nConnect to a qw server using the best route we can detect.");
 #endif
 	Cmd_AddCommandAD("connect", CL_Connect_f, CL_Connect_c, "connect scheme://address:port\nConnect to a server. "
-#if defined(FTE_TARGET_WEB)
-		"Use a scheme of rtc[s]://broker/gamename to connect via a webrtc broker."
-		"Use a scheme of ws[s]://server to connect via websockets."
-#elif defined(TCPCONNECT)
+#if   defined(TCPCONNECT)
 		"Use a scheme of tcp:// or tls:// to connect via non-udp protocols."
 //		"Use a scheme of ws[s]://server to connect via websockets."
 #endif
@@ -6598,9 +6586,6 @@ void Host_RunFilePrompted(void *ctx, promptbutton_t button)
 #ifdef WEBCLIENT
 static qboolean isurl(char *url)
 {
-#ifdef FTE_TARGET_WEB
-	return true;	//assume EVERYTHING is a url, because the local filesystem is pointless.
-#endif
 	return /*!strncmp(url, "data:", 5) || */!strncmp(url, "http://", 7) || !strncmp(url, "https://", 8);
 }
 #endif
@@ -6951,11 +6936,6 @@ done:
 		f->dstfile = FS_OpenVFS(qname, (f->flags & HRF_PACKAGE)?"wbp":"wb", qroot);
 		if (f->dstfile)
 		{
-#ifdef FTE_TARGET_WEB
-			VFS_SEEK(f->dstfile, VFS_GETLEN(f->srcfile));
-			VFS_WRITE(f->dstfile, "zomg", 0);	//hack to ensure the file is there, avoiding excessive copies.
-			VFS_SEEK(f->dstfile, 0);
-#endif
 			while(1)
 			{
 				len = VFS_READ(f->srcfile, buffer, sizeof(buffer));
@@ -6987,11 +6967,6 @@ done:
 qboolean Host_RunFile(const char *fname, int nlen, vfsfile_t *file)
 {
 	hrf_t *f;
-#if defined(FTE_TARGET_WEB)
-	if (nlen >= 8 && !strncmp(fname, "file:///", 8))
-	{	//just here so we don't get confused by the arbitrary scheme check below.
-	}
-#else
 	//file urls need special handling, if only for percent-encoding.
 	char utf8[MAX_OSPATH*3];
 	if (nlen >= 5 && !strncmp(fname, "file:", 5))
@@ -7006,7 +6981,6 @@ qboolean Host_RunFile(const char *fname, int nlen, vfsfile_t *file)
 		fname = utf8;
 		nlen = strlen(fname);
 	}
-#endif
 	else if((nlen >= 7 && !strncmp(fname, "http://", 7)) ||
 			(nlen >= 8 && !strncmp(fname, "https://", 8)))
 		;	//don't interpret these as our custom uri schemes

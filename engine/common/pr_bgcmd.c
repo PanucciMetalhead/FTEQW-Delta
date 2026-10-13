@@ -136,8 +136,6 @@ qofs_t PR_ReadBytesString(char *str)
 	{
 #if (defined(_WIN64) && !defined(WINRT)) || (defined(__linux__)&&defined(__LP64__))
 		return 0x80000000;	//use of virtual address space rather than physical memory means we can just go crazy and use the max of 2gb.
-#elif defined(FTE_TARGET_WEB)
-		return 8*1024*1024;
 #else
 		return 32*1024*1024;
 #endif
@@ -919,20 +917,6 @@ void QCBUILTIN PF_json_find_object_child(pubprogfuncs_t *prinst, struct globalva
 	}
 }
 
-#ifdef FTE_TARGET_WEB
-#include <emscripten.h>
-//FIXME: make sure the module is signed/'local'/trusted
-void QCBUILTIN PF_js_run_script(pubprogfuncs_t *prinst, struct globalvars_s *pr_globals)
-{
-	const char *jscript = PR_GetStringOfs(prinst, OFS_PARM0);
-	const char *ret;
-	ret = emscripten_run_script_string(jscript);
-	if (ret)
-		G_INT(OFS_RETURN) = PR_TempString(prinst, ret);
-	else
-		G_INT(OFS_RETURN) = 0;
-}
-#endif
 
 
 ////////////////////////////////////////////////////

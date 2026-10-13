@@ -2,7 +2,7 @@ Manifest files are small files that describe various attributes of the game, pri
 Manifest files are useful for standalone games that need to distance themselves from other games using the same engine. They are also useful for auto-updating mods or for mod compilations where mods should not be downloaded up-front.
 
 FTE Manifest Files (.fmf) can either be invoked by opening them with FTE (set up a file association), or automatically via a default.fmf file in the path specified by the -basedir argument, or in the working directory (settable via shortcuts). A default.fmf file will override the engine's game determination routines completely.
-These files are also supported by the Android port, where opening one will give an option to open with FTEDroid automatically (much like on a desktop OS), or in the webgl port with the url specified after a # in the url.
+These files are also supported by the Android port, where opening one will give an option to open with FTEDroid automatically (much like on a desktop OS).
 The gamedir command (eg: 'gamedir foo', or '-game foo' on the commandline) will attempt to load an fmf file with the specified name (ie: foo.fmf) from the current basedir. If the new manifest has a different 'game' value, the engine may ignore.
 
 Each line of a manifest file forms a single command. New lines denote new commands. Comments are C++-style // double forward slashes.
@@ -23,7 +23,6 @@ BASEGAME qw
 BASEGAME *fte
 GAMEDIR shadows
 //it would be nice if we could specify pak0.pak and pak1.pak here, alas doing so would violate id's various copyrights. instead, hope the user has a copy already installed.
-//this is a major pain for systems where there is no official installer (read: fte's webgl port, or android... or win64).
 //its pak0 can be downloaded from sock's public server
 ARCHIVEDPACKAGE shadows/pak0.pak "0xb1768147" "shadows/pak0.pak" "http://simonoc.com/files/maps/sp/its_demo_v1_1.zip"
 -seta cl_forwardspeed 400

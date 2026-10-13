@@ -339,24 +339,24 @@ qboolean Media_CleanupTrackName(const char *track, int *out_track, char *result,
 	static char *ext[] =
 	{
 		"",
-#if defined(AVAIL_OGGOPUS) || defined(FTE_TARGET_WEB)
+#if defined(AVAIL_OGGOPUS)
 		".opus",	//opus might be the future, but ogg is the present
 #endif
-#if defined(AVAIL_OGGVORBIS) || defined(FTE_TARGET_WEB)
+#if defined(AVAIL_OGGVORBIS)
 		".ogg",
 #endif
-#if defined(AVAIL_MP3_ACM) || defined(FTE_TARGET_WEB)
+#if defined(AVAIL_MP3_ACM)
 		".mp3",
 #endif
 		".wav",
 #if defined(PLUGINS)	//ffmpeg plugin? woo.
-	#if !(defined(AVAIL_OGGOPUS) || defined(FTE_TARGET_WEB))
+	#if !(defined(AVAIL_OGGOPUS))
 		".opus",	//opus might be the future, but ogg is the present
 	#endif
-	#if !(defined(AVAIL_OGGVORBIS) || defined(FTE_TARGET_WEB))
+	#if !(defined(AVAIL_OGGVORBIS))
 		".ogg",
 	#endif
-	#if !(defined(AVAIL_MP3_ACM) || defined(FTE_TARGET_WEB))
+	#if !(defined(AVAIL_MP3_ACM))
 		".mp3",
 	#endif
 		".flac",	//supported by QS at least.

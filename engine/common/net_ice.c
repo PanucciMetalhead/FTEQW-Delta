@@ -109,7 +109,7 @@ static cvar_t net_ice_allowstun = CVARFD("net_ice_allowstun", "1", CVAR_NOTFROMS
 static cvar_t net_ice_allowturn = CVARFD("net_ice_allowturn", "1", CVAR_NOTFROMSERVER, "Boolean. When set to 0, prevents registration of turn connections (does not prevent connecting to our peer's relay candidates).");
 static cvar_t net_ice_allowmdns = CVARFD("net_ice_allowmdns", "1", CVAR_NOTFROMSERVER, "Boolean. When set to 0, prevents the use of multicast-dns to obtain candidates using random numbers instead of revealing private network info.");
 static cvar_t net_ice_relayonly = CVARFD("net_ice_relayonly", "0", CVAR_NOTFROMSERVER, "Boolean. When set to 1, blocks reporting non-relay local candidates, does not attempt to connect to remote candidates other than via a relay.");
-static cvar_t net_ice_usewebrtc = CVARFD("net_ice_usewebrtc", "", CVAR_NOTFROMSERVER, "Use webrtc's extra overheads rather than simple ICE. This makes packets larger and is slower to connect, but is compatible with the web port.");
+static cvar_t net_ice_usewebrtc = CVARFD("net_ice_usewebrtc", "", CVAR_NOTFROMSERVER, "Use webrtc's extra overheads rather than simple ICE. This makes packets larger and is slower to connect, for compatibility with WebRTC peers.");
 static cvar_t net_ice_servers = CVARFD("net_ice_servers", "", CVAR_NOTFROMSERVER, "A space-separated list of ICE servers, eg stun:host.example:3478 or turn:host.example:3478?user=foo?auth=blah");
 static cvar_t net_ice_debug = CVARFD("net_ice_debug", "0", CVAR_NOTFROMSERVER, "0: Hide messy details.\n1: Show new candidates.\n2: Show each connectivity test.");
 

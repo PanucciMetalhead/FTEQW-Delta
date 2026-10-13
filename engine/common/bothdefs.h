@@ -62,15 +62,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 	#endif
 #endif
 
-#ifdef FTE_TARGET_WEB
-	//no Sys_LoadLibrary support, so we might as well kill this stuff off.
-	#define NO_PNG
-	#define NO_JPEG
-	#define NO_OGG
-	#ifndef NO_FREETYPE
-		#define NO_FREETYPE
-	#endif
-#endif
 
 #ifdef D3DQUAKE
 	#define D3D9QUAKE
@@ -285,49 +276,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 	#undef AVAIL_OGGVORBIS
 #endif
 
-#ifdef FTE_TARGET_WEB
-	//sandboxing means some stuff CANNOT work...
-	#undef HAVE_TCP		//websockets are not real tcp.
-	#undef HAVE_PACKET	//no udp support
-
-	//try to trim the fat
-//	#undef VOICECHAT	//too lazy to compile opus
-	#undef HLCLIENT		//dlls...
-	#undef HLSERVER		//dlls...
-//	#undef CL_MASTER	//bah. use the site to specify the servers.
-	#undef SV_MASTER	//yeah, because that makes sense in a browser
-	#undef RAGDOLL		//no ode
-	#undef TCPCONNECT	//err...
-	#undef IRCCONNECT	//not happening
-	#if !defined(USE_INTERNAL_BULLET) && !defined(USE_INTERNAL_ODE) && !defined(MODELFMT_GLTF) && !defined(STATIC_EZHUD) && !defined(STATIC_OPENSSL) && !defined(STATIC_Q3)
-		#undef PLUGINS		//pointless
-	#endif
-	#undef MAP_PROC		//meh
-//	#undef HALFLIFEMODELS	//blurgh
-	#undef SUPPORT_ICE	//requires udp, so not usable. webrtc could be used instead, but that logic is out of our hands.
-//	#undef HAVE_MIXER	//depend upon openal instead.
-
-	//extra features stripped to try to reduce memory footprints
-	#undef RUNTIMELIGHTING	//too slow anyway (kinda needs threads)
-	#undef Q2SERVER	//requires a dll anyway.
-//	#undef Q2CLIENT //match Q2SERVER (networking is a pain)
-//	#undef Q3CLIENT	//no bots, and networking is a pain
-//	#undef Q3SERVER //match Q3CLIENT
-//	#undef Q2BSPS	//emscripten can't cope with bss, leading to increased download time. too lazy to fix.
-//	#undef Q3BSPS	//emscripten can't cope with bss, leading to increased download time. too lazy to fix.
-//	#undef TERRAIN
-//	#undef PSET_SCRIPT	//bss+size
-	#define GLSLONLY	//pointless having the junk
-	#define GLESONLY	//should reduce the conditions a little
-	#ifndef R_MAX_RECURSE
-		#define R_MAX_RECURSE 2 //less bss
-	#endif
-//	#undef RTLIGHTS
-	#undef HEADLESSQUAKE
-	#ifndef NO_FREETYPE
-	#define NO_FREETYPE
-	#endif
-#endif
 #ifdef WINRT
 	//microsoft do not support winsock any more.
 	#undef HAVE_TCP
@@ -405,10 +353,10 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #undef GLQUAKE
 #undef USE_EGL
 
-#if (defined(HAVE_GNUTLS) || defined(HAVE_WINSSPI) || defined(PLUGINS)) && !defined(FTE_TARGET_WEB)
+#if (defined(HAVE_GNUTLS) || defined(HAVE_WINSSPI) || defined(PLUGINS))
 	#define HAVE_SSL
 #endif
-#if (defined(HAVE_GNUTLS) || defined(HAVE_WINSSPI) || defined(PLUGINS)) && !defined(FTE_TARGET_WEB)
+#if (defined(HAVE_GNUTLS) || defined(HAVE_WINSSPI) || defined(PLUGINS))
 	//FIXME: HAVE_WINSSPI does not work as a server.
 	//FIXME: advertising dtls without a valid certificate will probably bug out if a client tries to auto-upgrade.
 	//FIXME: we don't cache server certs
@@ -466,15 +414,11 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 	#undef IRCCONNECT
 	#undef FTPSERVER		//ftp server
 	#undef FTPCLIENT		//ftp client.
-	#if !defined(FTE_TARGET_WEB)
 		#undef WEBCLIENT
-	#endif
 #endif
 #ifndef HAVE_PACKET
 	#undef SV_MASTER
-	#ifndef FTE_TARGET_WEB
 		#undef CL_MASTER	//can use websockets to get a list of usable ws:// or rtc:// servers
-	#endif
 	#undef SUPPORT_ICE	//webrtc takes all control away from us, the implementation is completely different.
 #endif
 
@@ -564,20 +508,12 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #else
 	#define IFMINIMAL(x,y) y
 #endif
-#ifdef FTE_TARGET_WEB
-	#define IFWEB(x,y) x
-#else
 	#define IFWEB(x,y) y
-#endif
 
 // defs common to client and server
 
 #ifndef PLATFORM
-	#if defined(FTE_TARGET_WEB)
-		#define PLATFORM		"Web"
-		#define ARCH_CPU_POSTFIX "web"
-		#define ARCH_DL_POSTFIX ".wasm"
-	#elif defined(_WIN32_WCE)
+	#if   defined(_WIN32_WCE)
 		#define PLATFORM		"WinCE"
 		#define ARCH_DL_POSTFIX ".dll"
 	#elif defined(_WIN32)
@@ -919,12 +855,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 //
 // per-level limits
 //
-#ifdef FTE_TARGET_WEB
-#define MAX_EDICTS		((1<<15)-1)
-#else
 #define	MAX_EDICTS		((1<<22)-1)			// expandable up to 22 bits
 //#define	MAX_EDICTS		((1<<18)-1)			// expandable up to 22 bits
-#endif
 
 #define	MAX_NET_LIGHTSTYLES		(INVALID_LIGHTSTYLE+1)		// 16bit. the last index MAY be used to signify an invalid lightmap in the bsp, but is still valid for rtlights.
 #define MAX_STANDARDLIGHTSTYLES 64

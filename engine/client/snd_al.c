@@ -4,9 +4,6 @@
 This is based on Jogi's OpenAL support.
 Much of it is stripped, to try and get it clean/compliant.
 
-Emscripten/WebAudio is buggy or limited.
-This means we force distance models and use hacks to avoid bugs in browsers.
-We also have no doppler with WebAudio.
 */
 
 /*Bug list:
@@ -29,22 +26,11 @@ We also have no doppler with WebAudio.
 
 #ifdef AVAIL_OPENAL
 
-#ifdef FTE_TARGET_WEB
-#include <emscripten/emscripten.h>
-	//emscripten provides an openal -> webaudio wrapper. its not the best, but does get the job done.
-	#define OPENAL_STATIC		//our javascript port doesn't support dynamic linking  (bss+data segments get too messy).
-	#define SDRVNAME "WebAudio"	//IE doesn't support webaudio, resulting in noticable error messages about no openal, which is technically incorrect. So lets be clear about this.
-	#define SDRVNAMEDESC "WebAudio:"
-
-	#define QMIX_SDRVNAME "qmix"	//IE doesn't support webaudio, resulting in noticable error messages about no openal, which is technically incorrect. So lets be clear about this.
-	#define QMIX_SDRVNAMEDESC "QMIX:"
-#else
 	#define SDRVNAME "OpenAL"
 	#define SDRVNAMEDESC "OAL:"
 	#define QMIX_SDRVNAME "qmix"
 	#define QMIX_SDRVNAMEDESC "OALQ:"
 	#define USEEFX
-#endif
 #ifndef HAVE_MIXER
 	#undef SDRVNAMEDESC
 	#define SDRVNAMEDESC ""	//remove the prefixes in user-visible desciptions when there's (probably) no other devices anyway
@@ -113,9 +99,6 @@ We also have no doppler with WebAudio.
 #define palcCaptureStop			alcCaptureStop
 #define palcCaptureSamples		alcCaptureSamples
 
-#ifdef FTE_TARGET_WEB	//emscripten sucks.
-AL_API void (AL_APIENTRY alSpeedOfSound)( ALfloat value ) {}
-#endif
 #else
 
 #if defined(_WIN32)
@@ -392,11 +375,7 @@ static void S_Info(void);
 
 static void S_Shutdown_f(void);
 */
-#ifdef FTE_TARGET_WEB
-static cvar_t s_al_disable = CVARD("s_al_disable", "1", "0: OpenAL works (generally as the highest priority).\n1: OpenAL will be used only when a specific device is selected.\n2: Don't allow ANY use of OpenAl.\nWith OpenAL disabled, audio ouput will fall back to platform-specific output, avoiding miscilaneous third-party openal limitation bugs.");
-#else
 static cvar_t s_al_disable = CVARD("s_al_disable", "0", "0: OpenAL works (generally as the highest priority).\n1: OpenAL will be used only when a specific device is selected.\n2: Don't allow ANY use of OpenAl.\nWith OpenAL disabled, audio ouput will fall back to platform-specific output, avoiding miscilaneous third-party openal limitation bugs.");
-#endif
 static cvar_t s_al_debug = CVARD("s_al_debug", "0", "Enables periodic checks for OpenAL errors.");
 static cvar_t s_al_hrtf = CVARD("s_al_hrtf", "", "Enables use of HRTF, and which HRTF table to use.\nempty: auto, depending on openal config to enable it.\n\0: force off.\n1: Use the default HRTF.");
 static cvar_t s_al_use_reverb = CVARD("s_al_use_reverb", "1", "Controls whether reverb effects will be used. Set to 0 to block them. Reverb requires gamecode to configure the reverb properties, other than underwater.");
@@ -509,13 +488,6 @@ static qboolean OpenAL_LoadCache(oalinfo_t *oali, unsigned int *bufptr, sfxcache
 	unsigned int size;
 	switch(sc->format)
 	{
-#ifdef FTE_TARGET_WEB
-	case QAF_BLOB:
-		palGenBuffers(1, bufptr);
-		emscriptenfte_al_loadaudiofile(*bufptr, sc->data, sc->length);
-		//alIsBuffer will report false until success or failure...
-		return true;	//but we do have a 'proper' reference to the buffer.
-#endif
 	case QAF_S8:
 		if (sc->numchannels == 2)
 		{
@@ -574,10 +546,6 @@ static qboolean OpenAL_LoadCache(oalinfo_t *oali, unsigned int *bufptr, sfxcache
 	{
 		switch(sc->format)
 		{
-#ifdef FTE_TARGET_WEB
-		case QAF_BLOB:
-			break;	//unreachable
-#endif
 		case QAF_S8:
 			{
 				unsigned char *tmp = malloc(size);
@@ -619,10 +587,6 @@ static qboolean OpenAL_LoadCache(oalinfo_t *oali, unsigned int *bufptr, sfxcache
 	{
 		switch(sc->format)
 		{
-#ifdef FTE_TARGET_WEB
-		case QAF_BLOB:
-			break;	//unreachable
-#endif
 		case QAF_S8:
 			{
 				unsigned char *tmp = malloc(size);
@@ -714,14 +678,12 @@ static void OpenAL_ListenerUpdate(soundcardinfo_t *sc, int entnum, vec3_t origin
 
 	if (!s_al_static_listener.value)
 	{
-		//I'm using listenerdirty flags because emscripten's openal stuff seems to be wasting massive amounts of time on these.
+		//Defer listener updates until its state changes.
 //		palListenerf(AL_GAIN, 1);
 		if (oali->listenerdirty & 1)
 			palListenerfv(AL_POSITION, oali->ListenPos);
-#ifndef FTE_TARGET_WEB	//webaudio sucks.
 		if (oali->listenerdirty & 2)
 			palListenerfv(AL_VELOCITY, oali->ListenVel);
-#endif
 		if (oali->listenerdirty & 4)
 			palListenerfv(AL_ORIENTATION, oali->ListenOri);
 
@@ -922,18 +884,12 @@ static void OpenAL_ChannelUpdate(soundcardinfo_t *sc, channel_t *chan, chanupdat
 	/*just wanted to stop it?*/
 	if (!sfx)
 	{
-#ifdef FTE_TARGET_WEB
-		//emscripten's webaudio wrapper spams error messages after alDeleteSources has been called, if the context isn't also killed.
-		if (!schanged)
-			palSourceStop(src);
-#else
 		palDeleteSources(1, &src);
 		if (oali->source[chnum].queuesize)
 			palDeleteBuffers(oali->source[chnum].queuesize, oali->source[chnum].queue_b);
 		oali->source[chnum].queuesize = 0;
 		oali->source[chnum].handle = 0;
 		oali->source[chnum].allocated = false;
-#endif
 		return;
 	}
 
@@ -1065,7 +1021,7 @@ static void OpenAL_ChannelUpdate(soundcardinfo_t *sc, channel_t *chan, chanupdat
 								oali->source[chnum].queue_b[oali->source[chnum].queuesize] = buf;
 								oali->source[chnum].queue_f[oali->source[chnum].queuesize] = 0;	//don't count silence.
 								oali->source[chnum].queuesize++;
-								if (oali->can_source_spatialise)	//force spacialisation as desired, if supported (this solves browsers forcing stereo on mono files which should mean static audio is full volume...)
+								if (oali->can_source_spatialise)	//Apply positional spatialization where supported.
 									palSourcei(src, AL_SOURCE_SPATIALIZE_SOFT, !srcrel);
 							}
 						}
@@ -1098,19 +1054,8 @@ static void OpenAL_ChannelUpdate(soundcardinfo_t *sc, channel_t *chan, chanupdat
 		}
 		if (!stream)
 		{
-#ifdef FTE_TARGET_WEB
-			//loading an ogg is async, so we must wait until its valid.
-			//our javascript will hack the buffer so that its not valid until the browser has decoded it for us.
-			if (!palIsBuffer(buf))
-			{	//same as the SLS_LOADING case above
-				palDeleteSources(1, &src);
-				oali->source[chnum].handle = 0;
-				oali->source[chnum].allocated = false;
-				return;
-			}
-#endif
 			palSourcei(src, AL_BUFFER, buf);
-			if (oali->can_source_spatialise)	//force spacialisation as desired, if supported (this solves browsers forcing stereo on mono files which should mean static audio is full volume...)
+			if (oali->can_source_spatialise)	//Apply positional spatialization where supported.
 				palSourcei(src, AL_SOURCE_SPATIALIZE_SOFT, !srcrel);
 		}
 	}
@@ -1118,16 +1063,12 @@ static void OpenAL_ChannelUpdate(soundcardinfo_t *sc, channel_t *chan, chanupdat
 	if (srcrel)
 	{
 		palSourcefv(src, AL_POSITION, vec3_origin);
-#ifndef FTE_TARGET_WEB	//webaudio sucks.
 		palSourcefv(src, AL_VELOCITY, vec3_origin);
-#endif
 	}
 	else
 	{
 		palSourcefv(src, AL_POSITION, chan->origin);
-#ifndef FTE_TARGET_WEB	//webaudio sucks.
 		palSourcefv(src, AL_VELOCITY, chan->velocity);
-#endif
 	}
 
 	if (schanged)
@@ -1162,14 +1103,10 @@ static void OpenAL_ChannelUpdate(soundcardinfo_t *sc, channel_t *chan, chanupdat
 
 		//this is disgustingly shit.
 		//logically we want to set the distance divisor to 1 and the rolloff factor to dist_mult.
-		//but openal clamps in an annoying order (probably to keep things signed in hardware) and webaudio refuses infinity, so we need to special case no attenuation to get around the issue
+		//Handle zero attenuation explicitly because OpenAL clamps distance before attenuation.
 		if (srcrel)
 		{
-#if 0//def FTE_TARGET_WEB
-			switch(DM_INVERSE)	//emscripten omits it, and this is webaudio's default too.
-#else
 			switch((enum distancemodel_e)s_al_distancemodel.ival)
-#endif
 			{
 			default:
 			case DM_INVERSE:
@@ -1188,11 +1125,7 @@ static void OpenAL_ChannelUpdate(soundcardinfo_t *sc, channel_t *chan, chanupdat
 		}
 		else
 		{
-#if 0//def FTE_TARGET_WEB
-			switch(DM_LINEAR)	//emscripten hardcodes it in a buggy kind of way.
-#else
 			switch((enum distancemodel_e)s_al_distancemodel.ival)
-#endif
 			{
 			default:
 			case DM_INVERSE:
@@ -1204,18 +1137,7 @@ static void OpenAL_ChannelUpdate(soundcardinfo_t *sc, channel_t *chan, chanupdat
 			case DM_LINEAR:	//linear, mimic quake.
 			case DM_LINEAR_CLAMPED: //linear clamped to further than ref distance
 				palSourcef(src, AL_ROLLOFF_FACTOR, 1);
-#if 0//def FTE_TARGET_WEB
-				//chrome complains about 0.
-				//with the expontential model, 0 results in division by zero, but we're not using that model and the maths for the linear model is fine with it.
-				//the web audio spec says 'The default value is 1. A RangeError exception must be thrown if this is set to a non-negative value.'
-				//which of course means that the PannerNode's constructor must throw an exception, which kinda prevents you ever creating one.
-				//it also says elsewhere 'If dref = 0, the value of the [exponential|inverse] model is taken to be 0, ...'
-				//which shows that the spec should read 'negative values' for rangeerrors (rather than non-positive). so chrome is being shit.
-				//unfortutely due to the nature of javascript and exceptions, this is fucking everything else up. thanks chrome!
-				palSourcef(src, AL_REFERENCE_DISTANCE, 0.01);
-#else
 				palSourcef(src, AL_REFERENCE_DISTANCE, 0);
-#endif
 				palSourcef(src, AL_MAX_DISTANCE, 1/chan->dist_mult);
 				break;
 			}
@@ -1425,9 +1347,7 @@ static qboolean OpenAL_Init(soundcardinfo_t *sc, const char *devname, qboolean q
 
 			palListenerf(AL_GAIN, 1);
 			palListenerfv(AL_POSITION, oali->ListenPos);
-#ifndef FTE_TARGET_WEB	//webaudio sucks.
 			palListenerfv(AL_VELOCITY, oali->ListenVel);
-#endif
 			palListenerfv(AL_ORIENTATION, oali->ListenOri);
 
 			oali->can_source_spatialise = palIsExtensionPresent("AL_SOFT_source_spatialize");
@@ -2015,13 +1935,8 @@ static void *QDECL OPENAL_Capture_Init (int samplerate, const char *device)
 
 	if (!device || !*device)
 	{
-#if defined(FTE_TARGET_WEB) && (__EMSCRIPTEN_major__>2 || (__EMSCRIPTEN_major__==2&&__EMSCRIPTEN_tiny__>=14))
-		//emscripten, and recent enough to actually work. don't check s_al_disable here as we don't have dsound/alsa fallbacks and we do want to actually use it.
-		//older versions of emscripten are too buggy to use.
-#else
 		if (s_al_disable.ival)
 			return NULL;	//no default device
-#endif
 		device = palcGetString(NULL, ALC_CAPTURE_DEFAULT_DEVICE_SPECIFIER);
 	}
 

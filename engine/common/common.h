@@ -541,11 +541,9 @@ extern char	com_homepath[MAX_OSPATH];
 
 //qofs_Make is used to 'construct' a variable of qofs_t type. this is so the code can merge two 32bit ints on old systems and use a long long type internally without generating warnings about bit shifts when qofs_t is only 32bit instead.
 //#if defined(__amd64__) || defined(_AMD64_) || __WORDSIZE == 64
-#if !defined(FTE_TARGET_WEB)
 	#if !defined(_MSC_VER) || _MSC_VER > 1200
 		#define FS_64BIT
 	#endif
-#endif
 #ifdef FS_64BIT
 	//we should probably use off_t here, but then we have fun as to whether its actually 64bit or not, which results in warnings and problems with printf etc.
 	typedef quint64_t qofs_t;	//type to use for a file offset

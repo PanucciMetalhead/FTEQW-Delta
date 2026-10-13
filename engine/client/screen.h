@@ -278,10 +278,6 @@ typedef enum uploadfmt
 	TF_8PAL24,
 	TF_8PAL32,
 
-#ifdef FTE_TARGET_WEB
-	//weird specialcase mess to take advantage of webgl so we don't need redundant bloat where we're already strugging with potential heap limits
-	PTI_WHOLEFILE,
-#endif
 
 	PTI_MAX,
 

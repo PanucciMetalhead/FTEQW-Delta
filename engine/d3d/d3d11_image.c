@@ -304,9 +304,6 @@ qboolean D3D11_LoadTextureMips(image_t *tex, const struct pendingtextureinfo *mi
 	case PTI_ASTC_10X10_SRGB:
 	case PTI_ASTC_12X10_SRGB:
 	case PTI_ASTC_12X12_SRGB:
-#ifdef FTE_TARGET_WEB
-	case PTI_WHOLEFILE:			//basically webgl only...
-#endif
 	case PTI_MAX:				//not actually valid...
 	case PTI_EMULATED:			//not hardware-compatible.
 		break;

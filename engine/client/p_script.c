@@ -30,16 +30,6 @@ The engine has a few builtins.
 #ifdef PSET_SCRIPT
 
 
-#ifdef FTE_TARGET_WEB
-#define rand myrand	//emscripten's libc is doing a terrible job of this.
-static int rand(void)
-{	//ripped from glibc
-	static int state = 0xdeadbeef;
-	int val = ((state * 1103515245) + 12345) & 0x7fffffff;
-	state = val;
-	return val;
-}
-#endif
 
 #include "shader.h"
 

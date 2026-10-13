@@ -1,6 +1,7 @@
 # Building the SDL3 GPU fork
 
-Use CMake 3.21 or newer and a compiler with C17 support on Windows, Linux,
+This fork builds native desktop clients, dedicated servers, and development
+tools. Use CMake 3.21 or newer and a compiler with C17 support on Windows, Linux,
 and macOS (Clang/GCC, or Visual Studio 2019 16.8 or newer). The old
 platform-specific OpenGL make targets are removed. `engine/Makefile`, `build_setup.sh`, and `build_wip.sh` are
 small wrappers around CMake.
@@ -59,7 +60,7 @@ validated as SPIR-V; native Metal source is embedded alongside them. Both shader
 versions must be kept in sync and tested on their respective native backends.
 
 See [SDL3-GPU.md](SDL3-GPU.md) for integration testing and the validation record.
-Legacy console, web, mobile, and Flatpak deployment files are upstream history;
+Legacy console, mobile, and Flatpak deployment files are upstream history;
 they are not supported build paths for this desktop fork.
 
 ## OpenArena and the Quake 3 plugin
@@ -100,7 +101,9 @@ python3 tools/gpu_openarena.py run --out build/openarenadata
 
 Use `--engine build/Release/fteqw.exe` for a Windows multi-configuration build.
 The local match checks camera turning, movement, the cgame weapon toggle and
-video restart using captured frames. `check` revalidates an existing run.
+video restart using captured frames. It uses OpenArena 0.8.8's `pxlfan` map with
+a fixed starting position and noclip so hazards cannot invalidate the camera
+comparison. `check` revalidates an existing run.
 Screenshots, the log and `openarena-results.json` remain in the output folder.
 This checks local gameplay rendering; it does not test external servers.
 

@@ -1659,9 +1659,6 @@ vk_image_t VK_CreateTexture2DArray(uint32_t width, uint32_t height, uint32_t lay
 
 	//unsupported 'formats'
 	case PTI_MAX:
-#ifdef FTE_TARGET_WEB
-	case PTI_WHOLEFILE:
-#endif
 	case PTI_EMULATED:
 		break;
 	}

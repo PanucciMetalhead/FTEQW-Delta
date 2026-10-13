@@ -11634,7 +11634,6 @@ static BuiltinList_t BuiltinList[] = {				//nq	qw		h2		ebfs
 	{"json_get_child_at_index",PF_json_get_child_at_index,0,0,0,	0,		D("jsonnode(jsonnode node, int childindex)", "Get the nth child of a json array or object. Returns NULL if the index is out of range.")},
 	{"json_get_name",	PF_json_get_name,	0,		0,		0,		0,		D("string(jsonnode node)", "Gets the object's name (useful if you're using json_get_child_at_index to walk an object's children for whatever reason).")},
 
-	{"js_run_script",	PF_js_run_script,	0,		0,		0,		0,		D("string(string javascript)", "Runs the provided javascript snippet. This builtin functions only in emscripten builds, returning a null string on other systems (or if the script evaluates to null).")},
 
 	{"stoi",			PF_stoi,			0,		0,		0,		259,	D("int(string)", "Converts the given string into a true integer. Base 8, 10, or 16 is determined based upon the format of the string.")},
 	{"itos",			PF_itos,			0,		0,		0,		260,	D("string(int)", "Converts the passed true integer into a base10 string.")},

@@ -2447,7 +2447,6 @@ static struct {
 	{"json_get_child_at_index",	PF_json_get_child_at_index,	0},
 	{"json_get_name",			PF_json_get_name,			0},
 
-	{"js_run_script",			PF_js_run_script,			0},
 	
 	{"stoi",					PF_stoi,					0},
 	{"itos",					PF_itos,					0},

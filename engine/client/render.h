@@ -44,7 +44,7 @@ static const texid_t r_nulltex = NULL;
 #ifndef sizeof_index_t
 	#ifdef VERTEXINDEXBYTES	//maybe set in config_*.h
 		#define sizeof_index_t VERTEXINDEXBYTES
-	#elif (defined(GLQUAKE) && defined(HAVE_LEGACY)) || defined(MINIMAL) || defined(D3D8QUAKE) || defined(D3D9QUAKE) || defined(ANDROID) || defined(FTE_TARGET_WEB)
+	#elif (defined(GLQUAKE) && defined(HAVE_LEGACY)) || defined(MINIMAL) || defined(D3D8QUAKE) || defined(D3D9QUAKE) || defined(ANDROID)
 		#define sizeof_index_t 2
 	#endif
 #endif

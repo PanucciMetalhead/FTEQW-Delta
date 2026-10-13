@@ -119,16 +119,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 		#include <png.h>
 	#endif
 #else
-	#ifdef FTE_TARGET_WEB
-		#include "web/ftejslib.h"
-		//officially, emscripten supports longjmp.
-		//unofficially, this makes firefox crash with memory issues.
-		#define setjmp(x) (x=0,x)
-		#define longjmp(b,r) emscriptenfte_abortmainloop(__func__, false)
-		typedef int jmp_buf;
-	#else
 		#include <setjmp.h>
-	#endif
 #endif
 #include <time.h>
 
@@ -144,9 +135,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 	#include <alloca.h>
 #endif
 
-#ifdef FTE_TARGET_WEB //emscripten's filesystem is throwing all sorts of exceptions and making it hard to debug real bugs.
-	#define NOSTDIO
-#endif
 #ifdef NOSTDIO
 	#define stat stat_nolink
 	#define fopen fopen_nolink

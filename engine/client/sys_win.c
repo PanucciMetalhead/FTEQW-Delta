@@ -4124,10 +4124,10 @@ int WINAPI WinMain (HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLin
 			c = COM_CheckParm("-plugin");
 			if (c)
 			{
-				if (c < com_argc && !strcmp(com_argv[c+1], "qcdebug"))
+				if (c+1 < com_argc && !strcmp(com_argv[c+1], "qcdebug"))
 					isPlugin = 2;
 				else
-					isPlugin = 1;
+					isPlugin = 0;
 			}
 			else
 				isPlugin = 0;
@@ -4159,11 +4159,7 @@ int WINAPI WinMain (HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLin
 #endif
 #endif
 
-		if (isPlugin==1)
-		{
-			printf("status Starting up!\n");
-			fflush(stdout);
-		}
+
 
 		if (COM_CheckParm("--version") || COM_CheckParm("-v"))
 		{
@@ -4338,11 +4334,7 @@ int WINAPI WinMain (HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLin
 		#endif
 		#endif
 
-		if (isPlugin==1)
-		{
-			printf("status Running!\n");
-			fflush(stdout);
-		}
+
 
 		/* main window message loop */
 		while (1)

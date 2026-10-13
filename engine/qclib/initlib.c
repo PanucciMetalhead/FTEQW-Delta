@@ -600,8 +600,6 @@ static void PDECL PR_Configure (pubprogfuncs_t *ppf, size_t addressable_size, in
 	{
 #if defined(_WIN64) && !defined(WINRT)
 		addressable_size = 0x80000000;	//use of virtual address space rather than physical memory means we can just go crazy and use the max of 2gb.
-#elif defined(FTE_TARGET_WEB)
-		addressable_size = 8*1024*1024;
 #else
 		addressable_size = 32*1024*1024;
 #endif
@@ -1780,10 +1778,6 @@ static void PDECL qclib_free(void *ptr)
 {
 	free(ptr);
 }
-#ifdef FTE_TARGET_WEB
-#undef printf
-#define printf NULL	//should be some null wrapper instead
-#endif
 
 //progfuncs_t *progfuncs = NULL;
 #undef memfree

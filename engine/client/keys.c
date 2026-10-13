@@ -1773,7 +1773,6 @@ qboolean Key_EntryLine(console_t *con, unsigned char **line, int lineoffset, int
 			return false;
 		}
 	}
-#ifndef FTE_TARGET_WEB	//browser port gets keys stuck down when task switching, especially alt+tab. don't confuse users.
 	else if (com_parseutf8.ival >= 0)	//don't do this for iso8859-1. the major user of that is hexen2 which doesn't have these chars.
 	{
 		if (ctrl && !keydown[K_RALT])
@@ -1806,7 +1805,6 @@ qboolean Key_EntryLine(console_t *con, unsigned char **line, int lineoffset, int
 		if (keydown[K_LALT] && unicode > 32 && unicode < 128)
 			unicode |= 0xe080;		// red char
 	}
-#endif
 
 	unicode = utf8_encode(utf8, unicode, sizeof(utf8)-1);
 	if (unicode)
@@ -2074,10 +2072,8 @@ qboolean Key_Console (console_t *con, int key, unsigned int unicode)
 		char demoji[8192];
 		const char *txt = Key_Demoji(demoji, sizeof(demoji), key_lines[edit_line]);
 
-#ifndef FTE_TARGET_WEB
 		if (keydown[K_LALT] || keydown[K_RALT])
 			Cbuf_AddText("\nvid_toggle\n", RESTRICT_LOCAL);
-#endif
 
 		if ((con_commandmatch && !strchr(txt, ' ')) || shift)
 		{	//if that isn't actually a command, and we can actually complete it to something, then lets try to complete it.

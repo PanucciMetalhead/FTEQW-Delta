@@ -1,8 +1,6 @@
 #include "qtv.h"
 
-#define WEBPORTMANIFEST	"https://triptohell.info/demo.fmf"
 
-//#define WEBPORTMANIFEST	"http://localhost:8080/demo.fmf"
 
 //main reason to use connection close is because we're lazy and don't want to give sizes in advance (yes, we could use chunks..)
 
@@ -196,13 +194,7 @@ static void HTTPSV_SendHTMLHeader(cluster_t *cluster, oproxy_t *dest, char *titl
 	char *s;
 	char buffer[2048];
 
-	qboolean plugin = false;
-	while (*args && *args != ' ')
-	{
-		if (*args == 'p')
-			 plugin = true;
-		args++;
-	}
+	(void)args;
 
 	s =	"<!DOCTYPE HTML>\n"
 		"<html>\n"
@@ -212,20 +204,13 @@ static void HTTPSV_SendHTMLHeader(cluster_t *cluster, oproxy_t *dest, char *titl
 		"  <link rel=\"StyleSheet\" href=\"/style.css\" type=\"text/css\" />\n"
 		"</head>\n"
 		"<body><div id=\"navigation\"><ul>"
-		"<li><a href=\"/nowplaying.html%s\">Live</a></li>"
-		"<li><a href=\"/demos.html%s\">Demos</a></li>"
+		"<li><a href=\"/nowplaying.html\">Live</a></li>"
+		"<li><a href=\"/demos.html\">Demos</a></li>"
 		"%s"
-		/*"%s"*/
 		"</ul></div>";
 
-	snprintf(buffer, sizeof(buffer), s, title, 
-
-		plugin?"?p":"", 
-		plugin?"?p":"", 
-		(!*cluster->adminpassword)?"":(plugin?"<li><a href=\"/admin.html?p\">Admin</a></li>":"<li><a href=\"/admin.html\">Admin</a></li>")/*,
-		plugin?"<li><a target=\"_top\" href=\"/nowplaying.html\">Basic</a></li>":"<li><a href=\"/plugin.html\">Plugin</a></li>"*/
-		
-		);
+	snprintf(buffer, sizeof(buffer), s, title,
+        *cluster->adminpassword ? "<li><a href=\"/admin.html\">Admin</a></li>" : "");
 
 	Net_ProxySend(cluster, dest, buffer, strlen(buffer));
 }
@@ -255,7 +240,6 @@ static void HTTPSV_GenerateNowPlaying(cluster_t *cluster, oproxy_t *dest, char *
 	char buffer[1024];
 	char plname[64];
 	sv_t *streams;
-	qboolean plugin = false;
 	qboolean activeonly = false;
 
 	HTTPSV_SendHTTPHeader(cluster, dest, "200", "text/html", -1, true);
@@ -263,9 +247,7 @@ static void HTTPSV_GenerateNowPlaying(cluster_t *cluster, oproxy_t *dest, char *
 
 	while (*args && *args != ' ')
 	{
-		if (*args == 'p')
-			 plugin = true;
-		else if (*args == 'a')
+		if (*args == 'a')
 			 activeonly = true;
 		args++;
 	}
@@ -296,15 +278,7 @@ static void HTTPSV_GenerateNowPlaying(cluster_t *cluster, oproxy_t *dest, char *
 		HTMLPRINT("<dt>");
 		HTMLprintf(buffer, sizeof(buffer), "%s (%s: %s)", streams->server, streams->map.gamedir, streams->map.mapname);
 		Net_ProxySend(cluster, dest, buffer, strlen(buffer));
-		if (plugin && !strncmp(streams->server, "tcp:", 4))
-		{
-			snprintf(buffer, sizeof(buffer), "<span class=\"qtvfile\"> [ <a onclick=\"parent.joinstream('%s')\">Join</a> ]</span>", streams->server);
-			Net_ProxySend(cluster, dest, buffer, strlen(buffer));
-		}
-		if (plugin && !strncmp(streams->server, "udp:", 4))
-			snprintf(buffer, sizeof(buffer), "<span class=\"qtvfile\"> [ <a href=\"javascript:parent.joinserver('%s')\">Join</a> ]</span>", streams->server+4);
-		else
-			snprintf(buffer, sizeof(buffer), "<span class=\"qtvfile\"> [ <a href=\"/watch.qtv?sid=%i\">Watch Now</a>]</span>", streams->streamid);
+		snprintf(buffer, sizeof(buffer), "<span class=\"qtvfile\"> [ <a href=\"/watch.qtv?sid=%i\">Watch Now</a>]</span>", streams->streamid);
 		Net_ProxySend(cluster, dest, buffer, strlen(buffer));
 		HTMLPRINT("</dt><dd><ul class=\"playerslist\">");
 
@@ -349,9 +323,6 @@ static void HTTPSV_GenerateCSSFile(cluster_t *cluster, oproxy_t *dest)
     HTMLPRINT("* { font-family: Verdana, Helvetica, sans-serif; }");
     HTMLPRINT("body { color: #000; background-color: #fff; padding: 0 0px; }");
     HTMLPRINT("a { color: #00f; }");
-    HTMLPRINT("div.topdiv { display:flex; align-items: stretch; position: absolute; top: 0; right: 0; bottom: 0; left: 0; }");
-    HTMLPRINT("div.left { resize: horizontal; overflow: auto; flex 0 0 25%;}");
-    HTMLPRINT("div.right { padding:0; margin: 0; flex: auto; }");
     HTMLPRINT("a.qtvfile { font-weight: bold; }");
     HTMLPRINT("a:visited { color: #00f; }");
     HTMLPRINT("a:hover { background-color: black; color: yellow; }");
@@ -360,7 +331,6 @@ static void HTTPSV_GenerateCSSFile(cluster_t *cluster, oproxy_t *dest)
     HTMLPRINT("dl.nowplaying dt { margin: 1em 0 0 0; font-size: 1.1em; font-weight: bold; }");
     HTMLPRINT("dl.nowplaying li { list-style: none; margin: 0 0 0 1em; padding: 0; }");
     HTMLPRINT("dl.nowplaying ul { margin: 0 0 0 1em; padding: 0; }");
-    HTMLPRINT("canvas.emscripten { border: 0px none; padding:0; margin: 0; width: 100%; height: 100%;}");
     HTMLPRINT("#navigation { background-color: #eef; }");
     HTMLPRINT("#navigation li { display: inline; list-style: none; margin: 0 3em; }");
 }
@@ -787,14 +757,6 @@ static void HTTPSV_GenerateDemoListing(cluster_t *cluster, oproxy_t *dest, char 
 	int i;
 	char link[512];
 	char *s;
-	qboolean plugframe = false;
-	for (s=args; *s && *s != ' ';)
-	{
-		if (*s == 'p')
-			 plugframe = true;
-		s++;
-	}
-
 	HTTPSV_SendHTTPHeader(cluster, dest, "200", "text/html", -1, true);
 	HTTPSV_SendHTMLHeader(cluster, dest, "QuakeTV: Demos", args);
 
@@ -804,14 +766,7 @@ static void HTTPSV_GenerateDemoListing(cluster_t *cluster, oproxy_t *dest, char 
 	Cluster_BuildAvailableDemoList(cluster);
 	for (i = 0; i < cluster->availdemoscount; i++)
 	{
-		if (plugframe)
-		{
-			snprintf(link, sizeof(link), "<A HREF=\"javascript:parent.playdemo('%s')\">%s</A> (%ikb)<br/>", cluster->availdemos[i].name, cluster->availdemos[i].name, cluster->availdemos[i].size/1024);
-		}
-		else
-		{
-			snprintf(link, sizeof(link), "<A HREF=\"/watch.qtv?demo=%s\">%s</A> (%ikb)<br/>", cluster->availdemos[i].name, cluster->availdemos[i].name, cluster->availdemos[i].size/1024);
-		}
+		snprintf(link, sizeof(link), "<A HREF=\"/watch.qtv?demo=%s\">%s</A> (%ikb)<br/>", cluster->availdemos[i].name, cluster->availdemos[i].name, cluster->availdemos[i].size/1024);
 		Net_ProxySend(cluster, dest, link, strlen(link));
 	}
 
@@ -821,99 +776,7 @@ static void HTTPSV_GenerateDemoListing(cluster_t *cluster, oproxy_t *dest, char 
 	HTTPSV_SendHTMLFooter(cluster, dest);
 }
 
-static void HTTPSV_GeneratePlugin(cluster_t *cluster, oproxy_t *dest)
-{
-	char hostname[1024];
-	char *html;
-	if (!HTTPSV_GetHeaderField((char*)dest->inbuffer, "Host", hostname, sizeof(hostname)))
-	{
-		HTTPSV_SendHTTPHeader(cluster, dest, "400", "text/html", -1, true);
-		HTTPSV_SendHTMLHeader(cluster, dest, "QuakeTV: Error", "p");
 
-		html = "Your client did not send a Host field, which is required in HTTP/1.1\n<BR />"
-			"Please try a different browser.\n"
-			"</BODY>"
-			"</HTML>";
-
-		Net_ProxySend(cluster, dest, html, strlen(html));
-		return;
-	}
-
-	html = "<!DOCTYPE HTML>\n"
-		"<HTML><HEAD><TITLE>QuakeTV With Plugin</TITLE>"
-				"  <link rel=\"StyleSheet\" href=\"/style.css\" type=\"text/css\" />\n"
-				"<meta charset='utf-8' />"
-				"</HEAD><body>"
-	"<div class='topdiv'>"
-		"<div class='left' id=optdiv>"
-					"<iframe frameborder=0 src=\"nowplaying.html?p\" width=\"100%\" height=\"100%\">"
-					"oh dear. your browser doesn't support this site"
-					"</iframe>"
-		"</div>"
-		"<div class='right' id=plugdiv>"
-			"<canvas class='emscripten' id='canvas' oncontextmenu='event.preventDefault()'>Canvas not supported</canvas>"
-		"</div>"
-	"</div>"
-	"<script type='text/javascript'>"
-		"var Module = {"
-			"canvas: document.getElementById('canvas'),"
-			"print: function(msg)"
-			"{"
-				"console.log(msg);"
-			"},"
-			"printErr: function(text)"
-			"{"
-				"if (text.substr(0, 28) == 'Cannot enlarge memory arrays')"
-					"alert('Memory full/fragmented. Please reload the page.');"
-				"else "
-					"console.log(text);"
-			"},"
-			"arguments: ["
-				"'-nohome',"
-				"'-manifest',"
-				"'"WEBPORTMANIFEST"',"
-				"'+connect',"
-				"(window.location.protocol=='https:'?'wss://':'ws://')+window.location.host"
-			"]"
-		"};"
-
-		//create the script object
-		"var s = document.createElement('script');"
-		// set it up
-		"s.setAttribute('src','/ftewebgl.js');"
-		"s.setAttribute('type','text/javascript');"
-		"s.setAttribute('charset','utf-8');"
-		"s.addEventListener('error', function() {alert('Error loading game script.');}, false);"
-		// add to DOM
-		"document.head.appendChild(s);"
-
-		//set up some functions that the embedded stuff can use
-		"parent.joinserver = function(d)"
-		"{"
-			"d = '\\nconnect '+d+'\\n';"
-			"FTEC.cbufadd(d);"
-		"}\n"
-		"parent.joinstream = function(d)"
-		"{"
-			"joinserver((window.location.protocol=='https:'?'wss://':'ws://')+window.location.host+'/'+d);"
-		"}\n"
-		"parent.playdemo = function(d)"
-		"{"
-			"alert('playdemo'+d);"
-		"}\n"
-
-	"</script>"
-	"<noscript>"
-		"It looks like you have javascript disabled.<br/>"
-		"If you want to run a javascript port of a game engine, it helps to have javascript enabled. Just saying.<br/>"
-		"<br/>"
-	"</noscript>"
-
-	"</body></HTML>";
-
-	HTTPSV_SendHTTPHeader(cluster, dest, "200", "text/html", strlen(html), true);
-	Net_ProxySend(cluster, dest, html, strlen(html));
-}
 
 static void HTTPSV_GenerateDownload(cluster_t *cluster, oproxy_t *dest, char *filename, char *svroot, char *redir)
 {
@@ -923,11 +786,6 @@ static void HTTPSV_GenerateDownload(cluster_t *cluster, oproxy_t *dest, char *fi
 	int len;
 
 	char *mime = "application/x-forcedownload";
-	if (!strcmp(filename, "/ftewebgl.wasm"))
-		mime = "application/wasm";
-	else if (!strcmp(filename, "/ftewebgl.js"))
-		mime = "text/javascript";
-
 	if (!svroot || !*svroot)
 	{
 		if (redir)
@@ -1243,11 +1101,8 @@ char *HTTPSV_GetMethod(cluster_t *cluster, oproxy_t *pend)
 		}
 	}
 
-	if (urimatch(uri, "/plugin.html", urilen) || urimatch(uri, "/", urilen))
-	{
-		HTTPSV_GeneratePlugin(cluster, pend);
-	}
-	else if (uriargmatch(uri, "/nowplaying.html", urilen, &args))
+
+	if (uriargmatch(uri, "/nowplaying.html", urilen, &args))
 	{
 		HTTPSV_GenerateNowPlaying(cluster, pend, args);
 	}
@@ -1275,14 +1130,9 @@ char *HTTPSV_GetMethod(cluster_t *cluster, oproxy_t *pend)
 	{
 		HTTPSV_GenerateAdmin(cluster, pend, 0, NULL, args);
 	}
-#if defined(_DEBUG) || defined(DEBUG)
-	else REDIRECTIF("/", "/plugin.html")
-#endif
 	else REDIRECTIF("/", "/nowplaying.html")
 	else REDIRECTIFNEEDED("/about.html", PROXYWEBSITE)
 	else REDIRECTIFNEEDED("/favicon.ico",	"https://fte.triptohell.info/favicon.ico")
-	else REDIRECTIFNEEDED("/ftewebgl.js",	"https://fte.triptohell.info/ftewebgl.js")
-	else REDIRECTIFNEEDED("/ftewebgl.wasm",	"https://fte.triptohell.info/ftewebgl.wasm")
 	else if (uriargmatch(uri, "/demos.html", urilen, &args))
 	{
 		HTTPSV_GenerateDemoListing(cluster, pend, args);

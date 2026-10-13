@@ -1151,55 +1151,9 @@ void Cmd_DLDir(cmdctxt_t *ctx)
 	}
 }
 
-void Cmd_PluginDataSource(cmdctxt_t *ctx)
-{
-	char *val;
-	val = Cmd_Argv(ctx, 1);
 
-	if (!Cmd_IsLocal(ctx))
-	{
-		Cmd_Printf(ctx, "plugindatasource may not be used remotely\n");
-		return;
-	}
 
-	if (*val)
-	{
-		while (*val > 0 &&*val <= ' ')
-			val++;
 
-		strlcpy(ctx->cluster->plugindatasource, val, sizeof(ctx->cluster->plugindatasource));
-		Cmd_Printf(ctx, "Changed plugindatasource to \"%s\"\n", ctx->cluster->plugindatasource);
-	}
-	else
-	{
-		Cmd_Printf(ctx, "Current plugindatasource is \"%s\"\n", ctx->cluster->plugindatasource);
-	}
-}
-
-void Cmd_MapSource(cmdctxt_t *ctx)
-{
-	char *val;
-	val = Cmd_Argv(ctx, 1);
-
-	if (!Cmd_IsLocal(ctx))
-	{
-		Cmd_Printf(ctx, "mapsource may not be used remotely\n");
-		return;
-	}
-
-	if (*val)
-	{
-		while (*val > 0 &&*val <= ' ')
-			val++;
-
-		strlcpy(ctx->cluster->mapsource, val, sizeof(ctx->cluster->mapsource));
-		Cmd_Printf(ctx, "Changed mapsource url to \"%s\"\n", ctx->cluster->mapsource);
-	}
-	else
-	{
-		Cmd_Printf(ctx, "Current mapsource url is \"%s\"\n", ctx->cluster->mapsource);
-	}
-}
 
 void Cmd_MuteStream(cmdctxt_t *ctx)
 {
@@ -1433,8 +1387,6 @@ const rconcommands_t rconcommands[] =
 	 {"mvdport",		0, 1, Cmd_MVDPort},
 
 	{"dldir",		0, 1, Cmd_DLDir,	"specifies the path to download stuff from (http://server/file/ maps to this native path)"},
-	{"plugindatasource",0,1,Cmd_PluginDataSource, "Specifies the dataDownload property for plugins in the web server"},
-	{"mapsource",	0, 1, Cmd_MapSource,"Public URL for where to download missing maps from"},
 
 #ifdef VIEWER
 	{"watch",		1, 0, Cmd_Watch,	"specifies to watch that stream in the built-in viewer"},

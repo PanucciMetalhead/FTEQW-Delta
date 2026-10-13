@@ -27,16 +27,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #define POLYS
 
-#ifdef FTE_TARGET_WEB
-#define rand myrand	//emscripten's libc is doing a terrible job of this.
-static int rand(void)
-{	//ripped from glibc
-	static int state = 0xdeadbeef;
-	int val = ((state * 1103515245) + 12345) & 0x7fffffff;
-	state = val;
-	return val;
-}
-#endif
 
 
 typedef enum {

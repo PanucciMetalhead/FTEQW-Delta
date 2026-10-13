@@ -100,7 +100,7 @@ cvar_t	allow_download_other		= CVARD("allow_download_other", "0", "0 blocks down
 
 extern cvar_t sv_allow_splitscreen;
 
-#if defined(SUPPORT_ICE) || defined(FTE_TARGET_WEB)
+#if defined(SUPPORT_ICE)
 static void QDECL SV_Public_Callback(struct cvar_s *var, char *oldvalue)
 {
 	char name[64], *e;
@@ -111,11 +111,7 @@ static void QDECL SV_Public_Callback(struct cvar_s *var, char *oldvalue)
 		FTENET_AddToCollection(svs.sockets, var->name, va("/%s", (*name == '/')?name+1:name), NA_INVALID, NP_RTC_TLS);
 		var->value = var->ival = 2;	//so other stuff sees us as holepunched.
 	}
-#ifdef FTE_TARGET_WEB
-	else if (var->ival)	//any kind of public is webrtc public, browsers don't allow more.
-#else
 	else if (var->ival == 2)
-#endif
 		FTENET_AddToCollection(svs.sockets, var->name, "/", NA_INVALID, NP_RTC_TLS);
 	else
 		FTENET_AddToCollection(svs.sockets, var->name, "", NA_INVALID, NP_INVALID);
@@ -2106,7 +2102,7 @@ void SV_AcceptMessage(client_t *newcl)
 	Netchan_OutOfBand (NCF_SERVER, &net_from, len, (qbyte *)string);
 }
 
-#if !defined(_DEBUG) || defined(_WIN32) || defined(FTE_TARGET_WEB)
+#if !defined(_DEBUG) || defined(_WIN32)
 static void SV_CheckRecentCrashes(client_t *tellclient)
 {
 }
@@ -5870,11 +5866,7 @@ void SV_InitLocal (void)
 	static cvar_t qws_fullname	= CVARF("qws_fullname", FULLENGINENAME,			CVAR_NOSET );
 	static cvar_t qws_version	= CVARF("qws_version",	STRINGIFY(FTE_VER_MAJOR)"."STRINGIFY(FTE_VER_MINOR),CVAR_NOSET );
 	static cvar_t qws_buildnum	= CVARF("qws_buildnum",	STRINGIFY(SVNREVISION),	CVAR_NOSET );
-#ifdef FTE_TARGET_WEB
-	static cvar_t qws_platform	= CVARF("qws_platform",	PLATFORM,				CVAR_NOSET );
-#else
 	static cvar_t qws_platform	= CVARF("qws_platform",	PLATFORM "-" ARCH_CPU_POSTFIX,				CVAR_NOSET );
-#endif
 	static cvar_t qws_builddate	= CVARF("qws_builddate",STRINGIFY(SVNDATE),		CVAR_NOSET );
 	static cvar_t qws_homepage	= CVARF("qws_homepage",	ENGINEWEBSITE,		CVAR_NOSET );
 	Cvar_Register(&qws_name,		"Server Info");

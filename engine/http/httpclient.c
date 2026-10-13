@@ -6,116 +6,6 @@
 #if defined(WEBCLIENT)
 static struct dl_download *activedownloads;
 
-#if defined(FTE_TARGET_WEB)
-
-vfsfile_t *FSWEB_OpenTempHandle(int f);
-
-static void DL_Cancel(struct dl_download *dl)
-{
-	//FIXME: clear out the callbacks somehow
-	dl->ctx = NULL;
-}
-static void DL_OnLoad(void *c, int buf)
-{
-	//also fires from 404s.
-	struct dl_download *dl = c;
-	vfsfile_t *tempfile = FSWEB_OpenTempHandle(buf);
-	//make sure the file is 'open'.
-	if (!dl->file)
-	{
-		if (*dl->localname)
-		{
-			FS_CreatePath(dl->localname, dl->fsroot);
-			dl->file = FS_OpenVFS(dl->localname, "w+b", dl->fsroot);
-		}
-		else
-		{
-			dl->file = tempfile;
-			tempfile = NULL;
-		}
-	}
-
-	if (dl->file)
-	{
-		dl->status = DL_FINISHED;
-		if (tempfile)
-		{
-			qofs_t datasize = VFS_GETLEN(tempfile);
-			char *data = malloc(datasize);	//grab a temp buffer so we can do the entire file at once...
-			if (!data)
-				dl->status = DL_FAILED;
-			else
-			{
-				VFS_READ(tempfile, data, datasize);
-
-				VFS_WRITE(dl->file, data, datasize);
-				if (dl->file->seekstyle < SS_PIPE)
-					VFS_SEEK(dl->file, 0);
-
-				free(data);
-			}
-		}
-	}
-	else
-		dl->status = DL_FAILED;
-
-	if (tempfile)
-		VFS_CLOSE(tempfile);
-
-	dl->replycode = 200;
-}
-static void DL_OnError(void *c, int ecode)
-{
-	struct dl_download *dl = c;
-	//fires from cross-domain blocks, tls errors, etc.
-	//anything which doesn't yield an http response (404 is NOT an error as far as js is aware).
-
-	dl->replycode = ecode;
-	Con_Printf(CON_WARNING"dl error(%i): %s\n", ecode, dl->url);
-	dl->status = DL_FAILED;
-}
-static void DL_OnProgress(void *c, int position, int totalsize)
-{
-	struct dl_download *dl = c;
-
-	dl->completed = position;
-	dl->totalsize = totalsize;
-}
-
-//this becomes a poll function. the main thread will call this once a frame or so.
-qboolean DL_Decide(struct dl_download *dl)
-{
-	const char *url = dl->redir;
-	if (!*url)
-		url = dl->url;
-
-	if (dl->ctx)
-	{
-		if (dl->status == DL_FINISHED)
-			return false;
-		if (dl->status == DL_FAILED)
-		{
-			DL_Cancel(dl);
-			return false;
-		}
-	}
-	else if (dl->status == DL_PENDING)
-	{
-		dl->status = DL_ACTIVE;
-		dl->abort = DL_Cancel;
-		dl->ctx = dl;
-
-		emscriptenfte_async_wget_data2(url, dl->postdata, dl->postlen, dl->postmimetype, dl, DL_OnLoad, DL_OnError, DL_OnProgress);
-	}
-	else if (dl->status == DL_ACTIVE)
-	{	//canceled?
-		dl->status = DL_FAILED;
-		return false;
-	}
-
-	return true;
-}
-#else
 qboolean DL_Decide(struct dl_download *dl);
 
 /*
@@ -1170,7 +1060,6 @@ qboolean DL_Decide(struct dl_download *dl)
 	}
 	return true;
 }
-#endif	/*!defined(FTE_TARGET_WEB)*/
 
 #ifdef MULTITHREAD
 static unsigned int dlthreads = 0;
@@ -1263,13 +1152,11 @@ struct dl_download *DL_Create(const char *url)
 	newdl->qdownload.method = DL_HTTP;
 #endif
 
-#if !defined(FTE_TARGET_WEB)
 	if (!newdl->poll(newdl))
 	{
 		free(newdl);
 		newdl = NULL;
 	}
-#endif
 
 	return newdl;
 }

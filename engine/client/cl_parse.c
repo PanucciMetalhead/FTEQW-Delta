@@ -1004,14 +1004,12 @@ qboolean	CL_CheckOrEnqueDownloadFile (const char *filename, const char *localnam
 		{
 			char base[MAX_QPATH];
 			COM_FileBase(filename, base, sizeof(base));
-#ifndef FTE_TARGET_WEB //don't care about prefixes in the web build, for site-relative uris.
 			if (strncmp(cl_download_mapsrc.string, "http://", 7) && strncmp(cl_download_mapsrc.string, "https://", 8))
 			{
 				Con_Printf("%s: Scheme not specified, assuming https.\n", cl_download_mapsrc.name);
 				filename = va("https://%s/%s", cl_download_mapsrc.string, filename+5);
 			}
 			else
-#endif
 				filename = va("%s%s", cl_download_mapsrc.string, filename+5);
 			flags |= DLLF_TRYWEB|DLLF_ALLOWWEB;
 		}

@@ -4334,16 +4334,6 @@ string(int) itos = #260;
 
 Part of FTE_QC_INTCONV Converts the passed true integer into a base10 string.
 
-#### `js_run_script`
-
-**Scope:** CSQC, MenuQC. **Compatibility:** Unnumbered/FTE binding.
-
-```qc
-string(string javascript) js_run_script = #0:js_run_script;
-```
-
-Runs the provided javascript snippet. This builtin functions only in emscripten builds, returning a null string on other systems (or if the script evaluates to null).
-
 #### `json_find_object_child`
 
 **Scope:** NQ SSQC, QW SSQC, CSQC, MenuQC. **Compatibility:** Unnumbered/FTE binding.
@@ -7802,7 +7792,7 @@ Converts the given true integer into a float without depending on extended qcvm 
 float(string) validstring = #81;
 ```
 
-Returns true if str isn't null. In case 'if [not](str)' was configured to test for empty instead of null.
+Returns true if str isn't null. In case `if [not](str)` was configured to test for empty instead of null.
 
 #### `vectoangles`
 

@@ -15,11 +15,7 @@ static cvar_t	sb_hidenetquake		= CVARF("sb_hidenetquake",	"0",	CVAR_ARCHIVE);
 static cvar_t	sb_hidequakeworld	= CVARF("sb_hidequakeworld","0",	CVAR_ARCHIVE);
 static cvar_t	sb_hideproxies		= CVARF("sb_hideproxies",	"1",	CVAR_ARCHIVE);
 
-#ifdef FTE_TARGET_WEB
-static cvar_t	sb_showping			= CVARF("sb_showping",		"0",	CVAR_ARCHIVE);	//not really much point showing pings.
-#else
 static cvar_t	sb_showping			= CVARF("sb_showping",		"1",	CVAR_ARCHIVE);
-#endif
 static cvar_t	sb_showaddress		= CVARF("sb_showaddress",	"0",	CVAR_ARCHIVE);
 static cvar_t	sb_showmap			= CVARF("sb_showmap",		"0",	CVAR_ARCHIVE);
 static cvar_t	sb_showgamedir		= CVARF("sb_showgamedir",	"0",	CVAR_ARCHIVE);
