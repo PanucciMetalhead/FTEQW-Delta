@@ -7133,6 +7133,8 @@ double Host_Frame (double time)
 		return 0;			// something bad happened, or the server disconnected
 	}
 
+	Menu_Frame();
+
 	vrflags = vid.vr?vid.vr->SyncFrame(&time):0;				//fiddle with frame timings
 	newrealtime = Media_TweekCaptureFrameTime(realtime, time);	//fiddle with time some more
 
@@ -7666,8 +7668,6 @@ void CL_ArgumentOverrides(void)
 	if ((i = COM_CheckParm ("-conheight")))
 		Cvar_Set(Cvar_FindVar("vid_conheight"), com_argv[i+1]);
 
-	if ((i = COM_CheckParm ("-bpp")))
-		Cvar_Set(Cvar_FindVar("vid_bpp"), com_argv[i+1]);
 
 	if (COM_CheckParm ("-current"))
 		Cvar_Set(Cvar_FindVar("vid_desktopsettings"), "1");

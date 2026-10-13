@@ -4,6 +4,7 @@
 #include "winquake.h"
 #include "fs.h"
 
+extern int r_blockvidrestart;
 
 static const char *res4x3[] =
 {
@@ -75,7 +76,6 @@ enum
 	ASPECT2D_SCALED,
 	ASPECT2D_CUSTOM,
 };
-
 
 typedef struct {
 	unsigned int w, h;
@@ -150,8 +150,6 @@ qboolean M_Vid_GetMode(qboolean forfullscreen, int num, int *w, int *h)
 	*h = vidmodes[num].h;
 	return true;
 }
-
-
 
 #ifndef NOBUILTINMENUS
 
@@ -393,7 +391,7 @@ void M_Menu_Options_f (void)
 		// removed hud options (cl_sbar, cl_hudswap, old-style chat, old-style msg)
 		MB_CONSOLECMD("Audio Options", "menu_audio\n", "Set audio quality and speaker setup options."),
 		MB_CONSOLECMD("^bGraphics Presets", "fps_preset\n", "Choose a different graphical preset to use."),
-		MB_CONSOLECMD("Video Options", "menu_video\n", "Set video resolution, color depth, refresh rate, and anti-aliasing options."),
+		MB_CONSOLECMD("Video Options", "menu_video\n", "Set display resolution, fullscreen mode, refresh rate, and interface size."),
 #ifdef TEXTEDITOR
 		//this option is a bit strange in q2.
 //		MB_CHECKBOXCVAR("QC Debugger", pr_debugger, 0),
@@ -478,7 +476,6 @@ qboolean M_Audio_Key (struct emenu_s *menu, int key, unsigned int unicode)
 		M_RemoveMenu(menu);
 		return true;
 	}
-
 
 	if (key == K_DOWNARROW || key == K_KP_DOWNARROW || key == K_GP_DPAD_DOWN)
 	{
@@ -794,8 +791,6 @@ void M_Menu_Audio_f (void)
 }
 #endif
 
-
-
 void M_Menu_Particles_f (void)
 {
 	emenu_t *menu;
@@ -905,8 +900,8 @@ const char *presetexec[] =
 {
 	// 286 options (also the first commands to be execed in the chain)
 	"seta m_preset_chosen 1;"
-	"seta gl_texturemode nn;"
-	"seta gl_texturemode2d n;"
+	"seta gl_texturemode nll;"
+	"seta gl_texturemode2d GL_NEAREST;"
 	"seta gl_blendsprites 0;"
 	"seta r_particlesystem null;"
 	"seta r_particledesc \"\";"
@@ -969,8 +964,6 @@ const char *presetexec[] =
 	// end '286'
 
 	, // fast options (for deathmatch)
-	"gl_texturemode ln;"
-	"gl_texturemode2d n;"
 #ifdef MINIMAL
 	"r_particlesystem classic;"
 #else
@@ -989,7 +982,6 @@ const char *presetexec[] =
 	// end fast
 
 	, //quakespasm-esque options (for singleplayer faithful).
-	"gl_texturemode2d l.l;"
 	"r_part_density 1;"
 	"gl_polyblend 1;"
 	"r_dynamic 2;"
@@ -1019,8 +1011,6 @@ const char *presetexec[] =
 
 	, //vanilla-esque options (for purists).
 	"cl_fullpitch 0;maxpitch \"\";seta minpitch \"\";"	//quakespasm is not vanilla
-	"gl_texturemode nll;"		//yup, we went there.
-	"gl_texturemode2d n.l;"		//yeah, 2d too.
 	"r_nolerp 1;"
 	"cl_sbar 1;"
 	"d_mipcap 0 2;"				//gl without anisotropic filtering favours too-distant mips too often, so lets just pretend it doesn't exist. should probably mess with lod instead or something
@@ -1049,8 +1039,6 @@ const char *presetexec[] =
 	"d_mipcap 0 1000;"
 	"gl_affinemodels 0;"
 	"r_lerpmuzzlehack 1;"
-	"gl_texturemode ln;"
-	"gl_texturemode2d l;"
 	"cl_sbar 0;"
 	"v_viewmodel_quake 0;"	//don't move the gun around weirdly.
 //	"cvarreset sv_nqplayerphysics;"
@@ -1063,7 +1051,6 @@ const char *presetexec[] =
 
 	, // nice options
 //	"r_stains 0.75;"
-	"gl_texturemode lll;"
 #ifndef MINIMAL
 //	"r_particlesystem script;"
 	"r_particledesc \"high tsshaft\";"
@@ -1101,9 +1088,9 @@ struct
 } builtinpresets[] =
 {
 	{	"hdr", true,
-		"Don't let colour depth stop you!",
+		"Use floating-point scene storage and automatic exposure.",
 
-		"set vid_srgb 2\n"
+		"set r_hdr_framebuffer 1\n"
 		"set r_hdr_irisadaptation 1\n"
 	},
 	{	"shib", true,
@@ -1722,7 +1709,7 @@ void M_Menu_Textures_f (void)
 	{
 		"Nearest (noise)",
 		"Nearest (harsh)",
-		"Nearest (soft)",
+		"Crisp Pixels (default)",
 		"Bilinear",
 		"Trilinear",
 		NULL
@@ -1739,7 +1726,7 @@ void M_Menu_Textures_f (void)
 
 	static const char *texture2dfilternames[] =
 	{
-		"Nearest",
+		"Crisp Pixels (default)",
 		"Linear",
 		NULL
 	};
@@ -1749,7 +1736,6 @@ void M_Menu_Textures_f (void)
 		"GL_LINEAR",
 		NULL
 	};
-
 
 	static const char *anisotropylevels[] =
 	{
@@ -2121,7 +2107,6 @@ void M_Menu_Lighting_f (void)
 	}
 }
 
-
 typedef struct {
 menucombo_t *skillcombo;
 menucombo_t *mapcombo;
@@ -2321,7 +2306,6 @@ qboolean M_Apply_SP_Cheats (union menuoption_s *op,struct emenu_s *menu,int key)
 	Cbuf_AddText("menu_spcheats\n", RESTRICT_LOCAL);
 	return true;
 }
-
 
 void M_Menu_Singleplayer_Cheats_Quake (void)
 {
@@ -2648,7 +2632,6 @@ qboolean M_Apply_SP_Cheats_H2 (union menuoption_s *op,struct emenu_s *menu,int k
 	return true;
 }
 
-
 void M_Menu_Singleplayer_Cheats_Hexen2 (void)
 {
 	singleplayerh2info_t *info;
@@ -2755,14 +2738,95 @@ void M_Menu_Singleplayer_Cheats_f (void)
 
 // video mode options
 
+// These strings are copied, since applying latched cvars replaces their storage.
+static const char *video_test_names[] = {
+	"vid_width", "vid_height", "vid_fullscreen", "vid_desktopsettings",
+	"vid_displayfrequency", "vid_renderer", "vid_vsync",
+	"vid_conwidth", "vid_conheight", "vid_conautoscale"
+};
+static struct {
+	char *values[countof(video_test_names)];
+	rendererstate_t renderer;
+	qboolean active, waiting;
+	double deadline;
+} video_test;
+
+static void M_VideoTestFree(void)
+{
+	size_t i;
+	for (i = 0; i < countof(video_test.values); i++)
+	{
+		Z_Free(video_test.values[i]);
+		video_test.values[i] = NULL;
+	}
+	video_test.active = video_test.waiting = false;
+}
+
+static void M_VideoTestAnswer(void *ctx, promptbutton_t answer)
+{
+	(void)ctx;
+	if (!video_test.active)
+		return;
+	if (answer == PROMPT_YES)
+	{
+		Con_Printf("Display settings kept. Use Save all settings to save them.\n");
+		M_VideoTestFree();
+	}
+	else
+	{
+		video_test.waiting = false;
+		Cbuf_InsertText("vid_revert\n", RESTRICT_LOCAL, false);
+	}
+}
+
+void M_VideoTestRestarted(qboolean success)
+{
+	if (!video_test.active || !video_test.waiting)
+		return;
+	video_test.waiting = false;
+	if (!success || qrenderer == QR_NONE || qrenderer == QR_HEADLESS)
+		M_VideoTestAnswer(NULL, PROMPT_NO);
+	else
+		Menu_PromptTimed(M_VideoTestAnswer, &video_test, localtext("Keep these display settings?\nChoose Revert or press Escape to restore."), 15);
+}
+
+void M_VideoTestFrame(void)
+{
+	// A blocked restart must not leave a pending transaction indefinitely.
+	if (video_test.active && video_test.waiting && Sys_DoubleTime() >= video_test.deadline)
+		M_VideoTestAnswer(NULL, PROMPT_NO);
+}
+
+void M_VideoRevert_f(void)
+{
+	size_t i;
+	rendererstate_t old;
+	if (!video_test.active)
+		return;
+	// Detach the prompt without triggering another rollback from its release.
+	video_test.active = false;
+	{
+		menu_t *prompt = Menu_FindContext(&video_test);
+		if (prompt) Menu_Unlink(prompt, false);
+	}
+	old = video_test.renderer;
+	for (i = 0; i < countof(video_test.values); i++)
+		Cvar_Set(Cvar_FindVar(video_test_names[i]), video_test.values[i]);
+	M_VideoTestFree();
+	Cvar_ApplyLatches(CVAR_VIDEOLATCH|CVAR_RENDERERLATCH, false);
+	R_RestartRenderer(&old);
+	Con_Printf("Previous display settings restored.\n");
+	Cbuf_AddText("menu_video\n", RESTRICT_LOCAL);
+}
+
 typedef struct {
 	menucombo_t *dispmode;
 	menucombo_t *resmode;
 	menuedit_t *width;
 	menuedit_t *height;
-	menuedit_t *bpp;
+
 	menuedit_t *hz;
-	menucombo_t *bppfixed;
+
 	menucombo_t *hzfixed;
 	menucombo_t *res2dmode;
 	menucombo_t *scale;
@@ -2770,7 +2834,17 @@ typedef struct {
 	menuedit_t *height2d;
 	menucombo_t *ressize[ASPECT_RATIOS];
 	menucombo_t *res2dsize[ASPECT_RATIOS];
+	char *restore[countof(video_test_names)];
+	rendererstate_t renderer;
 } videomenuinfo_t;
+
+static void M_VideoMenuRemove(emenu_t *menu)
+{
+	videomenuinfo_t *info = menu->data;
+	size_t i;
+	for (i = 0; i < countof(info->restore); i++)
+		Z_Free(info->restore[i]);
+}
 
 void CheckCustomMode(struct emenu_s *menu)
 {
@@ -2781,9 +2855,9 @@ void CheckCustomMode(struct emenu_s *menu)
 	info->resmode->common.ishidden = true;
 	info->width->common.ishidden = true;
 	info->height->common.ishidden = true;
-	info->bpp->common.ishidden = true;
+
 	info->hz->common.ishidden = true;
-	info->bppfixed->common.ishidden = true;
+
 	info->hzfixed->common.ishidden = true;
 	for (i = 0; i < ASPECT_RATIOS; i++)
 		info->ressize[i]->common.ishidden = true;
@@ -2795,13 +2869,12 @@ void CheckCustomMode(struct emenu_s *menu)
 		{ // unhide custom entries for custom option
 			info->width->common.ishidden = false;
 			info->height->common.ishidden = false;
-			info->bpp->common.ishidden = false;
+
 			info->hz->common.ishidden = false;
 		}
 		else if (sel != ASPECT3D_DESKTOP)
 		{
-			// unhide appropriate aspect ratio combo and restricted bpp/hz combos
-			info->bppfixed->common.ishidden = false;
+
 			info->hzfixed->common.ishidden = false;
 			info->ressize[sel]->common.ishidden = false;
 		}
@@ -2877,12 +2950,29 @@ qboolean M_VideoApply (union menuoption_s *op, struct emenu_s *menu, int key)
 	if (key != K_ENTER && key != K_KP_ENTER && key != K_GP_DIAMOND_CONFIRM && key != K_MOUSE1 && key != K_TOUCHTAP)
 		return false;
 
-	// force update display options
+	if (video_test.active || r_blockvidrestart)
+		return true;
+	{
+		size_t i;
+		for (i = 0; i < countof(info->restore); i++)
+		{
+			video_test.values[i] = info->restore[i];
+			info->restore[i] = NULL;
+		}
+		video_test.renderer = info->renderer;
+		video_test.active = video_test.waiting = true;
+		video_test.deadline = Sys_DoubleTime() + 15;
+	}
+
+	// Borderless mode uses the desktop, while retaining the previous window size.
+	// Hidden size controls must not overwrite that saved size.
+	if (atoi(Cvar_FindVar("vid_fullscreen")->latched_string?
+		Cvar_FindVar("vid_fullscreen")->latched_string:Cvar_FindVar("vid_fullscreen")->string) != 2)
 	{
 		int w = 0, h = 0;
 		const char *wc = NULL;
 		const char *hc = NULL;
-		const char *bc = "32";
+
 		const char *fc = "0";
 		const char *dc = "0";
 
@@ -2894,7 +2984,7 @@ qboolean M_VideoApply (union menuoption_s *op, struct emenu_s *menu, int key)
 		case ASPECT3D_CUSTOM: // Custom
 			wc = info->width->text;
 			hc = info->height->text;
-			bc = info->bpp->text;
+
 			fc = info->hz->text;
 			break;
 		default: // Aspects
@@ -2906,7 +2996,6 @@ qboolean M_VideoApply (union menuoption_s *op, struct emenu_s *menu, int key)
 				w = atoi(res);
 				h = atoi(x + 1);
 
-				bc = info->bppfixed->values[info->bppfixed->selectedoption];
 				fc = info->hzfixed->values[info->hzfixed->selectedoption];
 			}
 		}
@@ -2919,7 +3008,6 @@ qboolean M_VideoApply (union menuoption_s *op, struct emenu_s *menu, int key)
 			Cvar_SetValue(info->height->cvar, h);
 		else
 			Cvar_Set(info->height->cvar, hc);
-		Cvar_Set(info->bpp->cvar, bc);
 		Cvar_Set(info->hz->cvar, fc);
 		Cvar_Set(&vid_desktopsettings, dc);
 	}
@@ -2979,17 +3067,7 @@ void M_Menu_Video_f (void)
 	extern cvar_t v_contrast, vid_conwidth, vid_conheight;
 //	extern cvar_t vid_width, vid_height, vid_preservegamma, vid_hardwaregamma, vid_desktopgamma;
 	extern cvar_t vid_desktopsettings, vid_conautoscale;
-	extern cvar_t vid_bpp, vid_refreshrate, vid_multisample, vid_srgb;
-
-	static const char *srgbopts[] = {
-		"Non-Linear",	//0 (legacy buggy linear->srgb non-transforms)
-		"sRGB-Aware",	//1 (linear->srgb transforms)
-		"Linear (HDR)",	//2 (try to use a float framebuffer, otherwise fall back on srgb framebuffer)
-		"Linearised",	//-1
-		NULL
-	};
-	static const char *srgbvalues[] = { "0", "1", "2", "-1", NULL};
-
+	extern cvar_t vid_refreshrate;
 
 #if defined(ANDROID) && !defined(FTE_SDL)
 	extern cvar_t sys_orientation;
@@ -3079,37 +3157,12 @@ void M_Menu_Video_f (void)
 		NULL
 	};
 
-	static const char *aaopts[] = {
-		"1x",
-		"2x",
-		"4x",
-		"6x",
-		"8x",
-		NULL
-	};
-	static const char *aavalues[] = {"0", "2", "4", "6", "8", NULL};
-
 	static const char *resmodeopts[] = {
 		ASPECT_LIST
 		"Desktop",
 		"Custom",
 		NULL
 	};
-
-	static const char *bppopts[] =
-	{
-		"16-bit",
-		"24-bit",
-		NULL
-	};
-	static const char *bppvalues[] = {"16", "24", NULL};
-#if defined(_WIN32) && !defined(FTE_SDL)
-	extern int qwinvermaj, qwinvermin;
-	//on win8+, hide the 16bpp option - windows would just reject it.
-	int bppbias = ((qwinvermaj == 6 && qwinvermin >= 2) || qwinvermaj>6)?1:0;
-#else
-	const int bppbias = 0;
-#endif
 
 	static const char *refreshopts[] =
 	{
@@ -3152,12 +3205,18 @@ void M_Menu_Video_f (void)
 	static const char *vsyncopts[] =
 	{
 		"Off",
-		"Strict",
+		"On",
+#ifndef SDL_GPUQUAKE
 		"Lax",
 		"Alternate Frames",
+#endif
 		NULL
 	};
-	static const char *vsyncvalues[] = { "0", "1", "-1", "2", NULL};
+	static const char *vsyncvalues[] = { "0", "1",
+#ifndef SDL_GPUQUAKE
+		"-1", "2",
+#endif
+		NULL};
 	extern cvar_t vid_vsync;
 	extern cvar_t cl_maxfps;
 	extern cvar_t cl_yieldcpu;
@@ -3203,9 +3262,21 @@ void M_Menu_Video_f (void)
 	}
 
 	info = (videomenuinfo_t*)menu->data;
+	{
+		size_t i;
+		for (i = 0; i < countof(info->restore); i++)
+			info->restore[i] = Z_StrDup(Cvar_FindVar(video_test_names[i])->string);
+		info->renderer = currentrendererstate;
+		menu->remove = M_VideoMenuRemove;
+	}
 
 	snprintf(current3dres, sizeof(current3dres), "Current: %ix%i", vid.pixelwidth, vid.pixelheight);
+#ifdef SDL_GPUQUAKE
+	// SDL window sizes use logical pixels; Retina framebuffer sizes can be larger.
+	resmodechoice = M_MatchModes(currentrendererstate.width, currentrendererstate.height, reschoices);
+#else
 	resmodechoice = M_MatchModes(vid.pixelwidth, vid.pixelheight, reschoices);
+#endif
 	if (vid_desktopsettings.ival)
 		resmodechoice = ASPECT3D_DESKTOP;
 	else if (resmodechoice < 0)
@@ -3233,9 +3304,9 @@ void M_Menu_Video_f (void)
 #else
 			MB_COMBOCVARRETURN("Display Mode", vid_fullscreen, fullscreenopts, fullscreenvalues, info->dispmode, vid_fullscreen.description),
 #endif
-			MB_COMBOCVAR("MSAA", vid_multisample, aaopts, aavalues, NULL),
+
 			MB_REDTEXT(current3dres, true),
-			MB_COMBORETURN("Aspect", resmodeopts, resmodechoice, info->resmode, "Select method for determining or configuring display options. The desktop option will attempt to use the width, height, color depth, and refresh from your operating system's desktop environment."),
+			MB_COMBORETURN("Aspect", resmodeopts, resmodechoice, info->resmode, "Select method for determining or configuring display options. The desktop option will attempt to use the width, height, and refresh from your operating system's desktop environment."),
 			// aspect entries
 			MB_COMBORETURN("Size", resaspects[0], reschoices[0], info->ressize[0], "Select resolution for display."),
 			MB_SPACING(-8),
@@ -3244,13 +3315,13 @@ void M_Menu_Video_f (void)
 			MB_COMBORETURN("Size", resaspects[2], reschoices[2], info->ressize[2], "Select resolution for display."),
 			MB_SPACING(-8),
 			MB_COMBORETURN("Size", resaspects[3], reschoices[3], info->ressize[3], "Select resolution for display."),
-			MB_COMBOCVARRETURN("Color Depth", vid_bpp, bppopts+bppbias, bppvalues+bppbias, info->bppfixed, vid_bpp.description),
+
 			MB_COMBOCVARRETURN("Refresh Rate", vid_refreshrate, refreshopts, refreshvalues, info->hzfixed, vid_refreshrate.description),
-			MB_SPACING(-24), // really hacky...
+			MB_SPACING(-16), // overlap the custom size and refresh-rate fields
 			// custom entries
 			MB_EDITCVARSLIMRETURN("Width", "vid_width", info->width),
 			MB_EDITCVARSLIMRETURN("Height", "vid_height", info->height),
-			MB_EDITCVARSLIMRETURN("Color Depth", "vid_bpp", info->bpp),
+
 			MB_EDITCVARSLIMRETURN("Refresh Rate", "vid_displayfrequency", info->hz),
 
 //			MB_SPACING(4),
@@ -3271,7 +3342,7 @@ void M_Menu_Video_f (void)
 			MB_EDITCVARSLIMRETURN("Width", "vid_conwidth", info->width2d),
 			MB_EDITCVARSLIMRETURN("Height", "vid_conheight", info->height2d),
 			MB_SPACING(4),
-			MB_COMBOCVAR("sRGB", vid_srgb, srgbopts, srgbvalues, "Controls the colour space to try to use."),
+
 			MB_CHECKBOXCVARTIP("Scene-Only Gamma", vid_sceneonlygamma, 0, "Apply gamma, contrast, and brightness to the 3D view while keeping HUD, menu, and console colors unchanged."),
 			MB_SLIDER("Gamma", v_gamma, 1.5, 0.25, -0.05, NULL),
 			MB_SLIDER("Contrast", v_contrast, 0.8, 3, 0.05, NULL),
@@ -3298,42 +3369,6 @@ void M_Menu_Video_f (void)
 		MC_AddFrameEnd(menu, y);
 	}
 
-	/*
-	y += 8;
-	MC_AddRedText(menu, 200, y, current3dres, false); y+=8;
-
- 	y+=8;
-	MC_AddRedText(menu, 0, y,								"      ^Ue080^Ue081^Ue081^Ue081^Ue081^Ue081^Ue081^Ue081^Ue081^Ue081^Ue081^Ue081^Ue081^Ue081^Ue081^Ue081^Ue081^Ue081^Ue081^Ue081^Ue081^Ue081^Ue081^Ue081^Ue081^Ue081^Ue081^Ue081^Ue081^Ue081^Ue081^Ue082 ", false); y+=8;
-	y+=8;
-	info->renderer = MC_AddCombo(menu,	16, y,				"         Renderer", rendererops, i);	y+=8;
-	info->bppcombo = MC_AddCombo(menu,	16, y,				"      Color Depth", bppnames, currentbpp); y+=8;
-	info->refreshratecombo = MC_AddCombo(menu,	16, y,		"     Refresh Rate", refreshrates, currentrefreshrate); y+=8;
-	info->modecombo = MC_AddCombo(menu,	16, y,				"       Video Size", modenames, prefabmode+1);	y+=8;
-	MC_AddWhiteText(menu, 16, y, 							"  3D Aspect Ratio", false); y+=8;
-	info->conscalecombo = MC_AddCombo(menu,	16, y,			"          2D Size", modenames, prefab2dmode+1);	y+=8;
-	MC_AddWhiteText(menu, 16, y, 							"  2D Aspect Ratio", false); y+=8;
-	MC_AddCheckBox(menu,	16, y,							"       Fullscreen", &vid_fullscreen,0);	y+=8;
-	y+=4;info->customwidth = MC_AddEdit(menu, 16, y,		"     Custom width", vid_width.string);	y+=8;
-	y+=4;info->customheight = MC_AddEdit(menu, 16, y,		"    Custom height", vid_height.string);	y+=12;
-	info->vsynccombo = MC_AddCombo(menu,	16, y,			"            VSync", vsyncoptions, currentvsync); y+=8;
-	//MC_AddCheckBox(menu,	16, y,							"   Override VSync", &vid_vsync,0);	y+=8;
-	MC_AddCheckBox(menu,	16, y,							" Desktop Settings", &vid_desktopsettings,0);	y+=8;
-	y+=8;
-	MC_AddCommand(menu,	16, y,								"= Apply Changes =", M_VideoApply);	y+=8;
-	y+=8;
-	MC_AddSlider(menu,	16, y,								"      Screen size", &scr_viewsize,	30,		120, 1);y+=8;
-	MC_AddSlider(menu,	16, y,								"Console Autoscale",&vid_conautoscale, 0, 6, 0.25);	y+=8;
-	MC_AddSlider(menu,	16, y,								"            Gamma", &v_gamma, 0.3, 1, 0.05);	y+=8;
-	MC_AddCheckBox(menu,	16, y,							"    Desktop Gamma", &vid_desktopgamma,0);	y+=8;
-	MC_AddCheckBox(menu,	16, y,							"   Hardware Gamma", &vid_hardwaregamma,0);	y+=8;
-	MC_AddCheckBox(menu,	16, y,							"   Preserve Gamma", &vid_preservegamma,0);	y+=8;
-	MC_AddSlider(menu,	16, y,								"         Contrast", &v_contrast, 1, 3, 0.05);	y+=8;
-	y+=8;
-	MC_AddCheckBox(menu,	16, y,							"   Windowed Mouse", &in_windowed_mouse,0);	y+=8;
-
-	menu->selecteditem = (union menuoption_s *)info->renderer;
-	menu->cursoritem = (menuoption_t*)MC_AddWhiteText(menu, 152, menu->selecteditem->common.posy, NULL, false);
-	*/
 	menu->predraw = CheckCustomMode;
 }
 
@@ -3693,7 +3728,6 @@ static void M_ModelViewerDraw(int x, int y, struct menucustom_s *c, struct emenu
 		return;
 	}
 
-
 #ifdef RAGDOLL
 	if (mods->flop)
 		ent.framestate.g[FS_REG].frame[0] |= 0x8000;
@@ -3728,7 +3762,6 @@ static void M_ModelViewerDraw(int x, int y, struct menucustom_s *c, struct emenu
 	else
 #endif
 		animmodel = ent.model;	//not using it. sorry. warn?
-
 
 	if (mods->mode == MV_NORMALS)
 	{
@@ -4164,7 +4197,6 @@ static void M_ModelViewerDraw(int x, int y, struct menucustom_s *c, struct emenu
 					h = h*shader->defaulttextures->base->height;
 					R2D_Image(0, y, w, h, 0, 0, 1, 1, shader);
 
-
 					{
 						shader_t *s = R_RegisterShader("hitbox_nodepth", SUF_NONE,
 							"{\n"
@@ -4579,7 +4611,6 @@ static void Installer_Remove	(struct menu_s *m)
 {
 	Cbuf_AddText("quit force\n", RESTRICT_LOCAL);
 }
-
 
 void FS_CreateBasedir(const char *path);
 #include <process.h>

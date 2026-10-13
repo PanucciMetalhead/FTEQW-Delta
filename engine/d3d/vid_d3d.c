@@ -21,7 +21,6 @@
 
 //#pragma comment(lib, "../libs/dxsdk9/lib/d3d9.lib")
 
-
 /*Fixup outdated windows headers*/
 #ifndef WM_XBUTTONDOWN
    #define WM_XBUTTONDOWN      0x020B
@@ -70,8 +69,6 @@ extern qboolean		scr_con_forcedraw;
 static qboolean d3d_resized;
 
 extern cvar_t vid_hardwaregamma;
-extern cvar_t vid_srgb;
-
 
 /*void BuildGammaTable (float g, float c);
 static void	D3D9_VID_GenPaletteTables (unsigned char *palette)
@@ -146,7 +143,6 @@ static void	D3D9_VID_GenPaletteTables (unsigned char *palette)
 */
 typedef enum {MS_WINDOWED, MS_FULLSCREEN, MS_FULLDIB, MS_UNINIT} modestate_t;
 static modestate_t modestate;
-
 
 static void D3DVID_UpdateWindowStatus (HWND hWnd)
 {
@@ -227,10 +223,6 @@ static qboolean D3D9AppActivate(BOOL fActive, BOOL minimize)
 
 	return true;
 }
-
-
-
-
 
 static LRESULT WINAPI D3D9_WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
@@ -457,18 +449,11 @@ static void resetD3D9(void)
 		return;
 	}
 
-
 	/*clear the screen to black as soon as we start up, so there's no lingering framebuffer state*/
 	IDirect3DDevice9_BeginScene(pD3DDev9);
 	IDirect3DDevice9_Clear(pD3DDev9, 0, NULL, D3DCLEAR_TARGET|D3DCLEAR_ZBUFFER, D3DCOLOR_XRGB(0, 0, 0), 1.0f, 0);
 	IDirect3DDevice9_EndScene(pD3DDev9);
 	D3D9_VID_SwapBuffers();
-
-
-
-
-
-
 
 	//IDirect3DDevice9_SetRenderState(pD3DDev9, D3DRENDERSTATE_DITHERENABLE, FALSE);
 	//IDirect3DDevice9_SetRenderState(pD3DDev9, D3DRENDERSTATE_SPECULARENABLE, FALSE);
@@ -506,27 +491,17 @@ static qboolean initD3D9Device(HWND hWnd, rendererstate_t *info, unsigned int de
 	d3dpp.hDeviceWindow = hWnd;    // set the window to be used by Direct3D
 	d3dpp.BackBufferWidth = info->width;
 	d3dpp.BackBufferHeight = info->height;
-	d3dpp.MultiSampleType = info->multisample;
+	d3dpp.MultiSampleType = D3DMULTISAMPLE_NONE;
 	d3dpp.BackBufferCount = 1 + info->triplebuffer;
 	d3dpp.FullScreen_RefreshRateInHz = info->fullscreen?info->rate:0;	//don't pass a rate if not fullscreen, d3d doesn't like it.
 	d3dpp.Windowed = !info->fullscreen;
 
 	d3dpp.EnableAutoDepthStencil = true;
-	if (info->depthbits==16)
-		d3dpp.AutoDepthStencilFormat = D3DFMT_D16;
-	else if (info->depthbits==32)
-		d3dpp.AutoDepthStencilFormat = D3DFMT_D32;
-	else
-		d3dpp.AutoDepthStencilFormat = D3DFMT_D24S8;
+	d3dpp.AutoDepthStencilFormat = D3DFMT_D24S8;
 	d3dpp.BackBufferFormat = D3DFMT_UNKNOWN;
 	if (info->fullscreen)
 	{
-		if (info->bpp == 16)
-			d3dpp.BackBufferFormat = D3DFMT_R5G6B5;
-		else if (info->bpp == 30)
-			d3dpp.BackBufferFormat = D3DFMT_A2R10G10B10;
-		else
-			d3dpp.BackBufferFormat = D3DFMT_X8R8G8B8;
+		d3dpp.BackBufferFormat = D3DFMT_X8R8G8B8;
 	}
 
 	switch(info->wait)
@@ -724,7 +699,6 @@ static qboolean D3D9_VID_Init(rendererstate_t *info, unsigned char *palette)
 {
 	DWORD width = info->width;
 	DWORD height = info->height;
-	//DWORD bpp = info->bpp;
 	//DWORD zbpp = 16;
 	//DWORD flags = 0;
 	DWORD wstyle;
@@ -805,7 +779,6 @@ static qboolean D3D9_VID_Init(rendererstate_t *info, unsigned char *palette)
 	IDirect3DDevice9_SetRenderState(pD3DDev9, D3DRS_LIGHTING, FALSE);
 
 	GetWindowRect(mainwindow, &window_rect);
-
 
 //	D3D9_VID_GenPaletteTables(palette);
 
@@ -997,18 +970,6 @@ static qboolean	(D3D9_SCR_UpdateScreen)			(void)
 		Cvar_ForceCallback(&vid_conwidth);
 	}
 
-	if (vid_srgb.modified)
-	{
-		vid_srgb.modified = false;
-		//VID_SRGBAWARE defines whether textures are meant to be srgb or not.
-		//as it requires a vid_reload, we don't mess with it here.
-		//that said, we can still change srgb freely otherwise.
-		vid.flags &= VID_SRGBAWARE;
-		if ((vid.flags & VID_SRGBAWARE) || vid_srgb.ival<0)
-			vid.flags |= (d3dpp.Windowed)?VID_SRGB_FB_FAKED:VID_SRGB_FB_LINEAR;
-		IDirect3DDevice9_SetRenderState(pD3DDev9, D3DRS_SRGBWRITEENABLE, !!(vid.flags&VID_SRGB_FB_LINEAR));
-	}
-
 	switch (IDirect3DDevice9_TestCooperativeLevel(pD3DDev9))
 	{
 	case D3DERR_DEVICELOST:
@@ -1139,32 +1100,14 @@ static qboolean	(D3D9_SCR_UpdateScreen)			(void)
 	window_center_x = (window_rect.left + window_rect.right)/2;
 	window_center_y = (window_rect.top + window_rect.bottom)/2;
 
-
 	INS_UpdateGrabs(modestate != MS_WINDOWED, vid.activeapp);
 	return true;
 }
 
-
-
-
-
-
-
 static void	(D3D9_Draw_Init)				(void)
 {
-	{
-		vid_srgb.modified = false;
-		//VID_SRGBAWARE defines whether textures are meant to be srgb or not.
-		//we're doing a vid_reload here, so we can change it here easily enough
-		if (vid_srgb.ival > 0)	//d3d9 does srgb using post-process stuff for us.
-			vid.flags |= VID_SRGBAWARE;
-		else
-			vid.flags = 0;
-		if ((vid.flags & VID_SRGBAWARE) || vid_srgb.ival<0)
-			vid.flags |= (d3dpp.Windowed)?VID_SRGB_FB_FAKED:VID_SRGB_FB_LINEAR;
-
-		IDirect3DDevice9_SetRenderState(pD3DDev9, D3DRS_SRGBWRITEENABLE, !!(vid.flags&VID_SRGB_FB_LINEAR));
-	}
+	vid.flags = 0;
+	IDirect3DDevice9_SetRenderState(pD3DDev9, D3DRS_SRGBWRITEENABLE, false);
 
 	R2D_Init();
 }
@@ -1183,8 +1126,6 @@ static void	(D3D9_R_DeInit)					(void)
 	Surf_DeInit();
 	Shader_Shutdown();
 }
-
-
 
 static void D3D9_SetupViewPortProjection(void)
 {

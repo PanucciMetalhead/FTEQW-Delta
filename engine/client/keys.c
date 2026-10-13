@@ -3150,6 +3150,15 @@ void Key_Event (unsigned int devid, int key, unsigned int unicode, qboolean down
 
 	}
 
+	// F1 is setting help only in the engine's own menu. Other menus and
+	// function-key bindings retain their existing routing.
+#ifndef NOBUILTINMENUS
+	if (key == K_F1 && Key_Dest_Has(kdm_menu) && !promptmenu && M_BuiltinMenuActive())
+	{
+		Menu_KeyEvent(true, devid, key, unicode);
+		return;
+	}
+#endif
 	//menus after console stuff
 	if (Key_Dest_Has(kdm_menu))
 	{

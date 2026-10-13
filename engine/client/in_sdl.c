@@ -939,6 +939,10 @@ SDL_AppResult SDLCALL SDL_AppEvent(void *appstate, SDL_Event *event)
 		{
 			vid.pixelwidth = event->window.data1;
 			vid.pixelheight = event->window.data2;
+			// Preserve the current logical window size for display-mode rollback.
+			// Fullscreen must retain the separate size used when returning to a window.
+			if (!vid_isfullscreen)
+				SDL_GetWindowSize(sdlwindow, &currentrendererstate.width, &currentrendererstate.height);
 			{
 				extern cvar_t vid_conautoscale, vid_conwidth;	//make sure the screen is updated properly.
 				Cvar_ForceCallback(&vid_conautoscale);

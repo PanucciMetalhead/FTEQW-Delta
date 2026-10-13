@@ -64,7 +64,6 @@ int Plug_ExecuteCommand(int *args)
 	else if (!strcmp("r_floorcolor",		cmd))	cvar = "r_floorcolour";
 	else if (!strcmp("r_wallcolor",			cmd))	cvar = "r_wallcolour";
 	else if (!strcmp("r_farclip",			cmd))	cvar = "gl_maxdist";
-	else if (!strcmp("vid_colorbits",		cmd))	cvar = "vid_bpp";
 	else if (!strcmp("vid_customheight",	cmd))	cvar = "vid_height";
 	else if (!strcmp("vid_customwidth",		cmd))	cvar = "vid_width";
 	else if (!strcmp("vid_hwgammacontrol",	cmd))	cvar = "vid_hardwaregamma";
@@ -146,7 +145,6 @@ void ezScript_InitCommands(void) // not really needed actually
 	//fps
 	Cmd_AddCommand("cl_physfps");
 	//video
-	Cmd_AddCommand("vid_colorbits");
 	Cmd_AddCommand("vid_customheight");
 	Cmd_AddCommand("vid_cumstomwidth");
 	Cmd_AddCommand("vid_hwgammacontrol");

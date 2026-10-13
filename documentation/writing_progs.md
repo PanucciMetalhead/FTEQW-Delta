@@ -1,7 +1,7 @@
 # Writing Your progs.dat
 
 This guide takes you from an empty source folder to your own server game code
-for **FTEQW-SDL3**, including a small playable test game. You do not need another
+for **FTEQW Delta**, including a small playable test game. You do not need another
 game's QuakeC source or a decompiled `progs.dat`. The engine supplies movement,
 collision, networking, asset loading and rendering. You supply the rules:
 spawning players, weapons, damage, enemies, objectives and interactions.
@@ -849,7 +849,7 @@ protocol support.
 - **Engine interface** means a field/global/callback/constant or builtin with
   no extension attribution in the exporter. Some are classic and some are
   later additions; this label is not a vanilla compatibility guarantee.
-- **Fork-only** would mean an API introduced solely by FTEQW-SDL3. This guide's
+- **Fork-only** would mean an API introduced solely by FTEQW Delta. This guide's
   exported API has no newly introduced fork-only gameplay symbols. Renderer
   implementation changes do not require a new QC API.
 

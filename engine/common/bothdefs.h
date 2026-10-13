@@ -168,10 +168,10 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 	#define DISTRIBUTIONLONG "Forethought Entertainment"	//effectively the 'company' name
 #endif
 #ifndef FULLENGINENAME
-	#define FULLENGINENAME "FTE QW"	//the posh name for the engine, note that 'Quake' is trademarked so we should not be using it here.
+	#define FULLENGINENAME "FTEQW Delta"	//the posh name for the engine, note that 'Quake' is trademarked so we should not be using it here.
 #endif
 #ifndef ENGINEWEBSITE
-	#define ENGINEWEBSITE "^8https://^4fte^8.^4triptohell^8.^4info"	//url for program
+	#define ENGINEWEBSITE "https://github.com/PanucciMetalhead/FTEQW-Delta"	//url for program
 #endif
 
 #if !defined(_WIN32) || defined(WINRT) || defined(FTE_SDL)

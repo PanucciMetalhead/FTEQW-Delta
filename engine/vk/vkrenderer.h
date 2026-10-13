@@ -260,9 +260,9 @@ struct vk_rendertarg
 {
 	VkCommandBuffer cbuf;	//cbuf allocated for this render target.
 	VkFramebuffer framebuffer;
-	vk_image_t colour, depth, mscolour;
+	vk_image_t colour, depth;
 
-	image_t q_colour, q_depth, q_mscolour;	//extra sillyness...
+	image_t q_colour, q_depth;	//extra sillyness...
 
 	uint32_t width;
 	uint32_t height;
@@ -415,7 +415,6 @@ extern struct vulkaninfo_s
 #define RP_DEPTHCLEAR	1	//
 #define RP_FULLCLEAR	2
 #define RP_DEPTHONLY	3	//shadowmaps (clears depth)
-#define RP_MULTISAMPLE	(1u<<2)
 #define RP_PRESENTABLE	(1u<<3)
 #define RP_FP16			(1u<<4)
 #define RP_VR			(1u<<5)	//potentially a different colour format.
@@ -423,10 +422,8 @@ extern struct vulkaninfo_s
 	VkSwapchainKHR swapchain;
 	uint32_t bufferidx;
 
-	VkSampleCountFlagBits multisamplebits;
 	VkFormat depthformat;
 	VkFormat backbufformat;
-	qboolean srgbcapable;
 
 	qboolean neednewswapchain;	//something changed that invalidates the old one.
 	qboolean devicelost;		//we seriously fucked up somewhere. or the gpu is shite.

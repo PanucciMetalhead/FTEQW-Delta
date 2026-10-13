@@ -14,7 +14,6 @@
 
 #define DEFAULT_WIDTH 640
 #define DEFAULT_HEIGHT 480
-#define DEFAULT_BPP 32
 
 refdef_t	r_refdef;
 vec3_t		r_origin, vpn, vright, vup;
@@ -289,21 +288,13 @@ cvar_t vid_renderer							= CVARFD ("vid_renderer", "sdlgpu",
 													 CVAR_ARCHIVE | CVAR_VIDEOLATCH, "Selects the renderer: sdlgpu (Metal on macOS, Vulkan on Windows/Linux), headless, or sv (dedicated server).");
 cvar_t vid_renderer_opts					= CVARFD ("_vid_renderer_opts", NULL, CVAR_NOSET|CVAR_NOSAVE, "The possible video renderer apis, in \"value\" \"description\" pairs, for gamecode to read.");
 
-cvar_t vid_bpp								= CVARFD ("vid_bpp", "0",
-												CVAR_ARCHIVE | CVAR_VIDEOLATCH, "The number of colour bits to request from the renedering context");
-cvar_t vid_depthbits						= CVARFD ("vid_depthbits", "0",
-												CVAR_ARCHIVE | CVAR_VIDEOLATCH, "The number of depth bits to request from the renedering context. Try 24.");
 cvar_t vid_desktopsettings					= CVARFD ("vid_desktopsettings", "0",
 												CVAR_ARCHIVE | CVAR_VIDEOLATCH, "Ignore the values of vid_width and vid_height, and just use the same settings that are used for the desktop.");
 cvar_t vid_fullscreen						= CVARFD ("vid_fullscreen", "2",	CVAR_ARCHIVE|CVAR_VIDEOLATCH, "Specifies whether the game should be fullscreen or not (requires vid_restart).\n0: Run in a resizable window, which can be manually maximized (with borders).\n1: Traditional fullscreen-exclusive video mode with mode switching and everything.\n2: Simply maximize the window and hide any borders without interfering with any other parts of the system.");
 cvar_t vid_height							= CVARFD ("vid_height", "0",
 												CVAR_ARCHIVE | CVAR_VIDEOLATCH, "The screen height to attempt to use, in physical pixels. 0 means use desktop resolution.");
-cvar_t vid_multisample						= CVARAFD ("vid_multisample", "0", "vid_samples",
-													CVAR_ARCHIVE, "The number of samples to use for Multisample AntiAliasing (aka: msaa). A value of 1 explicitly disables it.");
 cvar_t vid_refreshrate						= CVARF ("vid_displayfrequency", "0",
 												CVAR_ARCHIVE | CVAR_VIDEOLATCH);
-cvar_t vid_srgb								= CVARFD ("vid_srgb", "0",
-													  CVAR_ARCHIVE, "-1: Only the framebuffer should use sRGB colourspace, textures and colours will be assumed to be linear. This has the effect of just brightening the screen according to a gamma ramp of about 2.2 (or .45 in quake's backwards gamma terms).\n0: Off. Colour blending will be wrong, you're likely to see obvious banding.\n1: Use sRGB extensions/support to ensure that the lighting aproximately matches real-world lighting (required for PBR).\n2: Attempt to use a linear floating-point framebuffer, which should enable monitor support for HDR.\nNote that driver behaviour varies by a disturbing amount, and much of the documentation conflicts with itself (the term 'linear' is awkward when the eye's perception of linear is non-linear).");
 cvar_t vid_wndalpha							= CVARD ("vid_wndalpha", "1", "When running windowed, specifies the window's transparency level.");
 #if defined(_WIN32) && defined(MULTITHREAD)
 cvar_t vid_winthread						= CVARFD ("vid_winthread", "", CVAR_ARCHIVE|CVAR_VIDEOLATCH, "When enabled, window messages will be handled by a separate thread. This allows the game to continue rendering when Microsoft Windows blocks while resizing, etc.");
@@ -426,7 +417,7 @@ cvar_t gl_specular_fallbackexp				= CVARF  ("gl_specular_fallbackexp", "1", CVAR
 cvar_t gl_texture_anisotropic_filtering		= CVARAFCD("gl_texture_anisotropy", "4",
 												"gl_texture_anisotropic_filtering"/*old*/, CVAR_ARCHIVE | CVAR_RENDERERCALLBACK,
 												Image_TextureMode_Callback, "Allows for higher quality textures on surfaces that slope away from the camera (like the floor). Set to 16 or something. Only supported with trilinear filtering.");
-cvar_t gl_texturemode						= CVARAFCD("gl_texturemode", "GL_LINEAR_MIPMAP_LINEAR", "r_texturemode"/*q3*/,
+cvar_t gl_texturemode						= CVARAFCD("gl_texturemode", "nll", "r_texturemode"/*q3*/,
 												CVAR_ARCHIVE | CVAR_RENDERERCALLBACK | CVAR_SAVE, Image_TextureMode_Callback,
 												"Specifies how world/model textures appear. Typically 3 letters eg "S_COLOR_GREEN"nll"S_COLOR_WHITE" or "S_COLOR_GREEN"lll"S_COLOR_WHITE".\nFirst letter can be l(inear) or n(earest) and says how to upscale low-res textures (n for the classic look - often favoured for embedded textures, l for blurry - best for high-res textures).\nThe middle letter can be set to '.' to disable mipmaps, or n for ugly banding with distance, or l for smooth mipmap transitions.\nThe third letter says what to do when the texture is too high resolution, and should generally be set to 'l' to reduce sparkles including when aiming for the classic lego look.");
 cvar_t gl_texture_lodbias					= CVARAFCD("d_lodbias", "0", "gl_texture_lodbias",
@@ -435,7 +426,7 @@ cvar_t gl_texture_lodbias					= CVARAFCD("d_lodbias", "0", "gl_texture_lodbias",
 cvar_t gl_mipcap							= CVARAFCD("d_mipcap", "0 1000", "gl_miptexLevel",
 												CVAR_ARCHIVE | CVAR_RENDERERCALLBACK,
 												Image_TextureMode_Callback, "Specifies the range of mipmap levels to use.");
-cvar_t gl_texturemode2d						= CVARFCD("gl_texturemode2d", "GL_LINEAR",
+cvar_t gl_texturemode2d						= CVARFCD("gl_texturemode2d", "GL_NEAREST",
 												CVAR_ARCHIVE | CVAR_RENDERERCALLBACK, Image_TextureMode_Callback,
 												"Specifies how 2d images are sampled. format is a 3-tupple ");
 cvar_t r_font_linear						= CVARF("r_font_linear", "1", CVAR_ARCHIVE);
@@ -605,7 +596,7 @@ void R_ToggleFullscreen_f(void)
 		{
 			dwidth = DEFAULT_WIDTH;
 			dheight = DEFAULT_HEIGHT;
-			dbpp = DEFAULT_BPP;
+
 			drate = 0;
 		}
 
@@ -686,8 +677,7 @@ void Renderer_Init(void)
 	Cvar_Register (&vid_renderer_opts, VIDCOMMANDGROUP);
 
 	Cvar_Register (&vid_fullscreen, VIDCOMMANDGROUP);
-	Cvar_Register (&vid_bpp, VIDCOMMANDGROUP);
-	Cvar_Register (&vid_depthbits, VIDCOMMANDGROUP);
+
 
 	Cvar_Register (&vid_baseheight, VIDCOMMANDGROUP);
 	Cvar_Register (&vid_conwidth, VIDCOMMANDGROUP);
@@ -699,8 +689,7 @@ void Renderer_Init(void)
 	Cvar_Register (&vid_width, VIDCOMMANDGROUP);
 	Cvar_Register (&vid_height, VIDCOMMANDGROUP);
 	Cvar_Register (&vid_refreshrate, VIDCOMMANDGROUP);
-	Cvar_Register (&vid_multisample, GLRENDEREROPTIONS);
-	Cvar_Register (&vid_srgb, GLRENDEREROPTIONS);
+
 	Cvar_Register (&vid_dpi_x, GLRENDEREROPTIONS);
 	Cvar_Register (&vid_dpi_y, GLRENDEREROPTIONS);
 
@@ -956,7 +945,7 @@ void Renderer_Start(void)
 	r_blockvidrestart = false;
 	Cvar_ApplyLatches(CVAR_VIDEOLATCH|CVAR_RENDERERLATCH, false);
 
-	//renderer = none && currentrendererstate.bpp == -1 means we've never applied any mode at all
+	// A null renderer means no mode has been applied yet.
 	//if we currently have none, we do actually need to apply it still
 	if (qrenderer == QR_NONE && *vid_renderer.string)
 	{
@@ -1298,8 +1287,6 @@ void R_GenPaletteLookup(void)
 qboolean R_ApplyRenderer (rendererstate_t *newr)
 {
 	double time;
-	if (newr->bpp == -1)
-		return false;
 	if (!newr->renderer)
 		return false;
 
@@ -1370,26 +1357,26 @@ qboolean R_ApplyRenderer_Load (rendererstate_t *newr)
 			if (!r_forceheadless || newr->renderer->rtype != QR_HEADLESS)
 			{
 				if (newr->fullscreen == 2)
-					Con_TPrintf("Setting fullscreen windowed %s%s\n", newr->srgb?"SRGB ":"", newr->renderer->description);
+					Con_TPrintf("Setting fullscreen windowed %s\n", newr->renderer->description);
 				else if (newr->fullscreen)
 				{
 					if (newr->rate)
 					{
 						if (newr->width || newr->height)
-							Con_TPrintf("Setting mode %i*%i %ibpp %ihz %s%s\n", newr->width, newr->height, newr->bpp, newr->rate, newr->srgb?"SRGB ":"", newr->renderer->description);
+							Con_TPrintf("Setting mode %i*%i %ihz %s\n", newr->width, newr->height, newr->rate, newr->renderer->description);
 						else
-							Con_TPrintf("Setting mode auto %ibpp %ihz %s%s\n", newr->bpp, newr->rate, newr->srgb?"SRGB ":"", newr->renderer->description);
+							Con_TPrintf("Setting mode auto %ihz %s\n", newr->rate, newr->renderer->description);
 					}
 					else
 					{
 						if (newr->width || newr->height)
-							Con_TPrintf("Setting mode %i*%i %ibpp %s%s\n", newr->width, newr->height, newr->bpp, newr->srgb?"SRGB ":"", newr->renderer->description);
+							Con_TPrintf("Setting mode %i*%i %s\n", newr->width, newr->height, newr->renderer->description);
 						else
-							Con_TPrintf("Setting mode auto %ibpp %s%s\n", newr->bpp, newr->srgb?"SRGB ":"", newr->renderer->description);
+							Con_TPrintf("Setting mode auto %s\n", newr->renderer->description);
 					}
 				}
 				else
-					Con_TPrintf("Setting windowed mode %i*%i %s%s\n", newr->width, newr->height, newr->srgb?"SRGB ":"", newr->renderer->description);
+					Con_TPrintf("Setting windowed mode %i*%i %s\n", newr->width, newr->height, newr->renderer->description);
 			}
 
 		vid.fullbright=0;
@@ -1470,7 +1457,7 @@ TRACE(("dbg: R_ApplyRenderer: Palette loaded\n"));
 		}
 TRACE(("dbg: R_ApplyRenderer: vid applied\n"));
 
-		//update palettes now that we know whether srgb is to be used etc
+		// Update palettes after applying the renderer.
 		R_GenPaletteLookup();
 
 		r_softwarebanding = false;
@@ -1844,33 +1831,14 @@ qboolean R_BuildRenderstate(rendererstate_t *newr, char *rendererstring)
 	newr->height = vid_height.value;
 
 	newr->triplebuffer = vid_triplebuffer.value;
-	newr->multisample = vid_multisample.value;
-	newr->bpp = vid_bpp.value;
-	newr->depthbits = vid_depthbits.value;
+
+
 	newr->fullscreen = vid_fullscreen.value;
 	newr->rate = vid_refreshrate.value;
 	newr->stereo = (r_stereo_method.ival == 1);
-	newr->srgb = vid_srgb.ival;
+
 	newr->vr = vrfuncs;
 
-#if defined(_WIN32) && !defined(FTE_SDL)
-	if (newr->bpp && newr->bpp < 24)
-	{
-		extern int qwinvermaj;
-		extern int qwinvermin;
-		if ((qwinvermaj == 6 && qwinvermin >= 2) || qwinvermaj>6)
-		{
-			/*
-			Note  Apps that you design to target Windows 8 and later can no longer query or set display modes that are less than 32 bits per pixel (bpp);
-				these operations will fail. These apps have a compatibility manifest that targets Windows 8.
-			Windows 8 still supports 8-bit and 16-bit color modes for desktop apps that were built without a Windows 8 manifest;
-				Windows 8 emulates these modes but still runs in 32-bit color mode.
-			*/
-			Con_Printf("Starting with windows 8, windows no longer supports 16-bit video modes\n");
-			newr->bpp = 24;	//we don't count alpha as part of colour depth. windows does, so this'll end up as 32bit regardless.
-		}
-	}
-#endif
 
 	if (com_installer)
 	{
@@ -1991,11 +1959,10 @@ qboolean R_BuildRenderstate(rendererstate_t *newr, char *rendererstring)
 		{
 			newr->width = 0;
 			newr->height = 0;
-			newr->bpp = 0;
 			newr->rate = 0;
 		}
 
-		if (newr->width <= 0 || newr->height <= 0 || newr->bpp <= 0)
+		if (newr->width <= 0 || newr->height <= 0)
 		{
 			int dbpp, dheight, dwidth, drate;
 			
@@ -2003,7 +1970,7 @@ qboolean R_BuildRenderstate(rendererstate_t *newr, char *rendererstring)
 			{
 				dwidth = DEFAULT_WIDTH;
 				dheight = DEFAULT_HEIGHT;
-				dbpp = DEFAULT_BPP;
+
 				drate = 0;
 			}
 
@@ -2011,8 +1978,6 @@ qboolean R_BuildRenderstate(rendererstate_t *newr, char *rendererstring)
 				newr->width = dwidth;
 			if (newr->height <= 0)
 				newr->height = dheight;
-			if (newr->bpp <= 0)
-				newr->bpp = dbpp;
 		}
 	}
 
@@ -2049,6 +2014,7 @@ void R_RestartRenderer (rendererstate_t *newr)
 	size_t portalsize = 0;
 #endif
 	rendererstate_t oldr;
+	qboolean requestedmode = true;
 	if (r_blockvidrestart)
 	{
 		if (r_blockvidrestart != 2)
@@ -2071,6 +2037,7 @@ void R_RestartRenderer (rendererstate_t *newr)
 	memcpy(&oldr, &currentrendererstate, sizeof(rendererstate_t));
 	if (!R_ApplyRenderer(newr))
 	{
+		requestedmode = false;
 		TRACE(("dbg: R_RestartRenderer_f failed\n"));
 		if (R_ApplyRenderer(&oldr))
 		{
@@ -2142,8 +2109,7 @@ void R_RestartRenderer (rendererstate_t *newr)
 				Con_Printf(CON_ERROR "Video mode switch failed. Console forced.\n\nPlease change the following vars to something useable, and then use the setrenderer command.\n");
 				Con_Printf("%s: %s\n", vid_width.name, vid_width.string);
 				Con_Printf("%s: %s\n", vid_height.name, vid_height.string);
-				Con_Printf("%s: %s\n", vid_bpp.name, vid_bpp.string);
-				Con_Printf("%s: %s\n", vid_depthbits.name, vid_depthbits.string);
+
 				Con_Printf("%s: %s\n", vid_refreshrate.name, vid_refreshrate.string);
 				Con_Printf("%s: %s\n", vid_renderer.name, vid_renderer.string);
 				Con_Printf("%s: %s\n", gl_driver.name, gl_driver.string);
@@ -2166,6 +2132,11 @@ void R_RestartRenderer (rendererstate_t *newr)
 	Cvar_ApplyCallbacks(CVAR_RENDERERCALLBACK);
 	SCR_EndLoadingPlaque();
 
+#ifndef NOBUILTINMENUS
+	M_VideoTestRestarted(requestedmode);
+#else
+	(void)requestedmode;
+#endif
 	TRACE(("dbg: R_RestartRenderer_f success\n"));
 //	M_Reinit();
 }
@@ -2264,11 +2235,6 @@ void R_SetRenderer_f (void)
 	{
 		Con_Printf("setrenderer: parameter not supported (%s)\n", param);
 		return;
-	}
-	else
-	{
-		if (Cmd_Argc() == 3)
-			Cvar_Set(&vid_bpp, Cmd_Argv(2));
 	}
 
 	if (newr.renderer->rtype != QR_HEADLESS && !strstr(param, "headless"))	//don't save headless in the vid_renderer cvar via the setrenderer command. 'setrenderer headless;vid_restart' can then do what is most sane.

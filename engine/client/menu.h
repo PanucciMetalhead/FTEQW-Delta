@@ -119,6 +119,7 @@ void Menu_KeyEvent(qboolean down, int qdeviceid, int key, int unicode);
 int Menu_WantOSK(void);
 void Menu_Draw(void);
 void Prompts_Draw(void);
+void Menu_Frame(void); // wall-clock prompt deadlines, independent of drawing
 void Menu_PopAll(void); //attempts to pop all menus (this is for map starts, some might linger)
 void Menu_Unlink(menu_t *menu, qboolean forced);
 void Menu_Push(menu_t *menu, qboolean prompt);
@@ -133,10 +134,15 @@ typedef enum
 } promptbutton_t;
 #ifdef HAVE_CLIENT
 void Menu_Prompt (void (*callback)(void *, promptbutton_t), void *ctx, const char *messages, const char *optionyes, const char *optionno, const char *optioncancel, qboolean highpri);
+void Menu_PromptTimed(void (*callback)(void *, promptbutton_t), void *ctx, const char *message, double seconds);
 #define Menu_PromptOrPrint(messages,optioncancel,highpri) Menu_Prompt(NULL, NULL, messages, NULL, NULL, optioncancel, highpri)
 #else
 #define Menu_PromptOrPrint(messages,optioncancel,highpri) Con_Printf("%s", messages)
 #endif
+
+void M_VideoTestRestarted(qboolean success);
+void M_VideoTestFrame(void);
+void M_VideoRevert_f(void);
 
 void M_Window_ClosePrompt (void);	//called when the window was requested to be closed. displays whatever quit menu is appropriate.
 #ifndef NOBUILTINMENUS
@@ -144,6 +150,7 @@ void M_Window_ClosePrompt (void);	//called when the window was requested to be c
 //
 // menus
 //
+qboolean M_BuiltinMenuActive(void);
 void M_Init (void);
 void M_Reinit(void);
 void M_Shutdown(qboolean total);
@@ -345,6 +352,8 @@ struct emenu_s {
 
 	menutooltip_t *tooltip;
 	double tooltiptime;
+	qboolean tooltipkeyboard;
+	char tooltiptext[2048];
 
 	int cursorpos;
 	menuoption_t *cursoritem;

@@ -1,5 +1,6 @@
 #include "quakedef.h"
 #ifdef VKQUAKE
+#include <limits.h>
 #include "vkrenderer.h"
 #include "gl_draw.h"
 #include "shader.h"
@@ -29,10 +30,9 @@ static cvar_t vk_ext_astc_decode_mode			= CVARFD("vk_ext_astc_decode_mode",		"",
 #ifdef VK_KHR_ray_query
 static cvar_t vk_khr_ray_query					= CVARFD("vk_khr_ray_query",			"",	CVAR_VIDEOLATCH, "Required for the use of hardware raytraced shadows.");
 #endif
-extern cvar_t vid_srgb, vid_vsync, vid_triplebuffer, r_stereo_method, vid_multisample, vid_bpp;
+extern cvar_t vid_vsync, vid_triplebuffer, r_stereo_method;
 
 texid_t r_blackcubeimage, r_whitecubeimage;
-
 
 void VK_RegisterVulkanCvars(void)
 {
@@ -93,7 +93,6 @@ static const char *vklayerlist[] =
 };
 #define vklayercount (vk_debug.ival>1?countof(vklayerlist):0)
 
-
 //code to initialise+destroy vulkan contexts.
 //this entire file is meant to be platform-agnostic.
 //the vid code still needs to set up vkGetInstanceProcAddr, and do all the window+input stuff.
@@ -121,7 +120,7 @@ static void VK_Submit_DoWork(void);
 static void VK_DestroyRenderPasses(void);
 VkRenderPass VK_GetRenderPass(int pass);
 static void VK_Shutdown_PostProc(void);
-		
+
 struct vulkaninfo_s vk;
 static struct vk_rendertarg postproc[4];
 static unsigned int postproc_buf;
@@ -519,7 +518,6 @@ static void VK_DestroySwapChain(void)
 			vkDestroyImageView(vk.device, vk.backbufs[i].colour.view, vkallocationcb);
 		vk.backbufs[i].colour.view = VK_NULL_HANDLE;
 		VK_DestroyVkTexture(&vk.backbufs[i].depth);
-		VK_DestroyVkTexture(&vk.backbufs[i].mscolour);
 		vkDestroySemaphore(vk.device, vk.backbufs[i].presentsemaphore, vkallocationcb);
 	}
 
@@ -563,7 +561,6 @@ static qboolean VK_CreateSwapChain(void)
 	VkDeviceMemory *memories;
 	VkImageView attachments[3];
 	VkFramebufferCreateInfo fb_info = {VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
-	VkSampleCountFlagBits oldms;
 	uint32_t rpassflags = 0;
 	VkResult err;
 
@@ -572,13 +569,11 @@ static qboolean VK_CreateSwapChain(void)
 
 	vk.dopresent(NULL);	//make sure they're all pushed through.
 
-
 	vid_vsync.modified = false;
 	vid_triplebuffer.modified = false;
-	vid_srgb.modified = false;
+
 	vk_submissionthread.modified = false;
 	vk_waitfence.modified = false;
-	vid_multisample.modified = false;
 
 	vk.triplebuffer = vid_triplebuffer.ival;
 	vk.vsync = vid_vsync.ival;
@@ -588,7 +583,7 @@ static qboolean VK_CreateSwapChain(void)
 		if (vk.swapchain || vk.backbuf_count)
 			VK_DestroySwapChain();
 
-		vk.backbufformat = ((vid.flags&VID_SRGBAWARE)||vid_srgb.ival)?VK_FORMAT_B8G8R8A8_SRGB:VK_FORMAT_B8G8R8A8_UNORM;
+		vk.backbufformat = VK_FORMAT_B8G8R8A8_UNORM;
 		vk.backbuf_count = 4;
 
 		swapinfo.imageExtent.width = vid.pixelwidth;
@@ -672,32 +667,7 @@ static qboolean VK_CreateSwapChain(void)
 	}
 	else
 	{	//using vulkan's presentation engine.
-		int BOOST_UNORM, BOOST_SNORM, BOOST_SRGB, BOOST_UFLOAT, BOOST_SFLOAT;
-
-		if (vid_srgb.ival > 1)
-		{	//favour float formats, then srgb, then unorms
-			BOOST_UNORM		= 0;
-			BOOST_SNORM		= 0;
-			BOOST_SRGB		= 128;
-			BOOST_UFLOAT	= 256;
-			BOOST_SFLOAT	= 256;
-		}
-		else if (vid_srgb.ival)
-		{
-			BOOST_UNORM		= 0;
-			BOOST_SNORM		= 0;
-			BOOST_SRGB		= 256;
-			BOOST_UFLOAT	= 128;
-			BOOST_SFLOAT	= 128;
-		}
-		else
-		{
-			BOOST_UNORM		= 256;
-			BOOST_SNORM		= 256;
-			BOOST_SRGB		= 0;
-			BOOST_UFLOAT	= 128;
-			BOOST_SFLOAT	= 128;
-		}
+		const int BOOST_UNORM = 256, BOOST_SNORM = 256, BOOST_SRGB = 0, BOOST_UFLOAT = 128, BOOST_SFLOAT = 128;
 
 		VkAssert(vkGetPhysicalDeviceSurfaceFormatsKHR(vk.gpu, vk.surface, &fmtcount, NULL));
 		surffmts = malloc(sizeof(VkSurfaceFormatKHR)*fmtcount);
@@ -789,7 +759,6 @@ static qboolean VK_CreateSwapChain(void)
 			if (!vk.swapchain)	//only warn on vid_restart, otherwise its annoying when resizing.
 				Con_Printf("Warning: vulkan graphics driver does not support VK_PRESENT_MODE_IMMEDIATE_KHR.\n");
 
-		vk.srgbcapable = false;
 		swapinfo.imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
 		swapinfo.imageFormat = VK_FORMAT_UNDEFINED;
 		for (i = 0, curpri = 0; i < fmtcount; i++)
@@ -801,38 +770,38 @@ static qboolean VK_CreateSwapChain(void)
 			case VK_FORMAT_B8G8R8A8_UNORM:
 			case VK_FORMAT_R8G8B8A8_UNORM:
 			case VK_FORMAT_A8B8G8R8_UNORM_PACK32:
-				priority = ((vid_bpp.ival>=24)?24:11)+BOOST_UNORM;
+				priority = 24+BOOST_UNORM;
 				break;
 			case VK_FORMAT_B8G8R8A8_SNORM:
 			case VK_FORMAT_R8G8B8A8_SNORM:
 			case VK_FORMAT_A8B8G8R8_SNORM_PACK32:
-				priority = ((vid_bpp.ival>=21)?21:2)+BOOST_SNORM;
+				priority = 21+BOOST_SNORM;
 				break;
 			case VK_FORMAT_B8G8R8A8_SRGB:
 			case VK_FORMAT_R8G8B8A8_SRGB:
 			case VK_FORMAT_A8B8G8R8_SRGB_PACK32:
-				priority = ((vid_bpp.ival>=24)?24:11)+BOOST_SRGB;
-				vk.srgbcapable = true;
+				priority = 24+BOOST_SRGB;
+
 				break;
 			case VK_FORMAT_A2B10G10R10_UNORM_PACK32:
 			case VK_FORMAT_A2R10G10B10_UNORM_PACK32:
-				priority = ((vid_bpp.ival==30)?30:10)+BOOST_UNORM;
+				priority = 10+BOOST_UNORM;
 				break;
 
 			case VK_FORMAT_B10G11R11_UFLOAT_PACK32:
-				priority = ((vid_srgb.ival>=3||vid_bpp.ival==32)?32:11)+BOOST_UFLOAT;
+				priority = 11+BOOST_UFLOAT;
 				break;
 			case VK_FORMAT_R16G16B16A16_SFLOAT:	//16bit per-channel formats
-				priority = ((vid_srgb.ival>=3||vid_bpp.ival>=48)?48:9)+BOOST_SFLOAT;
+				priority = 9+BOOST_SFLOAT;
 				break;
 			case VK_FORMAT_R16G16B16A16_UNORM:
-				priority = ((vid_srgb.ival>=3||vid_bpp.ival>=48)?48:9)+BOOST_UNORM;
+				priority = 9+BOOST_UNORM;
 				break;
 			case VK_FORMAT_R16G16B16A16_SNORM:
-				priority = ((vid_srgb.ival>=3||vid_bpp.ival>=48)?48:9)+BOOST_SFLOAT;
+				priority = 9+BOOST_SFLOAT;
 				break;
 			case VK_FORMAT_R32G32B32A32_SFLOAT:	//32bit per-channel formats
-				priority = ((vid_bpp.ival>=47)?96:8)+BOOST_SFLOAT;
+				priority = 8+BOOST_SFLOAT;
 				break;
 
 			case VK_FORMAT_B5G6R5_UNORM_PACK16:
@@ -869,12 +838,7 @@ static qboolean VK_CreateSwapChain(void)
 
 		if (swapinfo.imageFormat == VK_FORMAT_UNDEFINED)
 		{	//if we found this format then it means the drivers don't really give a damn. pick a real format.
-			if (vid_srgb.ival > 1 && swapinfo.imageColorSpace == VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT)
-				swapinfo.imageFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
-			else if (vid_srgb.ival)
-				swapinfo.imageFormat = VK_FORMAT_R8G8B8A8_SRGB;
-			else
-				swapinfo.imageFormat = VK_FORMAT_R8G8B8A8_UNORM;
+			swapinfo.imageFormat = VK_FORMAT_R8G8B8A8_UNORM;
 		}
 
 		if (vk.backbufformat != swapinfo.imageFormat)
@@ -975,22 +939,10 @@ static qboolean VK_CreateSwapChain(void)
 		}
 	}
 
-	oldms = vk.multisamplebits;
-
-	vk.multisamplebits = VK_SAMPLE_COUNT_1_BIT;
-	if (vid_multisample.ival>1)
-	{
-		VkSampleCountFlags fl = vk.limits.framebufferColorSampleCounts & vk.limits.framebufferDepthSampleCounts;
-//		Con_Printf("Warning: vulkan multisample does not work with rtlights or render targets etc etc\n");
-		for (i = 1; i < 30; i++)
-			if ((fl & (1<<i)) && (1<<i) <= vid_multisample.ival)
-				vk.multisamplebits = (1<<i);
-	}
-
 	rpassflags = RP_PRESENTABLE;
 
 	//destroy+recreate the renderpass if something changed that prevents them being compatible (this also requires rebuilding all the pipelines too, which sucks).
-	if (oldms != vk.multisamplebits || oldformat != vk.backbufformat || olddepthformat != vk.depthformat)
+	if (oldformat != vk.backbufformat || olddepthformat != vk.depthformat)
 	{
 		VK_DestroyRenderPasses();
 		reloadshaders = true;
@@ -1004,11 +956,7 @@ static qboolean VK_CreateSwapChain(void)
 
 	attachments[0] = VK_NULL_HANDLE;	//colour
 	attachments[1] = VK_NULL_HANDLE;	//depth
-	attachments[2] = VK_NULL_HANDLE;	//mscolour
 
-	if (rpassflags & RP_MULTISAMPLE)
-		fb_info.attachmentCount = 3;
-	else
 	{
 		rpassflags &= ~RP_PRESENTABLE;
 		fb_info.attachmentCount = 2;
@@ -1018,7 +966,6 @@ static qboolean VK_CreateSwapChain(void)
 	fb_info.width = swapinfo.imageExtent.width;
 	fb_info.height = swapinfo.imageExtent.height;
 	fb_info.layers = 1;
-
 
 	vk.backbufs = malloc(sizeof(*vk.backbufs)*vk.backbuf_count);
 	memset(vk.backbufs, 0, sizeof(*vk.backbufs)*vk.backbuf_count);
@@ -1050,7 +997,6 @@ static qboolean VK_CreateSwapChain(void)
 
 		vk.backbufs[i].firstuse = true;
 
-		//create the depth buffer texture. possibly multisampled.
 		{
 			//depth image
 			{
@@ -1063,7 +1009,7 @@ static qboolean VK_CreateSwapChain(void)
 				depthinfo.extent.depth = 1;
 				depthinfo.mipLevels = 1;
 				depthinfo.arrayLayers = 1;
-				depthinfo.samples = (rpassflags & RP_MULTISAMPLE)?vk.multisamplebits:VK_SAMPLE_COUNT_1_BIT;
+				depthinfo.samples = VK_SAMPLE_COUNT_1_BIT;
 				depthinfo.tiling = VK_IMAGE_TILING_OPTIMAL;
 				depthinfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
 				depthinfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
@@ -1098,56 +1044,6 @@ static qboolean VK_CreateSwapChain(void)
 			}
 		}
 
-		//if we're using multisampling, create the intermediate multisample texture that we're actually going to render to.
-		if (rpassflags & RP_MULTISAMPLE)
-		{
-			//mscolour image
-			{
-				VkImageCreateInfo mscolourinfo = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
-				mscolourinfo.flags = 0;
-				mscolourinfo.imageType = VK_IMAGE_TYPE_2D;
-				mscolourinfo.format = vk.backbufformat;
-				mscolourinfo.extent.width = swapinfo.imageExtent.width;
-				mscolourinfo.extent.height = swapinfo.imageExtent.height;
-				mscolourinfo.extent.depth = 1;
-				mscolourinfo.mipLevels = 1;
-				mscolourinfo.arrayLayers = 1;
-				mscolourinfo.samples = vk.multisamplebits;
-				mscolourinfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-				mscolourinfo.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-				mscolourinfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-				mscolourinfo.queueFamilyIndexCount = 0;
-				mscolourinfo.pQueueFamilyIndices = NULL;
-				mscolourinfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-				VkAssert(vkCreateImage(vk.device, &mscolourinfo, vkallocationcb, &vk.backbufs[i].mscolour.image));
-				DebugSetName(VK_OBJECT_TYPE_IMAGE, (uint64_t)vk.backbufs[i].mscolour.image, "multisample");
-			}
-
-			//mscolour memory
-			VK_AllocateBindImageMemory(&vk.backbufs[i].mscolour, true);
-
-			//mscolour view
-			{
-				VkImageViewCreateInfo mscolourviewinfo = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-				mscolourviewinfo.format = vk.backbufformat;
-				mscolourviewinfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
-				mscolourviewinfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
-				mscolourviewinfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
-				mscolourviewinfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
-				mscolourviewinfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-				mscolourviewinfo.subresourceRange.baseMipLevel = 0;
-				mscolourviewinfo.subresourceRange.levelCount = 1;
-				mscolourviewinfo.subresourceRange.baseArrayLayer = 0;
-				mscolourviewinfo.subresourceRange.layerCount = 1;
-				mscolourviewinfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-				mscolourviewinfo.flags = 0;
-				mscolourviewinfo.image = vk.backbufs[i].mscolour.image;
-				VkAssert(vkCreateImageView(vk.device, &mscolourviewinfo, vkallocationcb, &vk.backbufs[i].mscolour.view));
-				attachments[2] = vk.backbufs[i].mscolour.view;
-			}
-		}
-
-
 		attachments[0] = vk.backbufs[i].colour.view;
 		VkAssert(vkCreateFramebuffer(vk.device, &fb_info, vkallocationcb, &vk.backbufs[i].framebuffer));
 
@@ -1167,7 +1063,6 @@ static qboolean VK_CreateSwapChain(void)
 	return true;
 }
 
-	
 void	VK_Draw_Init(void)
 {
 	R2D_Init();
@@ -1210,7 +1105,6 @@ void VK_CreateSamplerInfo(VkSamplerCreateInfo *info, vk_image_t *img)
 	if (img->sampler)
 		VK_DestroySampler(img->sampler);
 
-
 	for (ref = vk.samplers; ref; ref = ref->next)
 		if (ref->flags == flags)
 			if (!memcmp(&ref->props, info, sizeof(*info)))
@@ -1236,7 +1130,6 @@ void VK_CreateSampler(unsigned int flags, vk_image_t *img)
 	struct vksamplers_s *ref;
 	qboolean clamptoedge = flags & IF_CLAMP;
 	VkSamplerCreateInfo lmsampinfo = {VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
-
 
 	if (img->sampler)
 		VK_DestroySampler(img->sampler);
@@ -1391,7 +1284,6 @@ void VK_ReleasePoolMemory(vk_poolmem_t *mem)
 	}
 }
 
-
 //does NOT bind.
 //image memory is NOT expected to be host-visible. you'll get what vulkan gives you.
 qboolean VK_AllocateImageMemory(VkImage image, qboolean dedicated, vk_poolmem_t *mem)
@@ -1459,7 +1351,6 @@ qboolean VK_AllocateBindImageMemory(vk_image_t *image, qboolean dedicated)
 	}
 	return false;	//out of memory?
 }
-
 
 vk_image_t VK_CreateTexture2DArray(uint32_t width, uint32_t height, uint32_t layers, uint32_t mips, uploadfmt_t encoding, unsigned int type, qboolean rendertarget, const char *debugname)
 {
@@ -1689,7 +1580,6 @@ vk_image_t VK_CreateTexture2DArray(uint32_t width, uint32_t height, uint32_t lay
 
 	if (!VK_AllocateBindImageMemory(&ret, false))
 		return ret;	//oom?
-
 
 	viewInfo.flags = 0;
 	viewInfo.image = ret.image;
@@ -2210,9 +2100,6 @@ void    VK_DestroyTexture			(texid_t tex)
 	tex->vkdescriptor = VK_NULL_HANDLE;
 }
 
-
-
-
 void	VK_R_Init					(void)
 {
 	uint32_t white[6] = {~0u,~0u,~0u,~0u,~0u,~0u};
@@ -2376,7 +2263,7 @@ void VK_Set2D(void)
 		vkCmdClearDepthStencilImage(vk.frame->cbuf, vk.depthbuf.image, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, &val, 1, &range);
 	}
 */
-	
+
 /*
 	vkCmdEndRenderPass(vk.frame->cbuf);
 	{
@@ -2495,7 +2382,7 @@ static void VK_Init_PostProc(void)
 				{
 					fx = (PP_AMP_TEX_SIZE - (float)x) / PP_AMP_TEX_BORDER;
 				}
-				
+
 				if (y < PP_AMP_TEX_BORDER)
 				{
 					fy = (float)y / PP_AMP_TEX_BORDER;
@@ -2521,7 +2408,6 @@ static void VK_Init_PostProc(void)
 
 		Image_Upload(scenepp_texture_edge, TF_RGBX32, pp_edge_tex, NULL, PP_AMP_TEX_SIZE, PP_AMP_TEX_SIZE, 1, IF_LINEAR|IF_NOMIPMAP|IF_NOGAMMA);
 	}
-
 
 	vk.scenepp_waterwarp = R_RegisterShader("waterwarp", SUF_NONE,
 		"{\n"
@@ -2549,8 +2435,6 @@ static void VK_Init_PostProc(void)
 		"}\n"
 		);
 }
-
-
 
 static qboolean VK_R_RenderScene_Cubemap(struct vk_rendertarg *fb)
 {
@@ -2725,7 +2609,6 @@ static qboolean VK_R_RenderScene_Cubemap(struct vk_rendertarg *fb)
 			cmapsize = 4096;//sh_config.texture_maxsize;
 	}
 
-
 	r_refdef.flags |= RDF_FISHEYE;
 	vid.fbpwidth = vid.fbpheight = cmapsize;
 
@@ -2771,7 +2654,6 @@ static qboolean VK_R_RenderScene_Cubemap(struct vk_rendertarg *fb)
 		r_refdef.viewangles[0] = saveang[0]+ang[i][0];
 		r_refdef.viewangles[1] = saveang[1]+ang[i][1];
 		r_refdef.viewangles[2] = saveang[2]+ang[i][2];
-
 
 		VK_SetupViewPortProjection(true, NULL, NULL, NULL);
 
@@ -2864,7 +2746,6 @@ void VK_R_RenderEye(texid_t image, const pxrect_t *viewport, const vec4_t fovove
 	rt->rpassflags |= RP_VR;
 	VKBE_RT_Gen(rt, image?image->vkimage:NULL, 320, 200, false, RT_IMAGEFLAGS);
 	VKBE_RT_Begin(rt);
-
 
 	if (!vk.rendertarg->depthcleared)
 	{
@@ -2976,7 +2857,6 @@ void	VK_R_RenderView				(void)
 			r_refdef.flags |= RDF_SCENEGAMMA;
 	}
 
-//	if (vk.multisamplebits != VK_SAMPLE_COUNT_1_BIT)	//these are unsupported right now.
 //		r_refdef.flags &= ~(RDF_CUSTOMPOSTPROC|RDF_ANTIALIAS|RDF_BLOOM);
 
 	//
@@ -3005,7 +2885,7 @@ void	VK_R_RenderView				(void)
 		r_refdef.pxrect.maxheight = vid.pixelheight;
 	}
 
-	if (renderscale != 1.0 || vk.multisamplebits != VK_SAMPLE_COUNT_1_BIT)
+	if (renderscale != 1.0)
 	{
 		r_refdef.flags |= RDF_RENDERSCALE;
 		if (renderscale < 0)
@@ -3019,7 +2899,6 @@ void	VK_R_RenderView				(void)
 		return;	//you're not allowed to do that, dude.
 
 	//FIXME: VF_RT_*
-	//FIXME: if we're meant to be using msaa, render the scene to an msaa target and then resolve.
 
 	postproc_buf = 0;
 	if (r_refdef.flags & (RDF_ALLPOSTPROC|RDF_RENDERSCALE|RDF_SCENEGAMMA))
@@ -3028,8 +2907,7 @@ void	VK_R_RenderView				(void)
 		r_refdef.pxrect.y = 0;
 		rt = &postproc[postproc_buf++%countof(postproc)];
 		rt->rpassflags = 0;
-		if (vk.multisamplebits!=VK_SAMPLE_COUNT_1_BIT)
-			rt->rpassflags |= RP_MULTISAMPLE;
+
 		if (r_refdef.flags&RDF_SCENEGAMMA)	//if we're doing scenegamma here, use an fp16 target for extra precision
 			rt->rpassflags |= RP_FP16;
 		VKBE_RT_Gen(rt, NULL, r_refdef.pxrect.width, r_refdef.pxrect.height, false, (r_renderscale.value < 0)?RT_IMAGEFLAGS-IF_LINEAR+IF_NEAREST:RT_IMAGEFLAGS);
@@ -3225,7 +3103,6 @@ void	VK_R_RenderView				(void)
 	vk.sourcecolour = r_nulltex;
 }
 
-
 typedef struct
 {
 	uint32_t imageformat;
@@ -3258,7 +3135,6 @@ void VKVID_QueueGetRGBData			(void (*gotrgbdata) (void *rgbdata, intptr_t bytest
 	VkMemoryRequirements mem_reqs;
 	VkMemoryAllocateInfo memAllocInfo = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
 	VkBufferCreateInfo bci = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-
 
 	if (!VK_SCR_GrabBackBuffer())
 		return;
@@ -3398,7 +3274,6 @@ char	*VKVID_GetRGBInfo			(int *bytestride, int *truevidwidth, int *truevidheight
 		DebugSetName(VK_OBJECT_TYPE_DEVICE_MEMORY, (uint64_t)tempbufmemory, "VKVID_GetRGBInfo buffer");
 		VkAssert(vkBindBufferMemory(vk.device, tempbuffer, tempbufmemory, 0));
 
-
 		set_image_layout(fence->cbuf, vk.frame->backbuf->colour.image, VK_IMAGE_ASPECT_COLOR_BIT,
 				framebufferlayout, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
 				VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT);
@@ -3491,7 +3366,6 @@ static void VK_PaintScreen(void)
 	qboolean nohud;
 	qboolean noworld;
 
-	
 	vid.fbvwidth = vid.width;
 	vid.fbvheight = vid.height;
 	vid.fbpwidth = vid.pixelwidth;
@@ -3649,7 +3523,6 @@ qboolean VK_SCR_GrabBackBuffer(void)
 	if (vk.frame)	//erk, we already have one...
 		return true;
 
-
 	RSpeedRemark();
 
 	VK_FencedCheck();
@@ -3759,11 +3632,6 @@ qboolean VK_SCR_GrabBackBuffer(void)
 
 	RSpeedEnd(RSPEED_SETUP);
 
-
-
-
-
-	
 	{
 		VkCommandBufferBeginInfo begininf = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
 		VkCommandBufferInheritanceInfo inh = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO};
@@ -3832,7 +3700,7 @@ qboolean VK_SCR_GrabBackBuffer(void)
 		extern cvar_t r_clear;
 		VkRenderPassBeginInfo rpbi = {VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
 
-		//attachments are: screen[1], depth[msbits], (screen[msbits])
+		// Attachments are color and depth.
 
 		clearvalues[0].color.float32[0] = !!(r_clear.ival & 1);
 		clearvalues[0].color.float32[1] = !!(r_clear.ival & 2);
@@ -3841,16 +3709,7 @@ qboolean VK_SCR_GrabBackBuffer(void)
 		clearvalues[1].depthStencil.depth = 1.0;
 		clearvalues[1].depthStencil.stencil = 0;
 
-		if (rp & RP_MULTISAMPLE)
-		{
-			clearvalues[2].color.float32[0] = !!(r_clear.ival & 1);
-			clearvalues[2].color.float32[1] = !!(r_clear.ival & 2);
-			clearvalues[2].color.float32[2] = !!(r_clear.ival & 4);
-			clearvalues[2].color.float32[3] = 1;
-			rpbi.clearValueCount = 3;
-		}
-		else
-			rpbi.clearValueCount = 2;
+		rpbi.clearValueCount = 2;
 
 		if (r_clear.ival || vk.frame->backbuf->firstuse)
 			rpbi.renderPass = VK_GetRenderPass(RP_FULLCLEAR|rp);
@@ -3932,7 +3791,7 @@ qboolean	VK_SCR_UpdateScreen			(void)
 	VK_FencedCheck();
 
 	//a few cvars need some extra work if they're changed
-	if ((vk.allowsubmissionthread && vk_submissionthread.modified) || vid_vsync.modified || vk_waitfence.modified || vid_triplebuffer.modified || vid_srgb.modified || vid_multisample.modified)
+	if ((vk.allowsubmissionthread && vk_submissionthread.modified) || vid_vsync.modified || vk_waitfence.modified || vid_triplebuffer.modified)
 		vk.neednewswapchain = true;
 
 	if (vk.devicelost)
@@ -4105,8 +3964,7 @@ VkRenderPass VK_GetRenderPass(int pass)
 	int numattachments;
 	static	VkAttachmentReference color_reference;
 	static	VkAttachmentReference depth_reference;
-	static	VkAttachmentReference resolve_reference;
-	static	VkAttachmentDescription attachments[3] = {{0}};
+	static	VkAttachmentDescription attachments[2] = {{0}};
 	static	VkSubpassDescription subpass = {0};
 	static 	VkRenderPassCreateInfo rp_info = {VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
 
@@ -4115,8 +3973,6 @@ VkRenderPass VK_GetRenderPass(int pass)
 //load and store operations in attachment descriptions.
 //image layouts in attachment references.
 
-	if (vk.multisamplebits == VK_SAMPLE_COUNT_1_BIT)
-		pass &= ~RP_MULTISAMPLE;	//no difference
 
 	if (vk.renderpass[pass] != VK_NULL_HANDLE)
 		return vk.renderpass[pass];	//already built
@@ -4127,16 +3983,9 @@ VkRenderPass VK_GetRenderPass(int pass)
 	else
 		color_reference.attachment = numattachments++;
 	depth_reference.attachment = numattachments++;
-	resolve_reference.attachment = ~(uint32_t)0;
-	if ((pass & RP_MULTISAMPLE) && color_reference.attachment != ~(uint32_t)0)
-	{	//if we're using multisample, then render to a third texture, with a resolve to the original colour texture.
-		resolve_reference.attachment = color_reference.attachment;
-		color_reference.attachment = numattachments++;
-	}
 
 	color_reference.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 	depth_reference.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-	resolve_reference.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
 	if (color_reference.attachment != ~(uint32_t)0)
 	{
@@ -4146,7 +3995,7 @@ VkRenderPass VK_GetRenderPass(int pass)
 			attachments[color_reference.attachment].format = vk.backbufformat;	//FIXME
 		else
 			attachments[color_reference.attachment].format = vk.backbufformat;
-		attachments[color_reference.attachment].samples = (pass & RP_MULTISAMPLE)?vk.multisamplebits:VK_SAMPLE_COUNT_1_BIT;
+		attachments[color_reference.attachment].samples = VK_SAMPLE_COUNT_1_BIT;
 //		attachments[color_reference.attachment].loadOp = pass?VK_ATTACHMENT_LOAD_OP_LOAD:VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 		attachments[color_reference.attachment].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 		attachments[color_reference.attachment].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
@@ -4158,7 +4007,7 @@ VkRenderPass VK_GetRenderPass(int pass)
 	if (depth_reference.attachment != ~(uint32_t)0)
 	{
 		attachments[depth_reference.attachment].format = vk.depthformat;
-		attachments[depth_reference.attachment].samples = (pass & RP_MULTISAMPLE)?vk.multisamplebits:VK_SAMPLE_COUNT_1_BIT;
+		attachments[depth_reference.attachment].samples = VK_SAMPLE_COUNT_1_BIT;
 //		attachments[depth_reference.attachment].loadOp = pass?VK_ATTACHMENT_LOAD_OP_LOAD:VK_ATTACHMENT_LOAD_OP_CLEAR;
 		attachments[depth_reference.attachment].storeOp = VK_ATTACHMENT_STORE_OP_STORE;//VK_ATTACHMENT_STORE_OP_DONT_CARE;
 		attachments[depth_reference.attachment].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
@@ -4167,25 +4016,13 @@ VkRenderPass VK_GetRenderPass(int pass)
 		attachments[depth_reference.attachment].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 	}
 
-	if (resolve_reference.attachment != ~(uint32_t)0)
-	{
-		attachments[resolve_reference.attachment].format = vk.backbufformat;
-		attachments[resolve_reference.attachment].samples = VK_SAMPLE_COUNT_1_BIT;
-		attachments[resolve_reference.attachment].loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-		attachments[resolve_reference.attachment].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-		attachments[resolve_reference.attachment].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-		attachments[resolve_reference.attachment].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-		attachments[resolve_reference.attachment].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-		attachments[resolve_reference.attachment].finalLayout = (pass&RP_PRESENTABLE)?VK_IMAGE_LAYOUT_PRESENT_SRC_KHR:VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	}
-
 	subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
 	subpass.flags = 0;
 	subpass.inputAttachmentCount = 0;
 	subpass.pInputAttachments = NULL;
 	subpass.colorAttachmentCount = 1;
 	subpass.pColorAttachments = &color_reference;
-	subpass.pResolveAttachments = (resolve_reference.attachment != ~(uint32_t)0)?&resolve_reference:NULL;
+	subpass.pResolveAttachments = NULL;
 	subpass.pDepthStencilAttachment = &depth_reference;
 	subpass.preserveAttachmentCount = 0;
 	subpass.pPreserveAttachments = NULL;
@@ -4377,7 +4214,7 @@ static void VK_Submit_DoWork(void)
 	{
 		vk.dopresent(present);
 	}
-	
+
 	Sys_LockConditional(vk.submitcondition);
 
 	if (fencedwork)
@@ -4810,7 +4647,6 @@ qboolean VK_Init(rendererstate_t *info, const char *const*sysextnames, unsigned 
 	vk.dopresent = dopresent?dopresent:VK_DoPresent;
 	memset(&sh_config, 0, sizeof(sh_config));
 
-
 	//get second set of pointers... (instance-level)
 #ifdef VK_NO_PROTOTYPES
 	if (!vkGetInstanceProcAddr)
@@ -5141,7 +4977,7 @@ qboolean VK_Init(rendererstate_t *info, const char *const*sysextnames, unsigned 
 			if (vkGetPhysicalDeviceProperties2)
 				vkGetPhysicalDeviceProperties2(vk.gpu, &props);
 		}
-	
+
 		if (*props12.driverName)
 			vendor = props12.driverName;
 		else
@@ -5177,7 +5013,7 @@ qboolean VK_Init(rendererstate_t *info, const char *const*sysextnames, unsigned 
 		case 0x10C3: vendor = "Samsung";	break;
 		case 0x11E2: vendor = "Samsung";	break;
 		case 0x1249: vendor = "Samsung";	break;
-		
+
 		default:	vendor = va("VEND_%x", props.properties.vendorID); break;
 		}
 
@@ -5270,7 +5106,6 @@ qboolean VK_Init(rendererstate_t *info, const char *const*sysextnames, unsigned 
 					vk.queuefam[1] = i;
 			}
 		}
-
 
 		if (vk.queuefam[0] == ~0u || vk.queuefam[1] == ~0u)
 		{
@@ -5482,14 +5317,14 @@ qboolean VK_Init(rendererstate_t *info, const char *const*sysextnames, unsigned 
 						break;
 					}
 			}
-			
+
 			if (dgdci.physicalDeviceCount > 1)
 			{
 				vk.subdevices = dgdci.physicalDeviceCount;
 				dgdci.pNext = devinf.pNext;
 				devinf.pNext = &dgdci;
 			}
-		
+
 			err = vkCreateDevice(vk.gpu, &devinf, NULL, &vk.device);
 
 			free(groups);
@@ -5555,7 +5390,6 @@ qboolean VK_Init(rendererstate_t *info, const char *const*sysextnames, unsigned 
 		VkAssert(vkCreateCommandPool(vk.device, &cpci, vkallocationcb, &vk.cmdpool));
 	}
 
-	
 	sh_config.progpath = "vulkan/%s.fvb";
 	sh_config.blobpath = NULL;	//just use general pipeline cache instead.
 	sh_config.shadernamefmt = NULL;//"_vulkan";
@@ -5578,25 +5412,13 @@ qboolean VK_Init(rendererstate_t *info, const char *const*sysextnames, unsigned 
 
 	VK_CheckTextureFormats();
 
-
 	sh_config.pDeleteProg = NULL;
 	sh_config.pLoadBlob = NULL;
 	sh_config.pCreateProgram = NULL;
 	sh_config.pValidateProgram = NULL;
 	sh_config.pProgAutoFields = NULL;
 
-	if (info->depthbits == 16 && sh_config.texfmt[PTI_DEPTH16])
-		vk.depthformat = VK_FORMAT_D16_UNORM;
-	else if (info->depthbits == 32 && sh_config.texfmt[PTI_DEPTH32])
-		vk.depthformat = VK_FORMAT_D32_SFLOAT;
-//	else if (info->depthbits == 32 && sh_config.texfmt[PTI_DEPTH32_8])
-//		vk.depthformat = VK_FORMAT_D32_SFLOAT_S8_UINT;
-	else if (info->depthbits == 24 && sh_config.texfmt[PTI_DEPTH24_8])
-		vk.depthformat = VK_FORMAT_D24_UNORM_S8_UINT;
-	else if (info->depthbits == 24 && sh_config.texfmt[PTI_DEPTH24])
-		vk.depthformat = VK_FORMAT_X8_D24_UNORM_PACK32;
-
-	else if (sh_config.texfmt[PTI_DEPTH24])
+	if (sh_config.texfmt[PTI_DEPTH24])
 		vk.depthformat = VK_FORMAT_X8_D24_UNORM_PACK32;
 	else if (sh_config.texfmt[PTI_DEPTH24_8])
 		vk.depthformat = VK_FORMAT_D24_UNORM_S8_UINT;
@@ -5629,8 +5451,6 @@ qboolean VK_Init(rendererstate_t *info, const char *const*sysextnames, unsigned 
 		}
 #endif
 	}
-	if (info->srgb > 0 && (vid.flags & VID_SRGB_FB))
-		vid.flags |= VID_SRGBAWARE;
 
 	Q_snprintfz(info->subrenderer, sizeof(info->subrenderer), "GPU%i", gpuidx);
 

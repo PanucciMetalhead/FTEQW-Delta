@@ -14,16 +14,16 @@ It includes every command/cvar captured after initializing Quake 1 and
 OpenArena, plus gamecode commands and settings created/read on demand. It was
 checked with `cmdlist`, `apropos ""`, `cvarlist -adF`, the fork's source and the
 loaded QVMs on **13 October 2026**. Definitions use registered help where
-available, otherwise the corresponding handlers/gamecode.
+available, otherwise the corresponding handlers/gamecode. The subsequent
+`vid_revert` command and crisp filtering defaults are included below.
 
 Quake 3 mods provide their own VMs, and Quake 1 mods can add commands through
 QuakeC; there cannot be a fixed exhaustive list for every possible mod.
 Quake 3 Arena/baseq3 and other mods may differ from the OpenArena entries
 shown here. Build options and optional plugins can also change availability.
-The initialized inventories contain 604 engine command names and
-1718 distinct cvar settings after merging aliases; the tables also
-cover on-demand gamecode interfaces. User-created aliases and arbitrary
-user-created cvars are outside the fixed inventory.
+The tables combine registered engine settings with on-demand gamecode
+interfaces. User-created aliases and arbitrary user-created cvars are outside
+the fixed inventory.
 
 ## Using the console
 
@@ -276,7 +276,7 @@ Jump to [input actions](#held-input-actions), [menus](#built-in-menu-entry-point
 | `menu_teamplay_team_fortress` | Client | **Q1 target:** Open the built-in Team Fortress teamplay naming menu. In Quake 3 this is the engine menu, separate from the bundled gamecode UI. |
 | `menu_teamplay_weapons` | Client | **Q1 target:** Open the built-in teamplay weapon naming menu. In Quake 3 this is the engine menu, separate from the bundled gamecode UI. |
 | `menu_textures` | Client | Open the built-in texture options menu. In Quake 3 this is the engine menu, separate from the bundled gamecode UI. |
-| `menu_video` | Client | Open the built-in video/display options menu. In Quake 3 this is the engine menu, separate from the bundled gamecode UI. |
+| `menu_video` | Client | Open the engine video/display menu in either game. Apply Settings starts a 15-second Keep/Revert test; Escape or timeout restores the previous display/interface values. F1 shows setting help. In Quake 3 this is separate from the bundled gamecode UI. |
 
 ### 0–C
 
@@ -794,6 +794,7 @@ Jump to [input actions](#held-input-actions), [menus](#built-in-menu-entry-point
 | `version_modelformats` | Both | List the registered model-format loaders. |
 | `vid_reload` | Client | Reload renderer resources through the renderer reload path. |
 | `vid_restart` | Client | Restart the video/renderer subsystem and apply latched video settings. |
+| `vid_revert` | Client | Revert an unconfirmed display/interface-size change made with the engine Video menu. No effect without a pending test. The menu also offers Keep/Revert and automatically restores unanswered changes after 15 seconds; console `vid_restart` does not start a test. |
 | `vid_toggle` | Client | Toggle windowed/fullscreen display mode. |
 | `viewpos` | Client | **Q3:** Print the current cgame camera origin and yaw. |
 | `voip` | Client | Adjust the Speex voice preprocessor's automatic-gain maximum with `voip maxgain <value>` when Speex is available; use `+voip` for push-to-talk. |
@@ -1542,8 +1543,8 @@ Jump to [symbols and A–C](#cvars-symbols-and-ac), [D–H](#cvars-dh),
 | `gl_specular_fallbackexp` | `"1"` | Fallback shininess exponent for materials without a specular map. |
 | `gl_specular_power` | `"32"` | Global material specular strength multiplier. |
 | `gl_texture_anisotropy` (alias: `gl_texture_anisotropic_filtering`) | `"4"` | Allows for higher quality textures on surfaces that slope away from the camera (like the floor). Set to 16 or something. Only supported with trilinear filtering. |
-| `gl_texturemode` (alias: `r_texturemode`) | `"GL_LINEAR_MIPMAP_LINEAR"` | Specifies how world/model textures appear. Typically 3 letters eg nll or lll.<br>First letter can be l(inear) or n(earest) and says how to upscale low-res textures (n for the classic look - often favoured for embedded textures, l for blurry - best for high-res textures).<br>The middle letter can be set to '.' to disable mipmaps, or n for ugly banding with distance, or l for smooth mipmap transitions.<br>The third letter says what to do when the texture is too high resolution, and should generally be set to 'l' to reduce sparkles including when aiming for the classic lego look. |
-| `gl_texturemode2d` | `"GL_LINEAR"` | Specifies how 2d images are sampled. format is a 3-tupple |
+| `gl_texturemode` (alias: `r_texturemode`) | `"nll"` | Filter world/model textures. Every built-in graphics tier defaults to Crisp Pixels (`nll`); changing filtering afterward is allowed. Typically 3 letters eg nll or lll.<br>First letter can be l(inear) or n(earest) and says how to upscale low-res textures (n for the classic look - often favoured for embedded textures, l for blurry - best for high-res textures).<br>The middle letter can be set to '.' to disable mipmaps, or n for ugly banding with distance, or l for smooth mipmap transitions.<br>The third letter says what to do when the texture is too high resolution, and should generally be set to 'l' to reduce sparkles including when aiming for the classic lego look. |
+| `gl_texturemode2d` | `"GL_NEAREST"` | Filter HUD/menu images. Defaults to Crisp Pixels in every built-in graphics tier; `GL_LINEAR` selects smooth filtering. Font smoothing is controlled separately. |
 | `hand` | `""` | For gamecode to know which hand to fire from.<br>0: Right<br>1: Left<br>2: Chest |
 | `handicap` | `"100"` | **Q3:** player handicap percentage, reducing starting health and damage potential according to gamecode; other mods may also read this userinfo. |
 | `headmodel` | `"sarge"` | **Q3:** separate head model/skin selection. |
@@ -2606,11 +2607,9 @@ Jump to [symbols and A–C](#cvars-symbols-and-ac), [D–H](#cvars-dh),
 | `v_suitcshift` | `"1"` | Controls the strength of envirosuit colour tints (gl_polyblend must be enabled). |
 | `v_viewheight` | `"0"` | **Q1 target:** view-height adjustment used by the engine view calculation; gamecode can override camera placement. |
 | `vid_baseheight` | `""` | Specifies a mod's target height and used only when the 2d scale is not otherwise forced. Unlike vid_conheight the size is not fixed and will be padded to avoid inconsistent filtering. |
-| `vid_bpp` | `"0"` | The number of colour bits to request from the renedering context [applies on video restart.] |
 | `vid_conautoscale` (alias: `scr_conscale`) | `"0"` | Changes the 2d scale, including hud, console, and fonts. To specify an explicit font size, divide the desired 'point' size by 8 to get the scale. High values will be clamped to maintain at least a 320*200 virtual size. |
 | `vid_conheight` | `"0"` | Specifies the virtual height of the screen. If 0, will be inferred by vid_conwidth or other settings, according to aspect etc. |
 | `vid_conwidth` | `"0"` | Specifies the virtual width of the screen. Should generally be left as 0 to allow the correct aspect to be used despite video mode changes. |
-| `vid_depthbits` | `"0"` | The number of depth bits to request from the renedering context. Try 24. [applies on video restart.] |
 | `vid_desktopgamma` | `"0"` | Legacy hardware/display-ramp gamma preference retained for compatibility. SDL3 GPU always applies display correction in its presentation shader; this setting does not select hardware ramps or texture-baked gamma. Use vid_sceneonlygamma for scene-only correction. |
 | `vid_desktopsettings` | `"0"` | Ignore the values of vid_width and vid_height, and just use the same settings that are used for the desktop. [applies on video restart.] |
 | `vid_devicename` | `""` | Specifies which video device to try to use. If blank or invalid then one will be guessed. [applies on video restart.] |
@@ -2621,11 +2620,9 @@ Jump to [symbols and A–C](#cvars-symbols-and-ac), [D–H](#cvars-dh),
 | `vid_hardwaregamma` | `"1"` | Legacy hardware/display-ramp gamma preference retained for compatibility. SDL3 GPU always applies display correction in its presentation shader; this setting does not select hardware ramps or texture-baked gamma. Use vid_sceneonlygamma for scene-only correction. |
 | `vid_height` | `"0"` | The screen height to attempt to use, in physical pixels. 0 means use desktop resolution. [applies on video restart.] |
 | `vid_minsize` | `"320 200"` | Specifies a mod's minimum virtual size (to be set inside the mod's default.cfg file). The virtual size will always be at least this big. Windows may not be resized below this value either (which may reduce video mode options), but might require a vid_restart to take effect when switching between mods. |
-| `vid_multisample` (alias: `vid_samples`) | `"0"` | The number of samples to use for Multisample AntiAliasing (aka: msaa). A value of 1 explicitly disables it. |
 | `vid_preservegamma` | `"0"` | Legacy hardware/display-ramp gamma preference retained for compatibility. SDL3 GPU always applies display correction in its presentation shader; this setting does not select hardware ramps or texture-baked gamma. Use vid_sceneonlygamma for scene-only correction. |
 | `vid_renderer` | `"sdlgpu"` | Selects the renderer: sdlgpu (Metal on macOS, Vulkan on Windows/Linux), headless, or sv (dedicated server). [applies on video restart.] |
 | `vid_sceneonlygamma` | `"0"` | Apply gamma, contrast, contrast boost, and brightness only to the 3D view, preserving HUD, menu, and console colors. Takes effect immediately in the SDL3 GPU renderer. Native **Options → Video → Scene-Only Gamma**: 0 corrects the full image, 1 corrects the 3D scene before HUD, menus and console. |
-| `vid_srgb` | `"0"` | -1: Only the framebuffer should use sRGB colourspace, textures and colours will be assumed to be linear. This has the effect of just brightening the screen according to a gamma ramp of about 2.2 (or .45 in quake's backwards gamma terms).<br>0: Off. Colour blending will be wrong, you're likely to see obvious banding.<br>1: Use sRGB extensions/support to ensure that the lighting aproximately matches real-world lighting (required for PBR).<br>2: Attempt to use a linear floating-point framebuffer, which should enable monitor support for HDR.<br>Note that driver behaviour varies by a disturbing amount, and much of the documentation conflicts with itself (the term 'linear' is awkward when the eye's perception of linear is non-linear). |
 | `vid_triplebuffer` (alias: `gl_triplebuffer`) | `"1"` | Specifies whether the hardware is forcing tripplebuffering on us, this is the number of extra page swaps required before old data has been completely overwritten. |
 | `vid_vsync` (alias: `vid_wait`) | `"0"` | Presentation synchronization preference. SDL3 GPU support depends on the GPU backend and available present modes. |
 | `vid_width` | `"0"` | The screen width to attempt to use, in physical pixels. 0 means use desktop resolution. [applies on video restart.] |

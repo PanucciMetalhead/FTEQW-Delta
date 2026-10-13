@@ -46,12 +46,8 @@ typedef struct {
 	int height;
 	int fullscreen;	//0 = windowed. 1 = fullscreen (mode changes). 2 = borderless+maximized
 	qboolean stereo;
-	int srgb;	//<0 = gamma-only. 0 = no srgb at all, >0 full srgb, including textures and stuff
-	int bpp;	//16, 24(aka 32), 30, and 48 are meaningful
-	int depthbits;
 	int rate;
 	int wait;	//-1 = default, 0 = off, 1 = on, 2 = every other
-	int multisample;	//for opengl antialiasing (which requires context stuff)
 	int triplebuffer;
 	char subrenderer[MAX_QPATH];	//external driver
 	char devicename[MAX_QPATH];		//device name (usually monitor)

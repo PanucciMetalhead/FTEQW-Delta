@@ -1594,7 +1594,7 @@ void Sys_Init (void)
 #if _MSC_VER >= 1600 //msvc2010 runtime does not work on 9x any more. get rid of the deprecation warnings in later versions.
 	WinNT = true;
 
-	qwinvermaj = 6;	//Hack: assume 6.2 (aka win8). this will block 16bit colour depths.
+	qwinvermaj = 6;	// Assume Windows 8 API behavior.
 	qwinvermin = 2;
 #else
 	{
@@ -2668,7 +2668,7 @@ typedef struct qICustomDestinationList
 static const IID qIID_ICustomDestinationList = {0x6332debf, 0x87b5, 0x4670, {0x90,0xc0,0x5e,0x57,0xb4,0x08,0xa4,0x9e}};
 static const CLSID qCLSID_DestinationList = {0x77f10cf0, 0x3db5, 0x4966, {0xb5,0x20,0xb7,0xc5,0x4f,0xd3,0x5e,0xd6}};
 
-#define WIN7_APPNAME L"FTEQuake"
+#define WIN7_APPNAME L"FTEQW Delta"
 
 static IShellLinkW *CreateShellLink(char *command, char *target, char *title, char *desc)
 {

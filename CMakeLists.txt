@@ -1,9 +1,9 @@
-# Desktop SDL3 GPU fork: CMake is the supported build system.
+# FTEQW Delta: CMake is the supported build system.
 
 CMAKE_MINIMUM_REQUIRED(VERSION 3.21...3.31)
 cmake_policy(SET CMP0063 NEW)
 
-PROJECT(FTEQuake)
+PROJECT(FTEQWDelta)
 
 # Playable builds should be optimized unless a developer selects Debug.
 if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)

@@ -76,7 +76,6 @@ ID3D11DepthStencilView *fb_backdepthstencil;
 static DXGI_FORMAT	depthformat;
 
 void *d3d11mod;
-static unsigned int d3d11multisample_count, d3d11multisample_quality;
 
 static qboolean vid_initializing;
 
@@ -655,8 +654,8 @@ static qboolean resetd3dbackbuffer(int width, int height)
 	t2ddesc.MipLevels = 1;
 	t2ddesc.ArraySize = 1;
 	t2ddesc.Format = depthformat;
-	t2ddesc.SampleDesc.Count = d3d11multisample_count;
-	t2ddesc.SampleDesc.Quality = d3d11multisample_quality;
+	t2ddesc.SampleDesc.Count = 1;
+	t2ddesc.SampleDesc.Quality = 0;
 	t2ddesc.Usage = D3D11_USAGE_DEFAULT;
 	t2ddesc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
 	t2ddesc.CPUAccessFlags = 0;
@@ -716,20 +715,15 @@ static qboolean D3D11_VID_Init(rendererstate_t *info, unsigned char *palette)
 
 	modestate = MS_FULLSCREEN;
 
-	if (info->depthbits == 16)
-		depthformat = DXGI_FORMAT_D16_UNORM;
-	else if (info->depthbits == 32)
-		depthformat = DXGI_FORMAT_D32_FLOAT;
-	else
-		depthformat = DXGI_FORMAT_D24_UNORM_S8_UINT;
+	depthformat = DXGI_FORMAT_D24_UNORM_S8_UINT;
 
 	//fill scd
 	scd.Width = info->width;
 	scd.Height = info->height;
-	scd.Format = info->srgb?DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:DXGI_FORMAT_B8G8R8A8_UNORM;
+	scd.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
 	scd.Stereo = info->stereo;
-	scd.SampleDesc.Count = d3d11multisample_count = max(1,info->multisample);
-	scd.SampleDesc.Quality = d3d11multisample_quality = (d3d11multisample_count>1)?~0:0;
+	scd.SampleDesc.Count = 1;
+	scd.SampleDesc.Quality = 0;
 	scd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
 	scd.BufferCount = 2+info->triplebuffer;	//rt only supports fullscreen, so the frontbuffer needs to be created by us.
 	scd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
@@ -798,12 +792,7 @@ static qboolean initD3D11Device(HWND hWnd, rendererstate_t *info, PFN_D3D11_CREA
 	else
 		drivertype = adapt?D3D_DRIVER_TYPE_UNKNOWN:D3D_DRIVER_TYPE_HARDWARE;
 
-	if (info->depthbits == 16)
-		depthformat = DXGI_FORMAT_D16_UNORM;
-	else if (info->depthbits == 32)
-		depthformat = DXGI_FORMAT_D32_FLOAT;
-	else
-		depthformat = DXGI_FORMAT_D24_UNORM_S8_UINT;
+	depthformat = DXGI_FORMAT_D24_UNORM_S8_UINT;
 
 	//for stereo support, we would have to rewrite all of this in a way that would make us dependant upon windows 8 or 7+platform update, which would exclude vista.
 	scd.BufferDesc.Width = info->width;
@@ -811,21 +800,11 @@ static qboolean initD3D11Device(HWND hWnd, rendererstate_t *info, PFN_D3D11_CREA
 	scd.BufferDesc.RefreshRate.Numerator = 0;
 	scd.BufferDesc.RefreshRate.Denominator = 0;
 	scd.BufferCount = 1+info->triplebuffer;	//back buffer count
-	if (info->srgb)
-	{
-		if (info->srgb >= 2)	//fixme: detect properly.
-			scd.BufferDesc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;	//on nvidia, outputs linear rgb to srgb devices, which means info->srgb is effectively set
-		else
-			scd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
-	}
-	else if (info->bpp == 30)	//fixme: detect properly.
-		scd.BufferDesc.Format = DXGI_FORMAT_R10G10B10A2_UNORM;
-	else
-		scd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+	scd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
 	scd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
 	scd.OutputWindow = hWnd;
-	scd.SampleDesc.Count = d3d11multisample_count = max(1, info->multisample);	//as we're starting up windowed (and switching to fullscreen after), the frontbuffer is handled by windows.
-	scd.SampleDesc.Quality = d3d11multisample_quality = 0;
+	scd.SampleDesc.Count = 1;	//as we're starting up windowed (and switching to fullscreen after), the frontbuffer is handled by windows.
+	scd.SampleDesc.Quality = 0;
 	scd.Windowed = TRUE;
 	scd.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;// | DXGI_SWAP_CHAIN_FLAG_NONPREROTATED;
 
@@ -972,8 +951,6 @@ static qboolean initD3D11Device(HWND hWnd, rendererstate_t *info, PFN_D3D11_CREA
 		//non-linear formats.
 		break;
 	}
-	if ((vid.flags & VID_SRGB_FB) && info->srgb >= 0)
-		vid.flags |= VID_SRGBAWARE;
 
 	vid.numpages = scd.BufferCount;
 	if (!D3D11Shader_Init(flevel))
@@ -1119,7 +1096,6 @@ static qboolean D3D11_VID_Init(rendererstate_t *info, unsigned char *palette)
 {
 	DWORD width = info->width;
 	DWORD height = info->height;
-	//DWORD bpp = info->bpp;
 	//DWORD zbpp = 16;
 	//DWORD flags = 0;
 	DWORD wstyle;

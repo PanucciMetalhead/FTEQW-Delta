@@ -1,5 +1,7 @@
 # SDL3 GPU renderer
 
+This page documents the native SDL3 GPU renderer in **FTEQW Delta**.
+
 This local fork starts from FTEQW commit `f937b9d88` (revision 6729). The
 supported desktop client is `sdlgpu`, using SDL 3.4 or later. It requests
 `metal` on macOS and `vulkan` on Windows/Linux and checks the selected driver.
@@ -10,6 +12,34 @@ The OpenGL backend, its platform context implementations, and the old SDL CD
 driver have been removed. Shared map/model/material helpers retain their
 upstream `engine/gl` filenames. Legacy `gl_*` console variables and material
 blend tokens remain for configuration and shader-script compatibility.
+
+## Menu usability
+
+The engine Video menu offers display mode, resolution, refresh rate, interface
+scaling, and shader-based display adjustments. VSync offers Off and On. FXAA
+and floating-point scene storage are available under Rendering Options.
+
+**Apply Settings** tests the display and interface-size changes for 15 seconds.
+Choose **Keep** to accept them or **Revert** to restore the previous values.
+Escape and an unanswered countdown also restore them. Enter initially selects
+Revert. The timer uses real elapsed time and continues while rendering is idle.
+`vid_revert` restores a pending test from the console; without a pending test it
+does nothing. A failed mode change restores the previous settings automatically.
+Console `vid_restart` keeps its existing behavior and does not open this prompt.
+Use **Save all settings** to persist accepted changes.
+
+Hover over a setting or press **F1** on the selected row for its description,
+console name, default, and any pending value. Help identifies settings requiring
+video Apply/restart. F1 toggles keyboard help; **Delete** resets sliders,
+checkboxes, and cvar dropdowns. Delete in a text field edits its text.
+
+Texture Options labels the default **Crisp Pixels**. World/model textures use
+`gl_texturemode nll`: nearest magnification, smooth mip transitions, and linear
+minification to reduce distant shimmer. HUD/menu images use
+`gl_texturemode2d GL_NEAREST`. Every built-in graphics tier selects these modes;
+users can still change either filter afterward. Existing saved configurations
+and custom presets retain their explicit settings. Font smoothing and Panini's
+resampling filter are separate controls.
 
 ## Graphics controls
 
@@ -88,7 +118,7 @@ The following work remains before that claim is appropriate:
   frustum, backface, clip-plane and depth culling still apply. The default view
   size is half resolution, controlled by `r_refractreflect_scale`.
 - The window presents SDR. HDR framebuffer storage is separate from HDR display
-  output, which is not implemented. MSAA is not implemented; FXAA is available.
+  output, which is not implemented. FXAA is available for antialiasing.
 - Windows/Linux Vulkan builds and runtime behavior require testing on those
   systems. The manual desktop CI matrix is prepared locally but has not run.
   Controllers, microphone capture, IME, multi-monitor fullscreen, and the full
@@ -110,6 +140,23 @@ integration checks passed, including lighting, graphics switches, offscreen
 rendering, video restart, and Ogg decoding. OpenArena checks passed for camera
 turning, movement, weapon visibility, and video restart. Native Windows/Linux
 runtime coverage remains pending.
+
+## Reproduce the menu checks
+
+On macOS/Linux, the native menu regression requires a C compiler, `pkg-config`,
+SDL3 development files, and Pillow. Build `fteqw`, then run:
+
+```sh
+python3 tools/gpu_menu.py /path/to/Quake --out build/menu-qol
+```
+
+Choose a new output folder each time. The test reads supplied PAK files and
+builds a temporary input plugin in that folder. It checks the 15-second timeout
+while minimized, Keep, Escape, default Revert, console rollback, window-size
+restoration, filtering in all seven built-in tiers, manual filtering overrides,
+F1 help visibility and Delete reset. Logs, screenshots, and `results.json` stay
+in the output folder. Inspect the confirmation and pending-value captures too.
+This validation passed on macOS/Metal; Windows/Linux runtime checks are pending.
 
 ## Reproduce the integration test
 

@@ -10,7 +10,6 @@
 
 #define PERMUTATION_BEM_VR (1u<<11)
 #define PERMUTATION_BEM_FP16 (1u<<12)
-#define PERMUTATION_BEM_MULTISAMPLE (1u<<13)
 #define PERMUTATION_BEM_DEPTHONLY (1u<<14)
 #define PERMUTATION_BEM_WIREFRAME (1u<<15)
 
@@ -778,7 +777,6 @@ void VKBE_Init(void)
 					"}\n"
 				"}\n");
 
-
 	shaderstate.programfixedemu[0] = Shader_FindGeneric("fixedemu", QR_VULKAN);
 	shaderstate.programfixedemu[1] = Shader_FindGeneric("fixedemu_flat", QR_VULKAN);
 
@@ -819,7 +817,6 @@ void VKBE_Init(void)
 		shaderstate.staticbuf = VKBE_FinishStaging(&lazybuf, &shaderstate.staticbufmem);
 	}
 
-
 	c = vk_stagingbuffers.string;
 	if (*c)
 	{
@@ -846,7 +843,7 @@ void VKBE_Init(void)
 static struct descpool *VKBE_CreateDescriptorPool(void)
 {
 	struct descpool *np = Z_Malloc(sizeof(*np));
-	
+
 	VkDescriptorPoolCreateInfo dpi = {VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
 	VkDescriptorPoolSize dpisz[3];
 	dpi.flags = 0;
@@ -1082,7 +1079,6 @@ void VKBE_InitFramePools(struct vkframe *frame)
 	for (i = 0; i < DB_MAX; i++)
 		frame->dynbufs[i] = NULL;
 	frame->descpools = vk.khr_push_descriptor?NULL:VKBE_CreateDescriptorPool();
-
 
 	frame->numcbufs = 0;
 	frame->maxcbufs = 0;
@@ -1689,9 +1685,8 @@ static void T_Gen_CurrentRender(void)
 			VK_CreateSampler(shaderstate.tex_currentrender->flags, img);
 	}
 
-
 	vkCmdEndRenderPass(vk.rendertarg->cbuf);
-	
+
 	//submit now?
 
 	//copy the backbuffer to our image
@@ -1731,7 +1726,6 @@ static void T_Gen_CurrentRender(void)
 
 		img->layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	}
-
 
 	//submit now?
 	//barrier?
@@ -2076,7 +2070,6 @@ static void alphagen(const shaderpass_t *pass, int cnt, byte_vec4_t *srcb, avec4
 			dst[cnt][3] = f;
 		}
 		break;
-
 
 	case ALPHA_GEN_SPECULAR:
 		{
@@ -2630,7 +2623,6 @@ static void BE_CreatePipeline(program_t *p, unsigned int shaderflags, unsigned i
 	if (!p->vert || !p->frag)
 		Sys_Error("program missing required shader\n");	//PANIC
 
-
 	pipe = Z_Malloc(sizeof(*pipe));
 	if (!p->pipelines)
 		p->pipelines = pipe;
@@ -2761,10 +2753,7 @@ static void BE_CreatePipeline(program_t *p, unsigned int shaderflags, unsigned i
 	}
 
 	ms.pSampleMask = NULL;
-	if (permu & PERMUTATION_BEM_MULTISAMPLE)
-		ms.rasterizationSamples = vk.multisamplebits;
-	else
-		ms.rasterizationSamples = 1;
+	ms.rasterizationSamples = 1;
 //	ms.sampleShadingEnable = VK_TRUE;	//call the fragment shader multiple times, instead of just once per final pixel
 //	ms.minSampleShading = 0.25;
 	ds.depthTestEnable = (blendflags&SBITS_MISC_NODEPTHTEST)?VK_FALSE:VK_TRUE;
@@ -2830,7 +2819,6 @@ static void BE_CreatePipeline(program_t *p, unsigned int shaderflags, unsigned i
 	else
 		cb.attachmentCount = 1;
 	cb.pAttachments = att_state;
-
 
 	s = 0;
 	specentries[s].constantID = 0;
@@ -2954,8 +2942,7 @@ static void BE_CreatePipeline(program_t *p, unsigned int shaderflags, unsigned i
 	pipeCreateInfo.pDynamicState		= &dyn;
 	pipeCreateInfo.layout				= p->layout;
 	i = (permu&PERMUTATION_BEM_DEPTHONLY)?RP_DEPTHONLY:RP_FULLCLEAR;
-	if (permu&PERMUTATION_BEM_MULTISAMPLE)
-		i |= RP_MULTISAMPLE;
+
 	if (permu&PERMUTATION_BEM_FP16)
 		i |= RP_FP16;
 	if (permu&PERMUTATION_BEM_VR)
@@ -3411,7 +3398,7 @@ static void BE_DrawMeshChain_Internal(void)
 		unsigned int i;
 
 		map = VKBE_AllocateStreamingSpace(DB_VBO, vertcount * sizeof(vecV_t), &vertexbuffers[VK_BUFF_POS], &vertexoffsets[VK_BUFF_POS]);
-		
+
 		if (vblends)
 		{
 			for (mno = 0; mno < shaderstate.nummeshes; mno++)
@@ -3597,7 +3584,7 @@ static void BE_DrawMeshChain_Internal(void)
 					memcpy(map, m->st_array, sizeof(*m->st_array)*m->numvertexes);
 					map += m->numvertexes;
 				}
-				
+
 				vertexbuffers[VK_BUFF_LMTC] = vertexbuffers[VK_BUFF_TC];
 				vertexoffsets[VK_BUFF_LMTC] = vertexoffsets[VK_BUFF_TC];
 			}
@@ -3728,8 +3715,6 @@ void VKBE_SelectMode(backendmode_t mode)
 	shaderstate.mode = mode;
 	shaderstate.modepermutation = 0;
 
-	if (vk.rendertarg->rpassflags & RP_MULTISAMPLE)
-		shaderstate.modepermutation |= PERMUTATION_BEM_MULTISAMPLE;
 	if (vk.rendertarg->rpassflags & RP_FP16)
 		shaderstate.modepermutation |= PERMUTATION_BEM_FP16;
 	if (vk.rendertarg->rpassflags & RP_VR)
@@ -3854,7 +3839,7 @@ VkBuffer VKBE_FinishStaging(struct stagingbuf *n, vk_poolmem_t *mem)
 {
 	struct fencedbufferwork *fence;
 	VkBuffer retbuf;
-	
+
 	//caller filled the staging buffer, and now wants to copy stuff to the gpu.
 	vkUnmapMemory(vk.device, n->mem.memory);
 
@@ -3905,7 +3890,6 @@ VkBuffer VKBE_FinishStaging(struct stagingbuf *n, vk_poolmem_t *mem)
 		}
 		VkAssert(vkBindBufferMemory(vk.device, retbuf, mem->memory, mem->offset));
 	}
-	
 
 	fence = VK_FencedBegin(VKBE_DoneBufferStaging, sizeof(*fence));
 	fence->buf = n->buf;
@@ -4281,7 +4265,6 @@ static void VKBE_SetupLightCBuffer(dlight_t *dl, vec3_t colour, vec3_t axis[3])
 		return;
 	}
 
-
 	cbl->l_lightradius = dl->radius;
 
 #ifdef RTLIGHTS
@@ -4328,7 +4311,6 @@ static void VKBE_SetupLightCBuffer(dlight_t *dl, vec3_t colour, vec3_t axis[3])
 	VectorCopy(dl->origin, shaderstate.lightinfo);
 	shaderstate.lightinfo[3] = dl->radius;
 }
-
 
 //also updates the entity constant buffer
 static void BE_RotateForEntity (const entity_t *fte_restrict e, const model_t *fte_restrict mod)
@@ -4664,12 +4646,10 @@ void VKBE_RT_Destroy(struct vk_rendertarg *targ)
 	memset(targ, 0, sizeof(*targ));
 }
 
-
 struct vkbe_rtpurge
 {
 	VkFramebuffer framebuffer;
 	vk_image_t colour;
-	vk_image_t mscolour;
 	vk_image_t depth;
 };
 static void VKBE_RT_Purge(void *ptr)
@@ -4677,14 +4657,12 @@ static void VKBE_RT_Purge(void *ptr)
 	struct vkbe_rtpurge *ctx = ptr;
 	vkDestroyFramebuffer(vk.device, ctx->framebuffer, vkallocationcb);
 	VK_DestroyVkTexture(&ctx->depth);
-	VK_DestroyVkTexture(&ctx->mscolour);
 	VK_DestroyVkTexture(&ctx->colour);
 }
 void VKBE_RT_Gen(struct vk_rendertarg *targ, vk_image_t *colour, uint32_t width, uint32_t height, qboolean clear, unsigned int flags)
 {
 	//sooooo much work...
 	VkImageCreateInfo colour_imginfo = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
-	VkImageCreateInfo mscolour_imginfo;
 	VkImageCreateInfo depth_imginfo;
 	struct vkbe_rtpurge *purge;
 	static VkClearValue clearvalues[3];
@@ -4695,10 +4673,10 @@ void VKBE_RT_Gen(struct vk_rendertarg *targ, vk_image_t *colour, uint32_t width,
 		height = colour->height;
 	}
 
-	targ->restartinfo.clearValueCount = 3;
+	targ->restartinfo.clearValueCount = 2;
 	targ->depthcleared = true;	//will be once its activated.
 
-	if (targ->width == width && targ->height == height && targ->q_colour.flags == flags && (!(targ->rpassflags&RP_MULTISAMPLE))==(targ->mscolour.image==VK_NULL_HANDLE))
+	if (targ->width == width && targ->height == height && targ->q_colour.flags == flags)
 	{
 		if ((colour && colour->image == targ->colour.image) || (!colour && !targ->externalimage))
 		{
@@ -4719,10 +4697,8 @@ void VKBE_RT_Gen(struct vk_rendertarg *targ, vk_image_t *colour, uint32_t width,
 		purge->colour = targ->colour;
 		if (targ->externalimage)
 			purge->colour.image = VK_NULL_HANDLE;
-		purge->mscolour = targ->mscolour;
 		purge->depth = targ->depth;
 		memset(&targ->colour, 0, sizeof(targ->colour));
-		memset(&targ->mscolour, 0, sizeof(targ->mscolour));
 		memset(&targ->depth, 0, sizeof(targ->depth));
 		targ->framebuffer = VK_NULL_HANDLE;
 	}
@@ -4766,7 +4742,6 @@ void VKBE_RT_Gen(struct vk_rendertarg *targ, vk_image_t *colour, uint32_t width,
 	colour_imginfo.extent.depth = 1;
 	colour_imginfo.mipLevels = 1;
 	colour_imginfo.arrayLayers = 1;
-	//colour buffer is always 1 sample. if multisampling then we have a hidden 'mscolour' image that is paired with the depth, resolving to the 'colour' image.
 	colour_imginfo.samples = VK_SAMPLE_COUNT_1_BIT;
 	colour_imginfo.tiling = VK_IMAGE_TILING_OPTIMAL;
 	colour_imginfo.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_SAMPLED_BIT;
@@ -4787,14 +4762,7 @@ void VKBE_RT_Gen(struct vk_rendertarg *targ, vk_image_t *colour, uint32_t width,
 	depth_imginfo = colour_imginfo;
 	depth_imginfo.format = vk.depthformat;
 	depth_imginfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT|VK_IMAGE_USAGE_SAMPLED_BIT;
-	if (targ->rpassflags&RP_MULTISAMPLE)
-	{
-		mscolour_imginfo = colour_imginfo;
-		depth_imginfo.samples = mscolour_imginfo.samples = vk.multisamplebits;
-		VkAssert(vkCreateImage(vk.device, &mscolour_imginfo, vkallocationcb, &targ->mscolour.image));
-		DebugSetName(VK_OBJECT_TYPE_IMAGE, (uint64_t)targ->mscolour.image, "RT MS Colour");
-		VK_AllocateBindImageMemory(&targ->mscolour, true);
-	}
+
 	VkAssert(vkCreateImage(vk.device, &depth_imginfo, vkallocationcb, &targ->depth.image));
 	DebugSetName(VK_OBJECT_TYPE_IMAGE, (uint64_t)targ->depth.image, "RT Depth");
 
@@ -4821,14 +4789,6 @@ void VKBE_RT_Gen(struct vk_rendertarg *targ, vk_image_t *colour, uint32_t width,
 		ivci.format = colour_imginfo.format;
 		ivci.image = targ->colour.image;
 		VkAssert(vkCreateImageView(vk.device, &ivci, vkallocationcb, &targ->colour.view));
-
-		if (targ->rpassflags&RP_MULTISAMPLE)
-		{
-			ivci.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-			ivci.format = mscolour_imginfo.format;
-			ivci.image = targ->mscolour.image;
-			VkAssert(vkCreateImageView(vk.device, &ivci, vkallocationcb, &targ->mscolour.view));
-		}
 
 		ivci.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
 		ivci.format = depth_imginfo.format;
@@ -4860,15 +4820,14 @@ void VKBE_RT_Gen(struct vk_rendertarg *targ, vk_image_t *colour, uint32_t width,
 	}
 
 	targ->colour.layout = VK_IMAGE_LAYOUT_UNDEFINED;
-	targ->mscolour.layout = VK_IMAGE_LAYOUT_UNDEFINED;
 	targ->depth.layout = VK_IMAGE_LAYOUT_UNDEFINED;
 
 	{
 		VkFramebufferCreateInfo fbinfo = {VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
-		VkImageView attachments[3] = {targ->colour.view, targ->depth.view, targ->mscolour.view};
+		VkImageView attachments[2] = {targ->colour.view, targ->depth.view};
 		fbinfo.flags = 0;
 		fbinfo.renderPass = targ->restartinfo.renderPass;
-		fbinfo.attachmentCount = (targ->rpassflags&RP_MULTISAMPLE)?3:2;
+		fbinfo.attachmentCount = 2;
 		fbinfo.pAttachments = attachments;
 		fbinfo.width = width;
 		fbinfo.height = height;
@@ -5180,7 +5139,7 @@ void VKBE_RT_End(struct vk_rendertarg *targ)
 	vkEndCommandBuffer(targ->cbuf);
 
 	VK_Submit_Work(targ->cbuf, VK_NULL_HANDLE, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_NULL_HANDLE, VK_NULL_HANDLE, NULL, NULL);
-	
+
 //		VK_Submit_Work(VkCommandBuffer cmdbuf, VkSemaphore semwait, VkPipelineStageFlags semwaitstagemask, VkSemaphore semsignal, VkFence fencesignal, struct vkframe *presentframe, struct vk_fencework *fencedwork)
 #endif
 
@@ -5340,7 +5299,6 @@ static void BE_SubmitMeshesSortList(batch_t *sortlist)
 		VKBE_SubmitBatch(batch);
 	}
 }
-
 
 /*generates a new modelview matrix, as well as vpn vectors*/
 static void R_MirrorMatrix(plane_t *plane)
@@ -5551,7 +5509,7 @@ static void R_DrawPortal(batch_t *batch, batch_t **blist, batch_t *depthmasklist
 			VectorAdd(r_refdef.pvsorigin, mesh->xyz_array[i], r_refdef.pvsorigin);
 		VectorScale(r_refdef.pvsorigin, 1.0/mesh->numvertexes, r_refdef.pvsorigin);
 		break;
-	
+
 	case 2:	/*fbo refraction (fucked depth, working clip plane)*/
 	case 3:	/*screen copy refraction (screen depth, fucked clip planes)*/
 		/*refraction image (same view, just with things culled*/
@@ -5799,7 +5757,6 @@ static void R_DrawPortal(batch_t *batch, batch_t **blist, batch_t *depthmasklist
 	}
 #endif
 
-
 	r_refdef = oldrefdef;
 
 	/*broken stuff*/
@@ -5997,7 +5954,6 @@ void VKBE_RenderShadowBuffer(struct vk_shadowbuffer *buf)
 	if (BE_SetupMeshProgram(depthonlyshader->prog, depthonlyshader->passes, 0, buf->numindicies))
 		vkCmdDrawIndexed(vk.rendertarg->cbuf, buf->numindicies, 1, 0, 0, 0);
 }
-
 
 static void VK_TerminateShadowMap(void)
 {
@@ -6238,8 +6194,7 @@ void VKBE_BeginShadowmapFace(void)
 	wrekt.extent.height = viewport.height;
 	vkCmdSetScissor(vk.rendertarg->cbuf, 0, 1, &wrekt);
 
-	//shadowmaps never multisample...
-	shaderstate.modepermutation &= ~(PERMUTATION_BEM_MULTISAMPLE|PERMUTATION_BEM_FP16|PERMUTATION_BEM_VR);
+	shaderstate.modepermutation &= ~(PERMUTATION_BEM_FP16|PERMUTATION_BEM_VR);
 }
 #endif
 
@@ -6315,7 +6270,6 @@ void VKBE_DrawWorld (batch_t **worldbatches)
 		{
 			VKBE_SelectMode(BEM_STANDARD);
 
-			
 			VKBE_SubmitMeshes(worldbatches, batches, SHADER_SORT_PORTAL, SHADER_SORT_SEETHROUGH+1);
 			RSpeedEnd(RSPEED_OPAQUE);
 

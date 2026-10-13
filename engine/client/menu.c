@@ -453,6 +453,7 @@ typedef struct
 	const char *buttons[3];
 	int kbutton, mbutton;
 	qboolean mousedown;
+	double deadline;
 } promptmenu_t;
 static qboolean Prompt_MenuKeyEvent(struct menu_s *gm, qboolean isdown, unsigned int devid, int key, int unicode)
 {
@@ -564,7 +565,7 @@ static void Prompt_Draw(struct menu_s *g)
 
 	Font_BeginString(font_console, w, 0, &px, &py);
 	lines = Font_LineBreaks(m->msg, m->msg+m->msglen, px, countof(linestart), linestart, lineend);
-	h = (lines+3)*scale;
+	h = (lines+3+(m->deadline != 0))*scale;
 	Font_EndString(font_console);
 
 	Draw_ApproxTextBox(x, y, w, h);
@@ -580,6 +581,12 @@ static void Prompt_Draw(struct menu_s *g)
 	Font_EndString(font_console);
 
 	y+=scale*lines;
+	if (m->deadline)
+	{
+		Draw_FunStringWidthFont(font_console, x, y,
+			va("Reverting in %i seconds", (int)ceil(max(0, m->deadline-Sys_DoubleTime()))), w, 2, false);
+		y+=scale;
+	}
 	y+=scale;
 	m->mbutton = -1;
 	bx[0] = x;
@@ -655,6 +662,7 @@ void Menu_Prompt (void (*callback)(void *, promptbutton_t), void *ctx, const cha
 
 	m->callback = callback;
 	m->ctx = ctx;
+	m->m.ctx = ctx;
 
 	t = (char*)(m+1);
 	if (optionyes)
@@ -679,6 +687,35 @@ void Menu_Prompt (void (*callback)(void *, promptbutton_t), void *ctx, const cha
 	m->msglen = e-message;
 	m->msg = memcpy(t, message, (m->msglen)*sizeof(conchar_t));
 }
+
+void Menu_PromptTimed(void (*callback)(void *, promptbutton_t), void *ctx, const char *message, double seconds)
+{
+	promptmenu_t *m;
+	Menu_Prompt(callback, ctx, message, "Keep", "Revert", NULL, true);
+	m = (promptmenu_t *)promptmenu;
+	m->deadline = Sys_DoubleTime() + seconds;
+	m->kbutton = 1; // an accidental Enter must not keep an unconfirmed mode
+}
+
+void Menu_Frame(void)
+{
+	menu_t *m;
+	// Restart the scan after unlinking: callbacks may change the entire stack.
+	for (;;)
+	{
+		for (m = promptmenu; m; m = m->prev)
+			if (m->drawmenu == Prompt_Draw && ((promptmenu_t *)m)->deadline &&
+				Sys_DoubleTime() >= ((promptmenu_t *)m)->deadline)
+				break;
+		if (!m)
+			break;
+		Menu_Unlink(m, false); // ordinary cancel callback, exactly once
+	}
+#ifndef NOBUILTINMENUS
+	M_VideoTestFrame();
+#endif
+}
+
 
 #ifndef NOBUILTINMENUS
 
@@ -1509,6 +1546,7 @@ void M_Init (void)
 	Cmd_AddCommand("menu_restart", M_Restart_f);
 	Cmd_AddCommand("togglemenu", M_ToggleMenu_f);
 	Cmd_AddCommand("closemenu", M_CloseMenu_f);
+	Cmd_AddCommandD("vid_revert", M_VideoRevert_f, "Revert an unconfirmed display change from the engine Video menu.");
 	Cmd_AddCommandAD("fps_preset", FPS_Preset_f, FPS_Preset_c, "Apply a preset");
 	Cmd_AddCommand("menupop", M_MenuPop_f);
 

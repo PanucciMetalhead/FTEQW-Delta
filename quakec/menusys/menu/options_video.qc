@@ -91,11 +91,6 @@ nonstatic void(mitem_desktop desktop) M_Options_Video =
 		fr.add(menuitemcheck_spawn(_("Fullscreen"),		"vid_fullscreen", 			'280 8'),	fl, [0, pos], [0, 8]); pos += 8;
 	}
 	if (cvar_type("vid_resizable")) fr.add(menuitemcheck_spawn(_("Resizable"),	"vid_resizable", 	'280 8'),	fl, [0, pos], [0, 8]), pos += 8;
-	fr.add(menuitemcombo_spawn(_("MSAA"),	cv3("vid_samples"/*dp*/, "vid_fsaa"/*qs*/, "vid_multisample"/*fte*/),			'280 8',
-																		"0	\"Off\" "
-																		"2	\"2x\" "
-																		"4	\"4x\" "
-																		),	fl, [0, pos], [0, 8]); pos += 8;
 
 	fr.add(menuitemcombo_spawn(_("Video Mode"),		"vid_mode",		'280 8', PrepareVideoModes()), fl, [0, pos], [0, 8]); pos += 8;
 
@@ -113,12 +108,6 @@ static const string scaleoptions = _(
 		fr.add(menuitemcombo_spawn(_("Sbar Zoom"),	"scr_sbarscale",	'280 8', scaleoptions),	fl, [0, pos], [0, 8]), pos += 8;
 	if (cvar_type("scr_menuscale"))
 		fr.add(menuitemcombo_spawn(_("Menu Zoom"),	"scr_menuscale",	'280 8', scaleoptions),	fl, [0, pos], [0, 8]), pos += 8;
-	fr.add(menuitemcombo_spawn(_("Colour Depth"),	cv2("vid_bitsperpixel", "vid_bpp"),	'280 8', _(
-																		"16	\"16bit\" " //r5g6b5, or so. unsupported on win10.
-																		"24	\"24bit\" "	//rgba8 - we don't count the alpha.
-																		"30	\"30bit\" "	//rgb10a2 - we don't count the alpha. unsupported on nvidia.
-																		"48	\"48bit\" "	//half-floats - we don't count the alpha. unsupported on nvidia.
-																		)),	fl, [0, pos], [0, 8]); pos += 8;
 	fr.add(menuitemcombo_spawn(_("Refresh Rate"),	cv2("vid_refreshrate"/*qs*/, "vid_displayfrequency"),			'280 8', _(
 																		"0	\"Default\" "
 																	//	"60	\"60\" "

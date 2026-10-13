@@ -274,7 +274,6 @@ static struct
 	XrTime time;
 	XrFrameState framestate;
 	qboolean needrender;	//we MUST call xrBegin before the next xrWait
-	int srgb;	//<0 = gamma-only. 0 = no srgb at all, >0 full srgb, including textures and stuff
 	int colourformat;
 
 	unsigned int numactions;
@@ -871,7 +870,6 @@ static qboolean XR_Init(vrsetup_t *qreqs, rendererstate_t *info)
 	if (xr.fake)
 		return true;	//nothing to do here.
 
-	xr.srgb = info->srgb;
 	switch(qreqs->vrplatform)
 	{
 	case VR_HEADLESS:
@@ -1741,13 +1739,7 @@ static int64_t XR_CheckSwapFormats(int64_t *tryformat, int64_t *fmts, size_t fmt
 static int64_t XR_FindSwapFormat(int64_t **tryformats, int64_t *fmts, size_t fmtcount)
 {
 	int64_t fmt;
-	/*try to use a format that matches the user's choice*/
-	if (xr.srgb == 2)
-		fmt = XR_CheckSwapFormats(tryformats[0], fmts, fmtcount);
-	else if (xr.srgb)
-		fmt = XR_CheckSwapFormats(tryformats[1], fmts, fmtcount);
-	else
-		fmt = XR_CheckSwapFormats(tryformats[2], fmts, fmtcount);
+	fmt = XR_CheckSwapFormats(tryformats[2], fmts, fmtcount);
 
 	/*try others out of desperation*/
 	if (!fmt)

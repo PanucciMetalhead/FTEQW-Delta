@@ -740,16 +740,8 @@ qboolean SW_VID_Init(rendererstate_t *info, unsigned char *palette)
 	{	//make windows change res.
 		DEVMODE gdevmode;
 		gdevmode.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT;
-		if (info->bpp)
-			gdevmode.dmFields |= DM_BITSPERPEL;
 		if (info->rate)
 			gdevmode.dmFields |= DM_DISPLAYFREQUENCY;
-		gdevmode.dmBitsPerPel = info->bpp;
-		if (info->bpp && (gdevmode.dmBitsPerPel < 15))
-		{
-			Con_Printf("Forcing at least 16bpp\n");
-			gdevmode.dmBitsPerPel = 16;
-		}
 		gdevmode.dmDisplayFrequency = info->rate;
 		gdevmode.dmPelsWidth = info->width;
 		gdevmode.dmPelsHeight = info->height;

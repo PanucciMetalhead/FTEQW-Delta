@@ -1,6 +1,6 @@
-# FTEQW SDL3 GPU
+# FTEQW Delta
 
-Fork of [fte-team/fteqw](https://github.com/fte-team/fteqw), based on upstream commit
+[FTEQW Delta](https://github.com/PanucciMetalhead/FTEQW-Delta) is a fork of [fte-team/fteqw](https://github.com/fte-team/fteqw), based on upstream commit
 `f937b9d88` (revision 6729). The desktop client uses SDL3 for windowing,
 input, controllers, audio, and GPU rendering. It explicitly selects **Vulkan
 on Windows and Linux** and **Metal on macOS**. Supported targets are native
@@ -14,9 +14,17 @@ helpers do not implement an OpenGL backend. Native HTTP/HTTPS downloads,
 WebSocket connections, and ICE networking remain available; see
 [Networking.md](documentation/Networking.md) for transport settings and tests.
 
+The project combines the native renderer with C17 modernization, network
+robustness fixes, compiler improvements, and menu usability improvements.
+The executable remains `fteqw` and the compiler remains `fteqcc`; existing
+launch scripts, plugins, configuration files, and protocol identifiers keep
+their established names.
+
 Build and run:
 
 ```sh
+git clone https://github.com/PanucciMetalhead/FTEQW-Delta.git
+cd FTEQW-Delta
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --target fteqw --config Release --parallel
 ./build/fteqw -basedir /path/to/Quake -quake
@@ -35,6 +43,9 @@ For game and total-conversion development, see
 [FTEQCC compiler manual](documentation/FTEQCC.md).
 
 Graphics controls remain available through the in-game Options menus and console.
+Built-in graphics presets default to crisp pixel filtering. The engine menus offer
+F1 setting help and a 15-second Keep/Revert confirmation for display changes;
+see [renderer controls](documentation/SDL3-GPU.md#menu-usability).
 Normal mapping, realtime lighting and shadows, specular and offset mapping, bloom,
 HDR framebuffers, FXAA, and reflective/refractive water have independent controls. Game data and normal/specular
 replacement textures are supplied by the player and are not included here.

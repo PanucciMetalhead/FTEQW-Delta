@@ -640,6 +640,7 @@ void Renderer_Init(void);
 void Renderer_Start(void);
 qboolean Renderer_Started(void);
 void R_ShutdownRenderer(qboolean videotoo);
+void R_RestartRenderer(rendererstate_t *state);
 void R_RestartRenderer_f (void);//this goes here so we can save some stack when first initing the sw renderer.
 
 //used to live in glquake.h

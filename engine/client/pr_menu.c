@@ -1414,8 +1414,6 @@ cvar_t pr_menu_memsize = CVAR("pr_menu_memsize", "64m");
 
 const char *RemapCvarNameFromDPToFTE(const char *name)
 {
-	if (!stricmp(name, "vid_bitsperpixel"))
-		return "vid_bpp";
 	if (!stricmp(name, "_cl_playermodel"))
 		return "model";
 	if (!stricmp(name, "_cl_playerskin"))

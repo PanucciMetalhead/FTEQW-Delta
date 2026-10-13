@@ -290,12 +290,10 @@ static unsigned int framenumber;
 
 qboolean SW_VID_Init(rendererstate_t *info, unsigned char *palette)
 {
-	int bpp = info->bpp;
+	const int bpp = 32;
 	vid.pixelwidth = info->width;
 	vid.pixelheight = info->height;
 
-	if (bpp != 32)
-		bpp = 32; //sw renderer supports only this
 
 #ifndef NORENDER
 	nostdout |= 0x800;

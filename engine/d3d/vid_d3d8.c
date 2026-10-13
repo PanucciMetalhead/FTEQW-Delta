@@ -539,18 +539,15 @@ static qboolean initD3D8Device(HWND hWnd, rendererstate_t *info, unsigned int de
 	d3dpp.hDeviceWindow = hWnd;    // set the window to be used by Direct3D
 	d3dpp.BackBufferWidth = info->width;
 	d3dpp.BackBufferHeight = info->height;
-	d3dpp.MultiSampleType = info->multisample;
+	d3dpp.MultiSampleType = D3DMULTISAMPLE_NONE;
 	d3dpp.BackBufferCount = 1 + info->triplebuffer;
 	d3dpp.FullScreen_RefreshRateInHz = info->fullscreen?info->rate:0;	//don't pass a rate if not fullscreen, d3d doesn't like it.
 	d3dpp.Windowed = !info->fullscreen;
 
 	d3dpp.EnableAutoDepthStencil = true;
-	d3dpp.AutoDepthStencilFormat = (info->depthbits==16)?D3DFMT_D16:D3DFMT_D24S8;;
+	d3dpp.AutoDepthStencilFormat = D3DFMT_D24S8;
 	d3dpp.BackBufferFormat = D3DFMT_UNKNOWN;
-	if (info->bpp == 16)
-		d3dpp.BackBufferFormat = D3DFMT_R5G6B5;
-	else
-		d3dpp.BackBufferFormat = D3DFMT_X8R8G8B8;
+	d3dpp.BackBufferFormat = D3DFMT_X8R8G8B8;
 
 	if (d3dpp.Windowed)
 		d3dpp.FullScreen_PresentationInterval = 0;
@@ -740,7 +737,6 @@ static qboolean D3D8_VID_Init(rendererstate_t *info, unsigned char *palette)
 #else
 	DWORD width = info->width;
 	DWORD height = info->height;
-	//DWORD bpp = info->bpp;
 	//DWORD zbpp = 16;
 	//DWORD flags = 0;
 	DWORD wstyle;

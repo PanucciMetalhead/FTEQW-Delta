@@ -363,23 +363,49 @@ static int maxdots;
 static int mindot;
 static int dotofs;
 
-static void MenuTooltipChange(emenu_t *menu, const char *text)
+static cvar_t *MenuOptionCvar(menuoption_t *option)
 {
-	unsigned int MAX_CHARS=2048;
+	if (!option) return NULL;
+	switch (option->common.type)
+	{
+	case mt_slider: return option->slider.var;
+	case mt_checkbox: return option->check.var;
+	case mt_combo: return option->combo.cvar;
+	case mt_edit: return option->edit.cvar;
+	default: return NULL;
+	}
+}
+
+static void MenuTooltipChange(emenu_t *menu, menuoption_t *option)
+{
+	char text[2048];
+	cvar_t *var = MenuOptionCvar(option);
+	const char *description = option?option->common.tooltip:NULL;
+	const char *restart;
 	menutooltip_t *mtt;
+	Q_strncpyz(text, description?description:"", sizeof(text));
+	if (var)
+	{
+		restart = (var->flags & (CVAR_VIDEOLATCH|CVAR_RENDERERLATCH))?
+			"Apply/restart video required":"Changes immediately";
+		Q_snprintfz(text, sizeof(text), "Console: %s\nDefault: %s\n%s%s%s%s%s%s",
+			var->name, var->defaultstr&&*var->defaultstr?var->defaultstr:"(empty)", restart,
+			var->latched_string?"\nPending: ":"", var->latched_string?var->latched_string:"",
+			option->common.type == mt_edit?"":"\nDelete: reset this setting",
+			description&&*description?"\n\n":"", description?description:"");
+	}
+	if (!strcmp(text, menu->tooltiptext))
+		return;
+	Q_strncpyz(menu->tooltiptext, text, sizeof(menu->tooltiptext));
 	if (menu->tooltip)
 	{
 		Z_Free(menu->tooltip);
 		menu->tooltip = NULL;
 	}
-
-	if (!text || !text[0] || vid.width < 320 || vid.height < 200)
+	if (!*text || vid.width < 320 || vid.height < 200)
 		return;
-
-	// allocate new tooltip structure, copy text to structure
-	mtt = (menutooltip_t *)Z_Malloc(sizeof(menutooltip_t) + sizeof(conchar_t)*MAX_CHARS);
-	mtt->end = COM_ParseFunString(CON_WHITEMASK, text, mtt->text, sizeof(conchar_t)*MAX_CHARS, false);
-
+	mtt = Z_Malloc(sizeof(*mtt) + sizeof(conchar_t)*2048);
+	mtt->end = COM_ParseFunString(CON_WHITEMASK, text, mtt->text, sizeof(conchar_t)*2048, false);
 	menu->tooltip = mtt;
 }
 
@@ -457,7 +483,7 @@ static qboolean M_MouseMoved(emenu_t *menu)
 								menu->cursoritem->common.posy = menu->selecteditem->common.posy + (menu->selecteditem->common.height-menu->cursoritem->common.height)/2;
 						}
 						menu->tooltiptime = realtime + 1;
-						MenuTooltipChange(menu, menu->mouseitem->common.tooltip);
+						MenuTooltipChange(menu, menu->mouseitem);
 					}
 					havemouseitem = true;
 				}
@@ -923,16 +949,20 @@ static void MenuDraw(emenu_t *menu)
 	else
 		menu->menu.showosk = false;
 	MenuDrawItems(menu->xpos, menu->ypos, menu->options, menu);
+	if (MenuOptionCvar(menu->selecteditem))
+		Draw_FunString(8, vid.height-10, menu->selecteditem->common.type == mt_edit?
+			"F1: setting help":"F1: setting help    Delete: reset");
+	MenuTooltipChange(menu, menu->tooltipkeyboard?menu->selecteditem:menu->mouseitem);
 	// draw tooltip
-	if (menu->mouseitem && menu->tooltip && realtime > menu->tooltiptime && !Key_Dest_Has_Higher(kdm_menu))
+	if ((menu->tooltipkeyboard || menu->mouseitem) && menu->tooltip && (menu->tooltipkeyboard || realtime > menu->tooltiptime) && !Key_Dest_Has_Higher(kdm_menu))
 	{
 //		menuoption_t *option = menu->mouseitem;
 
 //		if (omousex > menu->xpos+option->common.posx && omousex < menu->xpos+option->common.posx+option->common.width)
 //			if (omousey > menu->ypos+option->common.posy && omousey < menu->ypos+option->common.posy+option->common.height)
 			{
-				int x = omousex+8;
-				int y = omousey+8;
+				int x = menu->tooltipkeyboard?16:omousex+8;
+				int y = menu->tooltipkeyboard?vid.height-24:omousey+8;
 				int w;
 				int h;
 				int l, lines;
@@ -957,8 +987,8 @@ static void MenuDraw(emenu_t *menu)
 				// keep the tooltip within view
 				if (x + w >= vid.width)
 					x = vid.width - w - 1;
-				if (y + h >= vid.height)
-					y -= h;
+				if (y + h >= vid.height-16)
+					y = max(0, vid.height-16-h);
 
 				// draw the background
 				Draw_ApproxTextBox(x, y, w, lines*8);
@@ -1970,6 +2000,11 @@ void M_Release (menu_t *m, qboolean forced)
 	}
 }
 
+qboolean M_BuiltinMenuActive(void)
+{
+	return topmenu && topmenu->keyevent == M_KeyEvent;
+}
+
 emenu_t *M_CreateMenu (int extrasize)
 {
 	emenu_t *menu;
@@ -2136,6 +2171,11 @@ void M_Complex_Key(emenu_t *currentmenu, int key, int unicode)
 		return;	//erm...
 
 	M_CheckMouseMove(currentmenu);
+	if (key == K_F1)
+	{
+		currentmenu->tooltipkeyboard = !currentmenu->tooltipkeyboard;
+		return;
+	}
 
 	if (currentmenu->key)
 		if (currentmenu->key(currentmenu, key, unicode))
