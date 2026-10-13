@@ -585,6 +585,30 @@ struct q3refdef_s {
 	char		text[MAX_RENDER_STRINGS][MAX_RENDER_STRING_LENGTH];
 };
 
+/* Extend the traditional cgame 160-degree limit at the renderer boundary.
+ * Keep its zoom interpolation and vertical aspect ratio, and respect game
+ * intermissions and advertised Q3/OpenArena FOV restrictions. */
+static void VQ3_ExtendFov(plugrefdef_t *scene)
+{
+    float requested = cvarfuncs->GetFloat("fov"), zoom, fraction, ratio, x;
+    const char *serverinfo;
+    if (requested <= 160 || !ccs.snap.valid || ccs.snap.playerstate.pm_type >= 5 ||
+        (scene->flags & RDF_NOWORLDMODEL))
+        return;
+    serverinfo = CG_GetConfigString(0);
+    if ((atoi(worldfuncs->GetInfoKey(serverinfo, "dmflags")) & 16) ||
+        (atoi(worldfuncs->GetInfoKey(serverinfo, "videoflags")) & 1))
+        return;
+    zoom = bound(1, cvarfuncs->GetFloat("cg_zoomfov"), 160);
+    if (zoom >= 160 || scene->fov[0] <= zoom || scene->fov[0] > 161)
+        return;
+    fraction = bound(0, (scene->fov[0]-zoom)/(160-zoom), 1);
+    x = bound(1, scene->fov[0] + (bound(160, requested, 179)-160)*fraction, 179);
+    ratio = tan(scene->fov[1]*M_PI/360)/tan(scene->fov[0]*M_PI/360);
+    scene->fov[0] = scene->fov_viewmodel[0] = x;
+    scene->fov[1] = scene->fov_viewmodel[1] = atan(tan(x*M_PI/360)*ratio)*360/M_PI;
+}
+
 void VQ3_RenderView(const q3refdef_t *ref)
 {
 	plugrefdef_t scene;
@@ -607,6 +631,7 @@ void VQ3_RenderView(const q3refdef_t *ref)
 	if (ref->rdflags & 1/*Q3RDF_NOWORLDMODEL*/)
 		scene.flags |= RDF_NOWORLDMODEL;
 
+	VQ3_ExtendFov(&scene);
 	scenefuncs->RenderScene(&scene, sizeof(ref->areamask), ref->areamask);
 }
 
@@ -1451,7 +1476,11 @@ static qintptr_t UI_SystemCalls(void *offset, quintptr_t mask, qintptr_t fn, con
 		break;
 
 	case UI_REAL_TIME:
-		VALIDATEPOINTER(arg[0], sizeof(q3time_t));
+		/* A NULL output buffer requests only the timestamp. */
+		if (arg[0])
+		{
+			VALIDATEPOINTER(arg[0], sizeof(q3time_t));
+		}
 		return Q3VM_GetRealtime(VM_POINTER(arg[0]));
 
 	case UI_VERIFY_CDKEY:

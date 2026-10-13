@@ -852,9 +852,9 @@ void MSG_WriteBits(sizebuf_t *msg, int value, int bits)
 
 	if (bits < 0)
 	{	//negative means sign extension on reading
-		if (value & (1u<<(bits-1)))
-			value |= ~1u<<bits;	//sign extend, just in case it matters (rawbytes with bits < n*8)...
 		bits = -bits;
+		if ((unsigned int)value & (1u << (bits - 1)))
+			value = (int)((unsigned int)value | (~0u << bits));
 	}
 
 	switch( msg->packing )

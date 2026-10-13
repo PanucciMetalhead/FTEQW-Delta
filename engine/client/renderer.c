@@ -222,6 +222,9 @@ cvar_t r_stainfadetime						= CVAR  ("r_stainfadetime", "1");
 cvar_t r_stains								= CVARFC("r_stains", IFMINIMAL("0","0"),
 												CVAR_ARCHIVE,
 												Cvar_Limiter_ZeroToOne_Callback);
+cvar_t r_panini_scale = CVARFD("r_panini_scale", "1.25", CVAR_ARCHIVE, "Panini source resolution multiplier per axis (1 to 2). Limited to 16 megapixels and 8192 pixels per axis, without reducing native resolution. Higher values improve detail but cost GPU time and memory.");
+cvar_t r_panini_filter = CVARFD("r_panini_filter", "1", CVAR_ARCHIVE, "Panini reconstruction filter: 0 bilinear (fast), 1 bicubic (sharper). Does not affect Regular projection or the HUD.");
+cvar_t r_panini_sharpen = CVARFD("r_panini_sharpen", "0.2", CVAR_ARCHIVE, "Panini sharpening strength (0 to 1). Zero disables sharpening; higher values increase local contrast with limited overshoot. Does not affect the HUD.");
 cvar_t r_renderscale						= CVARFD("r_renderscale", "1", CVAR_ARCHIVE, "Provides a way to enable subsampling or super-sampling");
 cvar_t r_fxaa								= CVARFD("r_fxaa", "0", CVAR_ARCHIVE, "Runs a post-procesing pass to strip the jaggies.");
 cvar_t r_graphics							= CVARFD("r_graphics", "1", CVAR_ARCHIVE, "Turning this off will result in ascii-style rendering.");
@@ -259,8 +262,8 @@ cvar_t scr_conalpha							= CVARCD ("scr_conalpha", "0.7",
 cvar_t scr_consize							= CVARD  ("scr_consize", "0.5", "Proportion of the screen to be covered by the console when its focused. Valid range is 0ish to 1.");
 cvar_t scr_conspeed							= CVARD  ("scr_conspeed", "2000", "How fast the console careers onto the screen.");
 cvar_t scr_fov_mode							= CVARFD  ("scr_fov_mode", "4", CVAR_ARCHIVE, "Controls what the fov cvar actually controls:\n0: largest axis (ultra-wide monitors means less height will be visible).\n1: smallest axis (ultra-wide monitors will distort at the edges).\n2: horizontal axis.\n3: vertical axis.\n4: 4:3 horizontal axis, padded for wider resolutions (for a more classic fov)");
-cvar_t scr_fov								= CVARFCD("fov", "90", CVAR_ARCHIVE, SCR_Fov_Callback,
-												"field of vision, 1-170 degrees, standard fov is 90, nquake defaults to 108.");
+cvar_t scr_fov								= CVARAFCD("fov", "90", "cg_fov", CVAR_ARCHIVE, SCR_Fov_Callback,
+												"Field of view. The menu offers 70-170 degrees; the console accepts wider values. Regular perspective renders up to 179 degrees. cg_fov is an alias used by Quake 3 games.");
 cvar_t scr_fov_viewmodel					= CVARFD("r_viewmodel_fov", "", CVAR_ARCHIVE,
 												"field of vision, 1-170 degrees, standard fov is 90, nquake defaults to 108.");
 cvar_t scr_printspeed						= CVARD  ("scr_printspeed", "16", "How rapidly each character is displayed during outro messages.");
@@ -786,6 +789,9 @@ void Renderer_Init(void)
 	Cvar_Register (&r_fxaa, GRAPHICALNICETIES);
 	Cvar_Register (&r_graphics, GRAPHICALNICETIES);
 	Cvar_Register (&r_renderscale, GRAPHICALNICETIES);
+	Cvar_Register (&r_panini_scale, GRAPHICALNICETIES);
+	Cvar_Register (&r_panini_filter, GRAPHICALNICETIES);
+	Cvar_Register (&r_panini_sharpen, GRAPHICALNICETIES);
 	Cvar_Register (&r_stereo_separation, GRAPHICALNICETIES);
 	Cvar_Register (&r_stereo_convergence, GRAPHICALNICETIES);
 	Cvar_Register (&r_stereo_method, GRAPHICALNICETIES);
@@ -891,6 +897,8 @@ void Renderer_Init(void)
 
 	Cvar_Register (&r_fb_bmodels, GRAPHICALNICETIES);
 	Cvar_Register (&r_fb_models, GRAPHICALNICETIES);
+	Cvar_Register (&gl_overbright, GRAPHICALNICETIES);
+	Cvar_Register (&gl_overbright_all, GRAPHICALNICETIES);
 	Cvar_Register (&gl_overbright_models, GRAPHICALNICETIES);
 //	Cvar_Register (&r_fullbrights, GRAPHICALNICETIES);	//dpcompat: 1 if r_fb_bmodels&&r_fb_models
 //	Cvar_Register (&r_skin_overlays, GRAPHICALNICETIES);

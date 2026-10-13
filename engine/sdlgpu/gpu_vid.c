@@ -94,8 +94,9 @@ static void GPU_Info_f(void)
         if (lm && lm->lightmap_texture && lm->lightmap_texture->status == TEX_LOADED) ++loaded;
     }
     for (i = 0; i < gpu.numdraws; ++i)
-        if (!gpu.draws[i].shadowonly && gpu.draws[i].frag.material[0] == 1 &&
+        if (!gpu.draws[i].shadowonly && !gpu.draws[i].vertexlit && gpu.draws[i].frag.material[0] == 1 &&
             gpu.draws[i].samplers[4].texture == r_whiteimage->gpuimage->texture) ++fallback;
+    GPU_PaniniInfo();
     Con_Printf("Lightmaps: %u/%u loaded, %u draws using fallback\n",loaded,numlightmaps,fallback);
     Con_Printf("Cutouts: %u draws, %u using missing texture, %u shadow caster draws\n",cutouts,missing,cutoutshadows);
     GPU_WaterInfo();
@@ -318,6 +319,10 @@ static qboolean GPU_UpdateScreen(void)
     }
     SCR_SetUpToDrawConsole();
     if (topmenu && topmenu->isopaque) nohud = true;
+#ifdef VM_CG
+    /* Cgame owns the camera, scene entities, prediction and HUD in Q3. */
+    else if (q3 && q3->cg.Redraw(cl.time)) nohud = true;
+#endif
 #ifdef CSQC_DAT
     else if (CSQC_DrawView()) nohud = true;
 #endif
@@ -332,6 +337,8 @@ static qboolean GPU_UpdateScreen(void)
         else scr_con_forcedraw = true;
         nohud = true;
     }
+    /* Plugin scene rendering releases its playerview before returning. */
+    r_refdef.playerview = &cl.playerview[0];
     SCR_DrawTwoDimensional(nohud);
     V_UpdatePalette(false);
     RSpeedShow();

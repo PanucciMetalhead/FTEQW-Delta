@@ -844,6 +844,11 @@ static void GL_SkyForceDepth(batch_t *batch)
 	if (!cls.allow_unmaskedskyboxes && batch->texture)	//allow a little extra fps.
 	{
 		BE_SelectMode(BEM_DEPTHONLY);
+#ifdef SDL_GPUQUAKE
+        /* Sky meshes select a camera-centered, scaled entity. The depth mask
+         * uses the original BSP vertices in their original entity space. */
+        if (qrenderer == QR_SDLGPU) BE_SelectEntity(batch->ent);
+#endif
 		BE_DrawMesh_List(batch->shader, batch->meshes-batch->firstmesh, batch->mesh+batch->firstmesh, batch->vbo, NULL, batch->flags);
 		BE_SelectMode(BEM_STANDARD);	/*skys only render in standard mode anyway, so this is safe*/
 	}
@@ -882,12 +887,114 @@ static void R_DrawSkyMesh(batch_t *batch, mesh_t *m, shader_t *shader)
 	b.skin = NULL;
 	b.texture = NULL;
 	b.vbo = NULL;
+#ifdef SDL_GPUQUAKE
+    /* Camera-centered sky geometry is viewed from inside. Its legacy winding
+     * must not be culled by SDL GPU's framebuffer/projection convention. */
+    if (qrenderer == QR_SDLGPU) b.flags |= BEF_FORCETWOSIDED;
+#endif
 	Vector4Set(skyent.shaderRGBAf, 1, 1, 1, 1);
 	BE_SubmitBatch(&b);
 }
 
+#ifdef SDL_GPUQUAKE
+/* Quake 3 projects clouds onto a sphere of radius 4096 + cloudheight,
+ * viewed from its surface. Its coordinates are angular distances in radians,
+ * not Quake 1's flattened, scrolling sky-sphere coordinates.
+ * See ioquake3 renderergl1/tr_sky.c, R_InitSkyTexCoords (GPL-2.0-or-later). */
+static void R_Q3CloudTexCoord(const vec3_t direction, float height, vec2_t uv)
+{
+    const double radius = 4096;
+    double length2 = DotProduct(direction, direction);
+    double z = direction[2], p, length;
+    double hit[3];
+    if (!isfinite(height) || height <= 0) height = 512;
+    if (length2 <= 0) { uv[0] = uv[1] = M_PI/2; return; }
+    p = (-radius*z + sqrt(radius*radius*z*z + length2*height*(2*radius+height))) / length2;
+    hit[0] = direction[0]*p;
+    hit[1] = direction[1]*p;
+    hit[2] = direction[2]*p + radius;
+    length = sqrt(hit[0]*hit[0]+hit[1]*hit[1]+hit[2]*hit[2]);
+    uv[0] = acos(bound(-1, hit[0]/length, 1));
+    uv[1] = acos(bound(-1, hit[1]/length, 1));
+}
+
+static void R_DrawQ3Clouds(batch_t *batch, shader_t *shader)
+{
+    enum { divisions = 8, side = divisions+1, faces = 5 };
+    static vec3_t directions[faces][side][side];
+    static vec2_t cloudcoords[faces][side][side];
+    static float cachedheight;
+    vecV_t coords[faces*side*side];
+    vec2_t texcoords[faces*side*side];
+    index_t indexes[faces*divisions*divisions*6];
+    mesh_t mesh = {0};
+    float height = shader->skydome ? shader->skydome->cloudheight : 512;
+    int face, s, t, j;
+    if (!isfinite(height) || height <= 0) height = 512;
+    if (height != cachedheight)
+    {
+        for (face = 0; face < faces; ++face)
+            for (t = 0; t < side; ++t)
+                for (s = 0; s < side; ++s)
+                {
+                    float b[3] = {s*2.0f/divisions-1, t*2.0f/divisions-1, 1};
+                    for (j = 0; j < 3; ++j)
+                    {
+                        int k = st_to_vec[face][j];
+                        directions[face][t][s][j] = k < 0 ? -b[-k-1] : b[k-1];
+                    }
+                    R_Q3CloudTexCoord(directions[face][t][s], height, cloudcoords[face][t][s]);
+                }
+        cachedheight = height;
+    }
+    R_CalcSkyChainBounds(batch);
+    mesh.xyz_array = coords;
+    mesh.st_array = texcoords;
+    mesh.indexes = indexes;
+    /* Match Quake 3's eight subdivisions per cube face and omit the bottom.
+     * Clip to visible sky bounds, rounding outwards to avoid edge gaps. */
+    for (face = 0; face < faces; ++face)
+    {
+        int mins[2], maxs[2], start = mesh.numvertexes, width;
+        if (skymins[0][face] >= skymaxs[0][face] || skymins[1][face] >= skymaxs[1][face]) continue;
+        for (j = 0; j < 2; ++j)
+        {
+            mins[j] = bound(0, (int)floor((skymins[j][face]+1)*divisions/2), divisions);
+            maxs[j] = bound(0, (int)ceil((skymaxs[j][face]+1)*divisions/2), divisions);
+        }
+        width = maxs[0]-mins[0]+1;
+        for (t = mins[1]; t <= maxs[1]; ++t)
+            for (s = mins[0]; s <= maxs[0]; ++s)
+            {
+                VectorCopy(directions[face][t][s], coords[mesh.numvertexes]);
+                memcpy(texcoords[mesh.numvertexes], cloudcoords[face][t][s], sizeof(vec2_t));
+                ++mesh.numvertexes;
+            }
+        for (t = 0; t < maxs[1]-mins[1]; ++t)
+            for (s = 0; s < maxs[0]-mins[0]; ++s)
+            {
+                int a = start+t*width+s;
+                indexes[mesh.numindexes++] = a;
+                indexes[mesh.numindexes++] = a+width;
+                indexes[mesh.numindexes++] = a+width+1;
+                indexes[mesh.numindexes++] = a;
+                indexes[mesh.numindexes++] = a+width+1;
+                indexes[mesh.numindexes++] = a+1;
+            }
+    }
+    if (mesh.numindexes) R_DrawSkyMesh(batch, &mesh, shader);
+}
+#endif
+
 static void GL_DrawSkySphere (batch_t *batch, shader_t *shader)
 {
+#ifdef SDL_GPUQUAKE
+    if (qrenderer == QR_SDLGPU && r_worldentity.model->fromgame == fg_quake3)
+    {
+        R_DrawQ3Clouds(batch, shader);
+        return;
+    }
+#endif
 	//FIXME: We should use the skybox clipping code and split the sphere into 6 sides.
 	gl_skyspherecalc(2);
 	R_DrawSkyMesh(batch, &skymesh, shader);

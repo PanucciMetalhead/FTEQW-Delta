@@ -1277,7 +1277,7 @@ static void V_CalcAFov(float afov, float *x, float *y, float w, float h)
 	if (r_refdef.stereomethod == STEREO_CROSSEYED && r_stereo_separation.value)
 		w *= 0.5;
 
-	afov = bound(0.001, afov, 170);
+	afov = bound(0.001, afov, 179);
 
 restart:
 	switch(mode)
@@ -1302,19 +1302,19 @@ restart:
 		*x = afov;
 		*y = CalcFov(afov, w, h);
 
-		if (*y > 170)
+		if (*y > 179)
 		{
-			*y = 170;
-			*x = CalcFov(170, h, w);
+			*y = 179;
+			*x = CalcFov(179, h, w);
 		}
 		break;
 	case 3:	//vertical
 		*y = afov;
 		*x = CalcFov(afov, h, w);
 
-		if (*x > 170)
+		if (*x > 179)
 		{	//don't allow screwed fovs.
-			*x = 170;
+			*x = 179;
 			*y = CalcFov(afov, w, h);
 		}
 		break;

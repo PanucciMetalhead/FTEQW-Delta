@@ -1067,7 +1067,6 @@ static void Shader_SkyParms(parsestate_t *ps, const char **ptr)
 {
 	shader_t *shader = ps->s;
 	skydome_t *skydome;
-//	float skyheight;
 	char *boxname;
 
 	if (shader->skydome)
@@ -1081,7 +1080,10 @@ static void Shader_SkyParms(parsestate_t *ps, const char **ptr)
 	boxname = Shader_ParseString(ptr);
 	Shader_ParseSkySides(shader->name, boxname, skydome->farbox_textures);
 
-	/*skyheight =*/ Shader_ParseFloat(shader, ptr, 512);
+	skydome->cloudheight = Shader_ParseFloat(shader, ptr, 512);
+	/* Quake 3 treats a zero height as its default, not as a flat sky. */
+	if (!isfinite(skydome->cloudheight) || skydome->cloudheight <= 0)
+		skydome->cloudheight = 512;
 
 	boxname = Shader_ParseString(ptr);
 //	Shader_ParseSkySides(shader->name, boxname, skydome->nearbox_textures);
@@ -4584,7 +4586,7 @@ static void Shader_MakeCache(const char *path, unsigned int parseflags)
 			continue;
 		}
 
-		key = Hash_Key ( token, HASH_SIZE );
+		key = Hash_KeyInsensitive ( token, HASH_SIZE );
 
 		cache = ( shadercache_t * )Z_Malloc(sizeof(shadercache_t) + strlen(token));
 		strcpy(cache->name, token);
@@ -4603,7 +4605,8 @@ static qboolean Shader_LocateSource(const char *name, const char **buf, size_t *
 	unsigned int key;
 	shadercache_t *cache;
 
-	key = Hash_Key ( name, HASH_SIZE );
+	/* Shader script names are case-insensitive, including the hash bucket. */
+	key = Hash_KeyInsensitive ( name, HASH_SIZE );
 	cache = shader_hash[key];
 
 	for ( ; cache; cache = cache->hash_next )
@@ -8283,7 +8286,7 @@ char *Shader_GetShaderBody(shader_t *s, char *fname, size_t fnamesize)
 		{
 			unsigned int key;
 			shadercache_t *cache;
-			key = Hash_Key (parsename, HASH_SIZE);
+			key = Hash_KeyInsensitive (parsename, HASH_SIZE);
 			cache = shader_hash[key];
 			for ( ; cache; cache = cache->hash_next)
 			{

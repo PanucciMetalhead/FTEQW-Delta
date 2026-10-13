@@ -37,6 +37,7 @@ def prepare(game, out, qcc):
                 'r_hdr_framebuffer 0', 'r_shadow_realtime_world 0',
                 'r_shadow_realtime_dlight 0', 'r_dynamic 0',
                 'gamma 1', 'contrast 1', 'brightness 0', 'v_contrastboost 1',
+                'r_panini_scale 1', 'r_panini_filter 0', 'r_panini_sharpen 0',
                 'r_projection 0', 'vid_sceneonlygamma 0', 'set gpu_panini_overlay 0',
                 'set gpu_panini_fov 140', 'set gpu_panini_layout 0', 'r_waterstyle 3',
                 'sv_csqc_progname gpu-panini.dat', 'map start', 'defer 5 pause']
@@ -45,7 +46,7 @@ def prepare(game, out, qcc):
     def capture(name, *settings):
         nonlocal time
         for i, setting in enumerate(settings):
-            commands.append(f'defer {time + i / 10:g} {setting}')
+            commands.append(f'defer {time + i / 20:g} {setting}')
         commands.append(f'defer {time + 1:g} screenshot panini-{name}.png')
         time += 2
 
@@ -61,6 +62,12 @@ def prepare(game, out, qcc):
     capture('overlay-panini', 'r_projection 6')
     capture('scene-gamma', 'vid_sceneonlygamma 1', 'gamma 0.65', 'contrast 1.2', 'brightness 0.04')
     capture('restart', 'vid_restart')
+    capture('quality-hud', 'r_panini_scale 1.25', 'r_panini_filter 1', 'r_panini_sharpen 0.2')
+    capture('quality-restart', 'vid_restart')
+    capture('quality-split', 'set gpu_panini_overlay 0', 'set gpu_panini_layout 1',
+            'gamma 1', 'contrast 1', 'brightness 0', 'vid_sceneonlygamma 0', 'r_panini_scale 2')
+    capture('quality-rtt', 'set gpu_panini_layout 2')
+    capture('quality-water', 'set gpu_panini_layout 3', 'r_hdr_framebuffer 1', 'gpu_info')
     capture('menu', 'menu_options')
     commands += [f'defer {time:g} cfg_save panini-test', f'defer {time+1:g} quit force']
     (out / 'id1/gpu-test.cfg').write_text('\n'.join(commands) + '\n')
@@ -150,8 +157,26 @@ def check(out):
     assert delta(regular.crop(ui),panini.crop(ui)) <= 1, 'Panini warped HUD'
     assert delta(regular.crop(ui),gamma.crop(ui)) <= 1, 'Scene gamma changed HUD'
     assert delta(gamma,restart) < 1, 'Video restart changed projection'
+    quality = image('quality-hud')
+    assert delta(gamma.crop(ui),quality.crop(ui)) <= 1, 'Panini quality changed HUD'
+    assert delta(quality,image('quality-restart')) < 1, 'Quality settings changed on restart'
+    for name in ('split','rtt','water'):
+        enhanced = image('quality-'+name)
+        assert enhanced.size == image(name+'-panini').size
+        assert sum(ImageStat.Stat(enhanced).mean) > 10, 'Scaled view was not drawn'
+        difference = delta(enhanced,image(name+'-panini'))
+        assert difference < 8, (name,'scaled layout changed scene',difference)
+        results['quality-'+name] = {'image_difference':difference}
+        if name == 'rtt':
+            sx,sy = enhanced.width/800,enhanced.height/600
+            margin = (0,enhanced.height//2,round(150*sx),enhanced.height)
+            assert delta(enhanced.crop(margin),image('rtt-panini').crop(margin)) <= 1, 'Quality RTT changed HUD'
+    sources = re.findall(r'Panini view (\d+)x(\d+): source (\d+)x(\d+)',text)
+    assert sources and any(int(c)>int(a) and int(d)>int(b) for a,b,c,d in sources), 'Supersampling did not run'
     config = list(out.rglob('panini-test.cfg'))
     assert config and re.search(r'r_projection\s+"?6',config[0].read_text()), 'Projection not saved'
+    for key,value in (('r_panini_scale','2'),('r_panini_filter','1'),('r_panini_sharpen','0.2')):
+        assert re.search(key+r'\s+"?'+re.escape(value),config[0].read_text()), key+' not saved'
     (out/'panini-results.json').write_text(json.dumps(results,indent=2)+'\n')
     print(json.dumps(results,indent=2))
 
@@ -173,7 +198,7 @@ def main():
                 '-quake','-window','-width','800','-height','600','-gpu_debug',
                 '+vid_conautoscale','0','+vid_conwidth','800','+vid_conheight','600',
                 '+exec','gpu-test.cfg'],cwd=ROOT,stdout=log,stderr=subprocess.STDOUT,
-                check=True,timeout=100)
+                check=True,timeout=120)
         check(out)
     else:
         check(out)

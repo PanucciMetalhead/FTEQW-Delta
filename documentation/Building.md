@@ -61,3 +61,59 @@ versions must be kept in sync and tested on their respective native backends.
 See [SDL3-GPU.md](SDL3-GPU.md) for integration testing and the validation record.
 Legacy console, web, mobile, and Flatpak deployment files are upstream history;
 they are not supported build paths for this desktop fork.
+
+## OpenArena and the Quake 3 plugin
+
+OpenArena requires the Quake 3 compatibility plugin. Build both targets and
+keep the generated plugin beside the engine executable:
+
+```sh
+cmake --build build --target fteqw plug_quake3 --config Release --parallel
+./build/fteqw -basedir "/path/to/OpenArena" -quake3 -game baseoa +plug_load quake3
+```
+
+The basedir contains `baseoa/*.pk3`. On Windows the engine is in
+`build/Release/fteqw.exe`; its plugin is `fteplug_quake3.dll`. On macOS/Linux the
+plugin is `fteplug_quake3.so`. The default plugin policy does not automatically
+load every loose plugin built by CMake. `+plug_load quake3` loads the required
+module without enabling all the other optional plugins.
+
+If a connection fails with “Q3 plugin not loaded”, enter `plug_load quake3` in
+the console, then `reconnect`. `plug_load quake3` can also be placed in the
+game's `autoexec.cfg` for subsequent starts.
+
+The Quake 3 profile defaults to protocol 68. Standard OpenArena servers use
+[legacy protocol 71](https://github.com/OpenArena/engine/blob/master/README.md);
+use `com_protocolversion 71` before connecting to those servers, or pass
+`+com_protocolversion 71` at launch. Servers using another engine may advertise
+a different protocol, so match the server's version.
+
+
+To check OpenArena rendering using your installed game data, build the targets
+above and install Pillow for Python. This test creates a separate output folder;
+the original PK3 files are only read. Choose a new output directory for each run.
+
+```sh
+python3 tools/gpu_openarena.py prepare "/path/to/OpenArena" --out build/openarenadata
+python3 tools/gpu_openarena.py run --out build/openarenadata
+```
+
+Use `--engine build/Release/fteqw.exe` for a Windows multi-configuration build.
+The local match checks camera turning, movement, the cgame weapon toggle and
+video restart using captured frames. `check` revalidates an existing run.
+Screenshots, the log and `openarena-results.json` remain in the output folder.
+This checks local gameplay rendering; it does not test external servers.
+
+
+The `materials` profile requires OpenArena 0.8.8 data, including `pxlfan`. It
+checks the fan's baked vertex lighting, mixed-case pickup shader names, health
+pickup effects and video restart. Use it with each action and a new output path:
+
+```sh
+python3 tools/gpu_openarena.py prepare "/path/to/OpenArena" --profile materials --out build/oa-materials
+python3 tools/gpu_openarena.py run --profile materials --out build/oa-materials
+```
+
+The test enables cheats only in its isolated local server to place the camera;
+normal gameplay rules are unaffected. Results are saved to
+`openarena-material-results.json`.

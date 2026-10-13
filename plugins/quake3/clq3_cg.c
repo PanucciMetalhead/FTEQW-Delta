@@ -1174,7 +1174,11 @@ static qintptr_t CG_SystemCalls(void *offset, quintptr_t mask, qintptr_t fn, con
 		VM_LONG(ret) = plugfuncs->GetMilliseconds();
 		break;
 	case CG_REAL_TIME:
-		VALIDATEPOINTER(arg[0], sizeof(q3time_t));
+		/* A NULL output buffer requests only the timestamp. */
+		if (arg[0])
+		{
+			VALIDATEPOINTER(arg[0], sizeof(q3time_t));
+		}
 		return Q3VM_GetRealtime(VM_POINTER(arg[0]));
 
 	case CG_SNAPVECTOR: // ( float *v )

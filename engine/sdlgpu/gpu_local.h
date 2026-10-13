@@ -64,8 +64,8 @@ typedef struct {
 
 typedef struct gpu_draw_s {
     unsigned firstindex, numindices, vertexoffset, bits, cull;
-    qboolean lines, castshadow, shadowonly, screenoverlay, panini;
-    float projection[4];
+    qboolean lines, castshadow, shadowonly, screenoverlay, panini, vertexlit;
+    float projection[8]; /* warp, source texel size, sharpening; filter, padding */
     SDL_GPUTexture *target, *depth;
     SDL_GPUTextureFormat format;
     SDL_GPUViewport viewport;
@@ -84,7 +84,7 @@ typedef struct {
     unsigned targetwidth, targetheight;
     SDL_GPUShader *vertexshader, *fragmentshader, *postvertex, *postfragment, *shadowvertex, *shadowfragment, *paninifragment;
     SDL_GPUGraphicsPipeline *postpipeline, *shadowpipeline;
-    SDL_GPUSampler *postsampler, *shadowsampler;
+    SDL_GPUSampler *postsampler, *paninisampler, *shadowsampler;
     SDL_GPUBuffer *vertices, *indices;
     SDL_GPUTransferBuffer *transfer;
     size_t vertexcapacity, indexcapacity, transfercapacity;
@@ -123,6 +123,7 @@ void GPU_Set2D(void);
 typedef struct gpu_panini_view_s gpu_panini_view_t;
 gpu_panini_view_t *GPU_BeginPaniniView(float fovx);
 void GPU_EndPaniniView(gpu_panini_view_t *view);
+void GPU_PaniniInfo(void);
 void GPU_SelectMode(backendmode_t);
 void GPU_DrawMeshList(shader_t *, int, mesh_t **, vbo_t *, texnums_t *, unsigned);
 void GPU_DrawMeshSingle(shader_t *, mesh_t *, vbo_t *, unsigned);

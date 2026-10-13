@@ -21,6 +21,7 @@ The lighting menu retains upstream's Apply/video restart behavior.
 | Effect | Console controls | Notes |
 | --- | --- | --- |
 | View projection | `r_projection 0/6` | **Options → View Projection**: Regular or Panini. Panini reduces edge stretching at wide FOVs and keeps vertical lines straight. Applies immediately and saves in configs. |
+| Field of view | `fov`, `cg_fov` | **Options → Field of View** offers 70–170. Both console names change the same saved setting, including in OpenArena. Wider console values work; regular perspective renders up to 179 degrees. OpenArena zoom and server FOV limits are preserved. |
 | FOV convention | `scr_fov_mode 4` | The default menu label is **Classic 4:3 / Widescreen**; classic vertical coverage expands sideways on wider screens. |
 | Map lighting | `r_fullbright 0/1` | Zero uses BSP lightmaps; one forces full brightness. |
 | Normal maps | `r_normalmapping 0/1` | Normal textures are loaded independently of this switch so enabling it works immediately. |
@@ -381,6 +382,42 @@ horizontal lines away from the horizon can curve. It is most apparent at wide
 FOVs. It does not provide a 180°/360° panorama or use the old cubemap renderer.
 Regular does not allocate new projection targets or run a projection pass.
 
+Panini quality controls are directly below **View Projection** in the native
+Options menu (`menu_options` in either Quake 1 or Quake 3/OpenArena):
+
+| Menu setting | Cvar | Default | Behavior |
+| --- | --- | --- | --- |
+| Panini Resolution | `r_panini_scale` | `1.25` | Source width/height multiplier, clamped to 1–2. A value of 2 requests four times the native pixel count. |
+| Panini Filter | `r_panini_filter` | `1` | 0: original bilinear reconstruction; 1: bicubic reconstruction in magnified areas and anisotropic mip filtering in reduced areas. |
+| Panini Sharpening | `r_panini_sharpen` | `0.2` | Strength from 0–1; zero disables sharpening. Local overshoot is limited, and sharpening fades out in reduced areas. |
+
+Settings apply immediately, are archived with `cfg_save`, and affect only the
+Panini 3D view. HUD/menu rendering and Regular projection are unaffected. Use
+resolution 1, Bilinear, sharpening 0 to reproduce the original Panini path.
+For a less expensive intermediate setting, use resolution 1 with Bicubic.
+
+Source level-zero allocation is limited to 16 million pixels and 8192 pixels
+per axis, keeping its aspect ratio within rounding to whole pixels. Native
+views already above those limits are not reduced. Cached color/depth targets
+are reused between frames; Panini adds no extra world views when changing quality or FOV. Mip levels require additional color memory and are generated
+only for Bicubic mode. If a larger source cannot be allocated, the renderer
+reports it and falls back to native size, without retrying every frame at the
+same requested size. `gpu_info` reports actual source/output dimensions,
+filter and sharpening, including a capped or fallback resolution.
+
+The bicubic kernel groups its middle weights to use nine bilinear reads instead
+of sixteen point reads. Regions reduced by the warp use mip filtering instead
+of that kernel, and explicit gradients keep mip selection stable. Sharpening
+preserves HDR highlights. Higher source resolutions still increase GPU work:
+1.25 requests 56% more source pixels, while 2 requests 300% more, before caps.
+
+At actual horizontal FOVs of 150°, 160° and 170°, the current projection enlarges
+source pixels at the center by roughly 2.4, 3.4 and 6.2 per axis. These controls
+improve detail, but cannot fully undo the sampling loss at extreme FOVs within
+a modest pixel budget. FOV mode/aspect ratio can make the actual horizontal
+angle differ from the console's `fov` number.
+
+
 To test with owned Quake data, use a new output directory:
 
 ```sh
@@ -391,7 +428,96 @@ python3 tools/gpu_panini.py run --out /tmp/fte-panini-test
 The runner checks rendered pixels against independently constructed Panini
 rays at 90°, 140°, and 170° horizontal FOV, SDR/HDR, split views, offscreen
 rendering, reflective/refractive liquids, 3D model previews, HUD colors,
-scene-only gamma, video restart, and saved selection.
+scene-only gamma, video restart, saved quality settings, and scaled split/offscreen/water views.
 Screenshots and results remain separate from the original game installation.
+Allocation limits (including invalid cvar values) and mip-count boundaries are
+checked under ASan/UBSan:
+
+```sh
+python3 tools/panini_tests.py
+```
+
+To compare center detail with an independently projected, higher-resolution
+perspective reference at 150° and 170°, and record native-backend frame timings:
+
+```sh
+python3 tools/gpu_panini_quality.py prepare /path/to/Quake --out /tmp/fte-panini-quality
+python3 tools/gpu_panini_quality.py run --out /tmp/fte-panini-quality
+```
+
+The quality runner uses small windows so that its reference fits the display,
+then switches to desktop fullscreen for timing. It compares restored settings
+as well as filtering, source resolution, default settings and maximum quality,
+and saves `quality-results.json`. A display/presentation cap can conceal GPU
+cost; interpret frame timings together with the acquisition timings in the log
+and profile demanding maps at your playing resolution. This is not a promise
+of a particular gameplay frame rate.
+
 Metal runtime validation passed; Vulkan shaders are compiled and checked
 with `spirv-val`, but Vulkan runtime validation requires Windows/Linux hardware.
+
+
+## OpenArena lighting, FOV and shotgun smoke checks
+
+The OpenArena `controls` profile checks real map lighting versus `r_fullbright 1`,
+restoration, console FOV changes through 175, zoom, menu rendering and saved FOV.
+Use owned OpenArena 0.8.8 data and a new isolated output directory:
+
+```sh
+python3 tools/gpu_openarena.py prepare /path/to/OpenArena --profile controls --out build/oa-controls
+python3 tools/gpu_openarena.py run --profile controls --out build/oa-controls
+python3 tools/q3_fov_tests.py
+```
+
+The focused FOV test compiles the actual plugin adjustment with Clang and
+ASan/UBSan, covering zoom interpolation, aspect ratio, intermissions, UI scenes
+and server restrictions. The compatibility adjustment extends the traditional
+[cgame FOV clamp](https://github.com/OpenArena/gamecode/blob/main/code/cgame/cg_view.c)
+without changing the game QVM or player movement.
+
+The sprite test can also load the installed OpenArena shotgun smoke material.
+It compares full, half and quarter alpha, then checks for an empty background
+after the smoke disappears. Both the shader and texture come from the supplied
+PK3s; original game files are only read:
+
+```sh
+python3 tools/gpu_sprites.py prepare /path/to/Quake --openarena /path/to/OpenArena --out build/oa-smoke
+./build/fteqw -nohome -basedir build/oa-smoke -quake +exec gpu-test.cfg
+python3 tools/gpu_sprites.py check --out build/oa-smoke --log /path/to/engine.log
+```
+
+Capture engine stdout to the log path when running the sprite fixture. For a
+Windows multi-configuration build, use `build/Release/fteqw.exe`. Sprite results
+include `shotgun_smoke_contrast_ratios`; no OpenArena assets are included in the
+repository.
+
+## Quake 3 / OpenArena skies
+
+Scripted Quake 3 clouds use their `skyParms` cloud height and the Quake 3
+angular projection onto a curved cloud layer. The camera-centered mesh uses
+eight subdivisions per cube face, with cached coordinates for its height.
+Each material stage keeps its own texture, blending, color generation and
+`tcMod` animation; rotating stages use the parser's turns-per-second units.
+Static six-face skyboxes remain static unless their material specifies animation.
+
+Sky visibility masks write BSP depth without painting brush textures over the
+projected sky. They use the original BSP entity transform, while generated sky
+meshes render from inside the sky volume. `r_fastsky` and `r_skybox` retain their
+existing controls. Quake 1's layered skies and native cube-sky path are preserved.
+
+The cloud projection follows [Quake 3's sky coordinate calculation](https://github.com/ioquake/ioq3/blob/master/code/renderergl1/tr_sky.c)
+and [skyParms height parsing](https://github.com/ioquake/ioq3/blob/master/code/renderergl1/tr_shader.c).
+
+```sh
+python3 tools/q3_sky_tests.py
+python3 tools/gpu_openarena.py prepare /path/to/OpenArena --profile skies --out build/oa-skies
+python3 tools/gpu_openarena.py run --profile skies --out build/oa-skies
+```
+
+The source-helper test uses Clang with ASan/UBSan to check projection geometry,
+cloud heights/cache changes, clipped mesh bounds, scrolling order and rotation
+speed. The GPU profile uses owned OpenArena data plus isolated diagnostic BSP
+material substitutions and a generated coordinate texture. It checks the
+projected texture coordinate at the zenith, changes cloud height and restores
+it, observes stock cloud animation, switches fast sky, and checks a static
+skybox and video restarts. It never changes the original game data.

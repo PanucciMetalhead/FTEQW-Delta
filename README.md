@@ -23,8 +23,9 @@ Requires SDL **3.4 or newer**, CMake, and a C/C++ compiler. See
 [building](documentation/Building.md), [dependencies](documentation/Dependencies.md),
 and [renderer controls and validation](documentation/SDL3-GPU.md).
 
-The [console command reference](documentation/console_commands.md) lists built-in
-commands, their definitions, and client/server availability.
+The [console command and cvar reference](documentation/console_commands.md) covers
+Quake 1 and Quake 3/OpenArena, including shared settings, game-specific behavior,
+and client/server availability.
 
 For game and total-conversion development, see
 [Writing Your progs.dat](documentation/writing_progs.md) and the

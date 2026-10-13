@@ -2528,7 +2528,7 @@ static void R_Sprite_GenerateTrisoup(entity_t *e, int bemode)
 		shader = frame->shader;
 	}
 
-	batchflags = 0;
+	batchflags = BEF_ENTITYCOLOURS;
 //	if (e->flags & RF_NOSHADOW)
 		batchflags |= BEF_NOSHADOWS;
 	if (e->flags & RF_ADDITIVE)

@@ -258,6 +258,9 @@ void M_Menu_Options_f (void)
 {
 	extern cvar_t m_preset_chosen;
 	extern cvar_t crosshair, r_projection;
+	extern cvar_t r_panini_scale, r_panini_filter, r_panini_sharpen;
+	static const char *paninifilters[] = {"Bilinear (fast)", "Bicubic (sharp)", NULL};
+	static const char *paninifiltervalues[] = {"0", "1", NULL};
 	int y;
 
 	static const char *projections[] = {
@@ -367,8 +370,11 @@ void M_Menu_Options_f (void)
 #endif
 		MB_CONSOLECMD("Go to console", "toggleconsole\nplay misc/menu2.wav\n", "Open up the engine console."),
 		MB_COMBOCVAR("View Projection", r_projection, projections, projectionvalues, "Regular uses perspective. Panini reduces stretching at wide fields of view while keeping vertical lines straight. HUD and menu shapes are unchanged."),
+		MB_SLIDER("Panini Resolution", r_panini_scale, 1, 2, 0.25, "Source resolution per axis: 1 is native, 2 renders four times as many pixels. Capped for memory use. Applies only to Panini; higher values cost GPU time."),
+		MB_COMBOCVAR("Panini Filter", r_panini_filter, paninifilters, paninifiltervalues, "Bicubic preserves more contrast than bilinear. Bilinear is the faster choice. Applies only to Panini."),
+		MB_SLIDER("Panini Sharpening", r_panini_sharpen, 0, 1, 0.05, "Adds local contrast to the Panini view; zero disables it. The HUD is unaffected. Cannot recover missing detail at extreme FOV."),
 		MB_COMBOCVAR("FOV Mode", scr_fov_mode, fovmodes, fovmodevalues, NULL),
-		MB_SLIDER("Field of View", scr_fov, 70, 360, 5, NULL),
+		MB_SLIDER("Field of View", scr_fov, 70, 170, 5, "Changes the field of view immediately. Console fov values may exceed the slider maximum."),
 		MB_SLIDER("Mouse Speed", sensitivity, 1, 10, 0.2, NULL),
 		MB_SLIDER("Crosshair", crosshair, 0, 22, 1, NULL), // move this to hud setup?
 		MB_CHECKBOXFUNC("Always Run", M_Options_AlwaysRun, 0, "Set movement to run at fastest speed by default."),

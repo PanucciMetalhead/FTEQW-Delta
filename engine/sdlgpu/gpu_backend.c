@@ -4,6 +4,9 @@
 #include "gpu_shaders.h"
 #include <stddef.h>
 #include <float.h>
+#include "panini.h"
+
+extern cvar_t r_panini_scale, r_panini_filter, r_panini_sharpen;
 
 extern texid_t r_whiteimage, r_blackimage, missing_texture, missing_texture_normal, missing_texture_gloss;
 extern cvar_t gl_overbright, gl_overbright_all, gl_specular, gl_specular_power, r_glsl_offsetmapping_scale;
@@ -61,7 +64,7 @@ static gpu_target_t *targets;
 struct gpu_panini_view_s {
     SDL_GPUTexture *color, *depth, *destination, *destinationdepth;
     SDL_GPUTextureFormat format;
-    unsigned width, height, destinationwidth, destinationheight;
+    unsigned width, height, requestedwidth, requestedheight, destinationwidth, destinationheight;
     pxrect_t rect;
     float warp;
     qboolean used, populated;
@@ -74,25 +77,42 @@ gpu_panini_view_t *GPU_BeginPaniniView(float fovx)
 {
     gpu_panini_view_t *view, *available = NULL;
     SDL_GPUTextureCreateInfo ci = {0};
-    unsigned width = max(1, r_refdef.pxrect.width), height = max(1, r_refdef.pxrect.height);
+    unsigned basewidth = max(1, r_refdef.pxrect.width), baseheight = max(1, r_refdef.pxrect.height);
+    unsigned width, height;
+    GPU_PaniniDimensions(basewidth, baseheight, r_panini_scale.value, &width, &height);
     for (view = paniniviews; view; view = view->next) if (!view->used) {
         if (!available) available = view;
-        if (view->width == width && view->height == height && view->format == gpu.targetformat) break;
+        if (view->requestedwidth == width && view->requestedheight == height && view->format == gpu.targetformat) break;
     }
     if (!view) view = available;
     if (!view) {
         view = Z_Malloc(sizeof(*view)); view->next = paniniviews; paniniviews = view;
     }
     view->used = true; view->firstdraw = gpu.numdraws;
-    if (!view->color || view->width != width || view->height != height || view->format != gpu.targetformat) {
+    if (!view->color || view->requestedwidth != width || view->requestedheight != height || view->format != gpu.targetformat) {
         if (view->color) SDL_ReleaseGPUTexture(gpu.device, view->color);
         if (view->depth) SDL_ReleaseGPUTexture(gpu.device, view->depth);
+        view->requestedwidth = width; view->requestedheight = height;
         ci.type = SDL_GPU_TEXTURETYPE_2D; ci.width = width; ci.height = height;
-        ci.layer_count_or_depth = ci.num_levels = 1; ci.sample_count = SDL_GPU_SAMPLECOUNT_1;
+        ci.layer_count_or_depth = 1; ci.num_levels = GPU_PaniniLevels(width, height);
+        ci.sample_count = SDL_GPU_SAMPLECOUNT_1;
         ci.format = gpu.targetformat; ci.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
         view->color = SDL_CreateGPUTexture(gpu.device, &ci);
-        ci.format = gpu.depthformat; ci.usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET;
+        ci.num_levels = 1; ci.format = gpu.depthformat; ci.usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET;
         view->depth = SDL_CreateGPUTexture(gpu.device, &ci);
+        if ((!view->color || !view->depth) && (width != basewidth || height != baseheight)) {
+            /* Some devices have smaller limits or insufficient memory. Fall
+             * back once per requested size, rather than retrying every frame. */
+            Con_Printf("Panini source %ux%u unavailable (%s); using native %ux%u.\n",
+                width, height, SDL_GetError(), basewidth, baseheight);
+            if (view->color) SDL_ReleaseGPUTexture(gpu.device, view->color);
+            if (view->depth) SDL_ReleaseGPUTexture(gpu.device, view->depth);
+            width = basewidth; height = baseheight; ci.width = width; ci.height = height;
+            ci.num_levels = GPU_PaniniLevels(width, height); ci.format = gpu.targetformat; ci.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
+            view->color = SDL_CreateGPUTexture(gpu.device, &ci);
+            ci.num_levels = 1; ci.format = gpu.depthformat; ci.usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET;
+            view->depth = SDL_CreateGPUTexture(gpu.device, &ci);
+        }
         if (!view->color || !view->depth) GPU_Error("create Panini view");
         view->width = width; view->height = height; view->format = gpu.targetformat;
     }
@@ -105,8 +125,9 @@ gpu_panini_view_t *GPU_BeginPaniniView(float fovx)
     view->warp = tan(bound(0.001f, fovx, 179.0f) * M_PI / 720.0);
     view->warp *= view->warp;
     gpu.target = view->color; gpu.targetdepth = view->depth;
-    gpu.targetwidth = width; gpu.targetheight = height;
+    gpu.targetwidth = view->width; gpu.targetheight = view->height;
     r_refdef.pxrect.x = r_refdef.pxrect.y = 0;
+    r_refdef.pxrect.width = view->width; r_refdef.pxrect.height = view->height;
     return view;
 }
 
@@ -124,15 +145,29 @@ void GPU_EndPaniniView(gpu_panini_view_t *view)
     }
     draw = &gpu.draws[gpu.numdraws++]; memset(draw, 0, sizeof(*draw));
     draw->panini = true; draw->projection[0] = view->warp;
+    draw->projection[1] = 1.0f / view->width; draw->projection[2] = 1.0f / view->height;
+    draw->projection[3] = isfinite(r_panini_sharpen.value) ? bound(0, r_panini_sharpen.value, 1) : 0;
+    draw->projection[4] = r_panini_filter.ival == 1;
+    draw->projection[5] = GPU_PaniniLevels(view->width, view->height) > 1;
     draw->target = view->destination; draw->depth = view->destinationdepth; draw->format = view->format;
     draw->viewport.x = view->rect.x; draw->viewport.y = view->rect.y;
     draw->viewport.w = view->rect.width; draw->viewport.h = view->rect.height;
     draw->viewport.max_depth = 1;
     draw->scissor.w = view->destinationwidth; draw->scissor.h = view->destinationheight;
-    draw->samplers[0].texture = view->color; draw->samplers[0].sampler = gpu.postsampler;
+    draw->samplers[0].texture = view->color; draw->samplers[0].sampler = gpu.paninisampler;
     gpu.target = view->destination; gpu.targetdepth = view->destinationdepth;
     gpu.targetwidth = view->destinationwidth; gpu.targetheight = view->destinationheight;
     r_refdef.pxrect = view->rect;
+}
+
+void GPU_PaniniInfo(void)
+{
+    gpu_panini_view_t *view;
+    for (view = paniniviews; view; view = view->next) if (view->used)
+        Con_Printf("Panini view %ux%u: source %ux%u, %s, sharpening %.2f\n",
+            view->rect.width, view->rect.height, view->width, view->height,
+            r_panini_filter.ival == 1 ? "bicubic" : "bilinear",
+            isfinite(r_panini_sharpen.value) ? bound(0, r_panini_sharpen.value, 1) : 0);
 }
 
 /* Separate images per visible plane prevent a later water view from replacing
@@ -306,6 +341,10 @@ void GPU_BackendInit(void)
     si.address_mode_u = si.address_mode_v = si.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
     gpu.postsampler = SDL_CreateGPUSampler(gpu.device, &si);
     if (!gpu.postsampler) GPU_Error("create presentation sampler");
+    si.mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_LINEAR; si.max_lod = 32;
+    si.enable_anisotropy = true; si.max_anisotropy = 4;
+    gpu.paninisampler = SDL_CreateGPUSampler(gpu.device, &si);
+    if (!gpu.paninisampler) GPU_Error("create Panini sampler");
     {
         /* Every draw must bind a cube-compatible texture, including UI and
          * classic skies which do not sample this slot. Clear all six faces. */
@@ -404,6 +443,7 @@ void GPU_BackendShutdown(void)
     if (gpu.postvertex) SDL_ReleaseGPUShader(gpu.device, gpu.postvertex);
     if (gpu.postfragment) SDL_ReleaseGPUShader(gpu.device, gpu.postfragment);
     if (gpu.postsampler) SDL_ReleaseGPUSampler(gpu.device, gpu.postsampler);
+    if (gpu.paninisampler) SDL_ReleaseGPUSampler(gpu.device, gpu.paninisampler);
     if (gpu.vertices) SDL_ReleaseGPUBuffer(gpu.device, gpu.vertices);
     if (gpu.indices) SDL_ReleaseGPUBuffer(gpu.device, gpu.indices);
     if (gpu.transfer) SDL_ReleaseGPUTransferBuffer(gpu.device, gpu.transfer);
@@ -673,6 +713,14 @@ void GPU_EndFrame(void)
         for (end = i+1; end < gpu.numdraws; ++end)
             if (!gpu.draws[end].shadowonly && ((gpu.sceneonlygamma && gpu.draws[end].screenoverlay) ||
                 gpu.draws[end].target != initial->target)) break;
+        /* All source passes in this group have ended. Generate the filtered
+         * levels before opening the destination pass, including empty views.
+         * Bilinear compatibility mode samples level zero and skips this work. */
+        for (j = first; j < end; ++j) {
+            gpu_draw_t *d = &gpu.draws[j];
+            if (d->panini && d->projection[4] && d->projection[5])
+                SDL_GenerateMipmapsForGPUTexture(gpu.command, d->samplers[0].texture);
+        }
         color.texture = initial->target; color.load_op = seen ? SDL_GPU_LOADOP_LOAD : SDL_GPU_LOADOP_CLEAR;
         color.store_op = SDL_GPU_STOREOP_STORE; color.clear_color.a = 1;
         depth.texture = initial->depth; depth.clear_depth = 1;
@@ -786,7 +834,8 @@ static void GPU_TexCoord(float uv[2], shaderpass_t *p, float time, const float p
         case SHADER_TCMOD_SCALE: uv[0] *= m->args[0]; uv[1] *= m->args[1]; break;
         case SHADER_TCMOD_SCROLL: uv[0] += time*m->args[0]; uv[1] += time*m->args[1]; break;
         case SHADER_TCMOD_ROTATE:
-            a = time*m->args[0]*M_PI/180; b = sin(a); a = cos(a);
+            /* The parser stores signed turns per second, not degrees. */
+            a = time*m->args[0]*2*M_PI; b = sin(a); a = cos(a);
             uv[0] = (u-0.5f)*a - (v-0.5f)*b + 0.5f; uv[1] = (u-0.5f)*b + (v-0.5f)*a + 0.5f; break;
         case SHADER_TCMOD_TRANSFORM:
             uv[0] = u*m->args[0]+v*m->args[2]+m->args[4]; uv[1] = u*m->args[1]+v*m->args[3]+m->args[5]; break;
@@ -928,6 +977,9 @@ static void GPU_DrawMesh(shader_t *shader, mesh_t *mesh, vbo_t *vbo, texnums_t *
     qboolean appended = false;
     gpu_draw_t *d;
     program_t *program = p->prog ? p->prog : shader->prog;
+    /* BSP vertex-lit variants use baked mesh colours, including brush models. */
+    qboolean vertexlit = program && !strncmp(program->name, "defaultwall", 11) &&
+        strstr(program->name, "#VERTEXLIT");
     float mv[16];
     float time = r_refdef.time - entity->shaderTime;
     vecV_t *coords = mesh->xyz_array ? mesh->xyz_array : vbo ? (vecV_t *)vbo->coord.sysptr + mesh->vbofirstvert : NULL;
@@ -972,6 +1024,7 @@ static void GPU_DrawMesh(shader_t *shader, mesh_t *mesh, vbo_t *vbo, texnums_t *
     }
     if (!prepared) {
         d->shadowonly = collectshadowonly;
+        d->vertexlit = vertexlit;
         /* Offscreen 2D images must remain in submission order: later world
          * and UI draws may sample them. Only main-screen overlays bypass gamma. */
         d->screenoverlay = gpu.drawing2d && gpu.target == gpu.scene;
@@ -988,8 +1041,15 @@ static void GPU_DrawMesh(shader_t *shader, mesh_t *mesh, vbo_t *vbo, texnums_t *
         if (flags & BEF_FORCEDEPTHWRITE) d->bits |= SBITS_MISC_DEPTHWRITE;
         if (flags & BEF_FORCETRANSPARENT) d->bits = (d->bits & ~(SBITS_BLEND_BITS|SBITS_MISC_DEPTHWRITE)) | SBITS_SRCBLEND_SRC_ALPHA | SBITS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
         if (flags & BEF_FORCEADDITIVE) d->bits = (d->bits & ~(SBITS_BLEND_BITS|SBITS_MISC_DEPTHWRITE)) | SBITS_SRCBLEND_SRC_ALPHA | SBITS_DSTBLEND_ONE;
+        if (mode == BEM_DEPTHONLY) {
+            /* Sky visibility masks must write only their actual BSP depth.
+             * Drawing their color here overwrites the projected clouds with
+             * tiled brush UVs after R_DrawSkyChain has drawn the sky. */
+            d->bits &= ~(SBITS_BLEND_BITS|SBITS_DEPTHFUNC_BITS|SBITS_MISC_NODEPTHTEST);
+            d->bits |= SBITS_MISC_DEPTHWRITE|SBITS_MASK_BITS;
+        }
         d->cull = gpu.drawing2d || flags & BEF_FORCETWOSIDED ? 0 : shader->flags & SHADER_CULL_FLIP;
-        if (r_refdef.flipcull) d->cull ^= SHADER_CULL_FLIP;
+        if (r_refdef.flipcull && d->cull) d->cull ^= SHADER_CULL_FLIP;
         d->lines = (flags & BEF_LINES) || (p->shaderbits & SBITS_LINES);
         d->viewport.x = r_refdef.pxrect.x; d->viewport.y = r_refdef.pxrect.y;
         d->viewport.w = r_refdef.pxrect.width; d->viewport.h = r_refdef.pxrect.height;
@@ -1012,7 +1072,7 @@ static void GPU_DrawMesh(shader_t *shader, mesh_t *mesh, vbo_t *vbo, texnums_t *
             d->frag.material[0] = 2;
         if (!gpu.drawing2d && program &&
             (!strncmp(program->name, "defaultwall", 11) || !strncmp(program->name, "defaultskin", 11)))
-            d->frag.material[0] = shader->usageflags & SUF_LIGHTMAP ? 1 : 2;
+            d->frag.material[0] = vertexlit || (shader->usageflags & SUF_LIGHTMAP) ? 1 : 2;
         if (!gpu.drawing2d && program) {
             if (!strncmp(program->name, "defaultwarp", 11)) d->frag.material[0] = 3;
             if (!strncmp(program->name, "defaultskybox", 13)) d->frag.material[0] = 6;
@@ -1020,7 +1080,7 @@ static void GPU_DrawMesh(shader_t *shader, mesh_t *mesh, vbo_t *vbo, texnums_t *
         }
         d->frag.material[1] = r_lightmap_scale.value * r_refdef.hdr_value;
         /* CPU lightmap packing divides out overbright bits; restore them when sampling. */
-        if (entity->model && (gl_overbright_all.ival || (entity->model->engineflags & MDLF_NEEDOVERBRIGHT)))
+        if (!vertexlit && entity->model && (gl_overbright_all.ival || (entity->model->engineflags & MDLF_NEEDOVERBRIGHT)))
             d->frag.material[1] *= 1 << bound(0, gl_overbright.ival, 2);
         if (r_shadow_realtime_world.ival && d->frag.material[0] == 1) d->frag.material[1] *= r_shadow_realtime_world_lightmaps.value;
         d->frag.material[2] = (d->bits & SBITS_ATEST_BITS) >> SBITS_ATEST_SHIFT;
@@ -1047,15 +1107,21 @@ static void GPU_DrawMesh(shader_t *shader, mesh_t *mesh, vbo_t *vbo, texnums_t *
         if (!gpu.drawing2d) {
             VectorCopy(r_refdef.globalfog.colour, d->frag.fog); d->frag.fog[3] = r_refdef.globalfog.density;
         }
-        d->samplers[0] = GPU_TextureBinding(GPU_PassTexture(p, textures, time), missing_texture);
+        d->samplers[0] = GPU_TextureBinding(p->texgen == T_GEN_LIGHTMAP && r_fullbright.value > 0 ?
+            r_whiteimage : GPU_PassTexture(p, textures, time), missing_texture);
         d->samplers[1] = GPU_TextureBinding(textures->bump, missing_texture_normal);
         d->samplers[2] = GPU_TextureBinding(textures->specular, missing_texture_gloss);
         d->samplers[3] = GPU_TextureBinding(textures->fullbright, r_blackimage);
-        d->samplers[4] = GPU_TextureBinding(batchlightmap >= 0 && batchlightmap < numlightmaps ? lightmap[batchlightmap]->lightmap_texture : NULL, r_whiteimage);
+        d->samplers[4] = GPU_TextureBinding(!vertexlit && batchlightmap >= 0 && batchlightmap < numlightmaps ? lightmap[batchlightmap]->lightmap_texture : NULL, r_whiteimage);
+        if (d->frag.material[0] == 1 && r_fullbright.value > 0) {
+            /* Prebaked Q3 lightmaps aren't rebuilt when fullbright changes. */
+            d->samplers[4] = GPU_TextureBinding(NULL, r_whiteimage);
+            d->frag.material[1] = r_fullbright.value * r_lightmap_scale.value * r_refdef.hdr_value;
+        }
         d->samplers[5] = GPU_TextureBinding(textures->upperoverlay, r_blackimage);
         d->samplers[6] = GPU_TextureBinding(textures->loweroverlay, r_blackimage);
         d->samplers[8] = GPU_TextureBinding(NULL, missing_texture_normal);
-        if (batchlightmap >= 0 && batchlightmap+1 < numlightmaps && lightmap[batchlightmap]->hasdeluxe && r_deluxemapping_cvar.ival) {
+        if (!vertexlit && batchlightmap >= 0 && batchlightmap+1 < numlightmaps && lightmap[batchlightmap]->hasdeluxe && r_deluxemapping_cvar.ival) {
             d->samplers[8] = GPU_TextureBinding(lightmap[batchlightmap+1]->lightmap_texture, missing_texture_normal);
             /* Quake .lux data is in the surface tangent basis. Q3 may instead
              * declare model-space directions; do not dot tangent data with world normals. */
@@ -1165,7 +1231,7 @@ static void GPU_DrawMesh(shader_t *shader, mesh_t *mesh, vbo_t *vbo, texnums_t *
         if (p->tcgen == TC_GEN_VECTOR) { v->uv[0] = DotProduct(v->position, p->tcgenvec[0]); v->uv[1] = DotProduct(v->position, p->tcgenvec[1]); }
         if (d->frag.material[0] != 3 && d->frag.material[0] != 4) GPU_TexCoord(v->uv, p, time, v->position);
         for (j = 0; j < 4; ++j) v->color[j] = 1;
-        if (p->rgbgen == RGB_GEN_VERTEX_EXACT || p->rgbgen == RGB_GEN_VERTEX_LIGHTING || p->rgbgen == RGB_GEN_ONE_MINUS_VERTEX || p->alphagen == ALPHA_GEN_VERTEX) {
+        if (vertexlit || p->rgbgen == RGB_GEN_VERTEX_EXACT || p->rgbgen == RGB_GEN_VERTEX_LIGHTING || p->rgbgen == RGB_GEN_ONE_MINUS_VERTEX || p->alphagen == ALPHA_GEN_VERTEX) {
             if (colors) memcpy(v->color, colors[i], sizeof(v->color));
             else if (bytecolors) for (j = 0; j < 4; ++j) v->color[j] = bytecolors[i][j]/255.0f;
             if (p->rgbgen == RGB_GEN_ONE_MINUS_VERTEX) for (j = 0; j < 3; ++j) v->color[j] = 1-v->color[j];
@@ -1179,7 +1245,25 @@ static void GPU_DrawMesh(shader_t *shader, mesh_t *mesh, vbo_t *vbo, texnums_t *
             if (p->rgbgen == RGB_GEN_BOTTOMCOLOR) v->color[j] *= d->frag.lower[j];
             if (p->rgbgen == RGB_GEN_ENTITY_LIGHTING_DIFFUSE) v->color[j] *= entity->shaderRGBAf[j];
         }
-        if (p->alphagen == ALPHA_GEN_ENTITY || flags & BEF_FORCETRANSPARENT) v->color[3] *= entity->shaderRGBAf[3];
+        if (p->alphagen == ALPHA_GEN_ENTITY || flags & BEF_FORCETRANSPARENT) {
+            /* Sprite batches select the world entity; their original alpha is
+             * carried by each vertex instead of that entity's opaque RGBA. */
+            float alpha = entity->shaderRGBAf[3];
+            if (flags & BEF_ENTITYCOLOURS) {
+                if (colors) alpha = colors[i][3];
+                else if (bytecolors) alpha = bytecolors[i][3]/255.0f;
+                /* ALPHA_GEN_VERTEX already consumed the same baked value. */
+                if (p->alphagen == ALPHA_GEN_VERTEX) alpha = 1;
+            }
+            v->color[3] *= alpha;
+        }
+        if (vertexlit && r_fullbright.value > 0)
+            for (j = 0; j < 3; ++j) v->color[j] = 1;
+        if (!program && p->texgen == T_GEN_LIGHTMAP) {
+            /* Standalone lightmap passes need the same gain as builtin walls. */
+            float gain = r_fullbright.value > 0 ? r_fullbright.value : d->frag.material[1];
+            for (j = 0; j < 3; ++j) v->color[j] *= gain;
+        }
         if (p->alphagen == ALPHA_GEN_CONST) v->color[3] *= p->alphagen_func.args[0];
         if (p->alphagen == ALPHA_GEN_WAVE) v->color[3] *= bound(0,GPU_Wave(&p->alphagen_func, time),1);
         if (p->alphagen == ALPHA_GEN_PORTAL) {

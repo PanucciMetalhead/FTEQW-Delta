@@ -343,6 +343,7 @@ typedef struct
 {
 	texid_t			farbox_textures[6];
 	texid_t			nearbox_textures[6];
+	float			cloudheight; /* Quake 3 skyParms cloud projection height. */
 } skydome_t;
 
 enum{
@@ -795,6 +796,7 @@ mfog_t *Mod_FogForOrigin(model_t *wmodel, vec3_t org);
 #define BEF_FORCECOLOURMOD		(1u<<8) //q3 shaders default to 'rgbgen identity', and ignore ent colours. this forces ent colours to be considered
 #define BEF_LINES				(1u<<9)	//draw line pairs instead of triangles.
 #define BEF_FORCETWOSIDED		(1u<<10) //more evilness.s
+#define BEF_ENTITYCOLOURS        (1u<<11) //entity RGBA is baked into mesh colours (sprite triangle batches)
 //#define	BEFF_POLYHASNORMALS		(1u<<31) //false flag - for cl_scenetries and not actually used by the backend.
 
 typedef struct

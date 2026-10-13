@@ -11,8 +11,9 @@ float end_sys_globals;
 .float alpha;
 .float scale;
 .float renderflags;
+.float forceshader;
 float end_sys_fields;
-entity explosion0, explosion3, explosion5;
+entity explosion0, explosion3, explosion5, smoke;
 entity() spawn = #14;
 void(entity e, string name) setmodel = #3;
 void(string name) precache_model = #20;
@@ -24,6 +25,7 @@ void(string shader, float flags) polygonbegin = #306;
 void(vector pos, vector uv, vector rgb, float alpha) polygonvertex = #307;
 void() polygonend = #308;
 float(string name) cvar = #45;
+float(string name) shaderforname = #238;
 void() CSQC_Init = {
     precache_model("progs/s_explod.spr");
     explosion0 = spawn(); explosion3 = spawn(); explosion5 = spawn();
@@ -33,6 +35,12 @@ void() CSQC_Init = {
     explosion0.origin = '128 80 0'; explosion0.frame = 0;
     explosion3.origin = '128 0 0'; explosion3.frame = 3;
     explosion5.origin = '128 -80 0'; explosion5.frame = 5;
+    if (cvar("gpu_test_smoke_assets")) {
+        smoke = spawn();
+        setmodel(smoke, "progs/s_explod.spr");
+        smoke.origin = '128 0 0'; smoke.scale = 36;
+        smoke.forceshader = shaderforname("shotgunSmokePuff");
+    }
 };
 void(float width, float height, float do2d) CSQC_UpdateView = {
     clearscene();
@@ -50,6 +58,10 @@ void(float width, float height, float do2d) CSQC_UpdateView = {
         if (cvar("gpu_test_sprite") == 2)
             explosion0.alpha = explosion3.alpha = explosion5.alpha = 0.25;
         addentity(explosion0); addentity(explosion3); addentity(explosion5);
+    }
+    if (smoke && cvar("gpu_test_smoke_alpha") > 0) {
+        smoke.alpha = cvar("gpu_test_smoke_alpha");
+        addentity(smoke);
     }
     renderscene();
 };
