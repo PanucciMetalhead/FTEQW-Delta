@@ -31,6 +31,9 @@ The new tests exposed and now guard against:
 - Zero-capacity string outputs and a trailing backslash reading past its NUL.
 - Long Quake 3 script escapes overflowing their numeric accumulator.
 - Normal cvar masks such as `0x80000000` overflowing the signed integer parser.
+- Empty archive scans passing a null array to `qsort` during server startup.
+  Linux sanitizer CI exposed this after macOS checks passed; scans now sort
+  only when there are at least two files, preserving archive order.
 
 Cvar integer parsing now uses unsigned arithmetic with the same engine-width
 bit patterns, including full-width masks and negative values. It preserves the
@@ -60,7 +63,7 @@ The five registered cases are:
 | Case | Coverage |
 | --- | --- |
 | `c17-endian` | Fixed-width endian helper patterns. |
-| `parser-sanitizers` | Actual message, string, number and Q3 escape parser bodies extracted from the current source; 12,600 signed/unsigned packet round trips, 10,000 unaligned fields, short input, capacities 0–19, all escape bytes, long input, and 300,000 number conversions. |
+| `parser-sanitizers` | Actual message, string, number, Q3 escape and archive-scan bodies extracted from the current source; 12,600 signed/unsigned packet round trips, 10,000 unaligned fields, short input, capacities 0–19, all escape bytes, long input, 300,000 number conversions, and empty/single/multiple archive scans with ordering and cleanup checks. |
 | `package-signatures` | Actual package authenticity/decoding and installation-gate bodies compiled in release and debug configurations; mirror independence, provider outcomes, catalog trust, malformed metadata, and unsigned data archives. |
 | `engine-sanitizer-smoke` | Actual headless server cvar registration, filesystem initialization, command execution and shutdown in an isolated directory. |
 | `qcc-regression` | Compiler help/diagnostics, warning controls, optimization fixtures and execution in the standalone VM. |
@@ -92,15 +95,15 @@ exception does not establish that the entire engine is leak-free.
 
 GitHub CI builds sanitized clients, dedicated servers and compiler/VM tools on
 Linux and macOS and runs all five cases. Failure artifacts include parser,
-server, compiler and network logs. CI has no owned game data and does not run
+server, compiler and network logs. A failed server smoke check also prints its
+complete server log in the CTest output. CI has no owned game data and does not run
 native graphical playtests.
 
 ## Warning inventory and remaining work
 
 The macOS release all-target audit reduced ordinary Clang source-warning
-locations from 38 to one. Eight explicit developer TODO diagnostics remain after removal of the
-release-only package-signature exception,
-along with a gettext catalog warning and the inherited Apple linker alignment
+locations from 38 to one. Eight explicit developer TODO diagnostics remain
+after removal of the release-only package-signature exception, along with a gettext catalog warning and the inherited Apple linker alignment
 warning. No global warning category was disabled to obtain this reduction.
 The remaining unused capsule-height calculation is in `world.c`; that source
 was kept unchanged to preserve the collision baseline.

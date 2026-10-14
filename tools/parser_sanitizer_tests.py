@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise actual engine message and script parsers under ASan/UBSan.
+"""Exercise actual engine parsers and archive scans under ASan/UBSan.
 
 No game data, network connections, or GPU are required. Fixtures supply only
 host/error services and minimal input structures; parser bodies come from the
@@ -52,6 +52,8 @@ def main():
         'strings': [('engine/common/common.c', 'COM_ParseCString')],
         'escapes': [('plugins/quake3/botlib/l_script.c', 'PS_ReadEscapeCharacter')],
         'numbers': [('engine/common/common.c', 'Q_atoi')],
+        'archives': [('engine/common/fs.c', name) for name in
+                     ('FS_FindWildDataFiles', 'FS_SortWildDataFiles', 'FS_LoadWildDataFiles')],
     }
     results = {}
     env = dict(os.environ)

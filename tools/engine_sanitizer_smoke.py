@@ -28,7 +28,7 @@ def main():
                                '+quit', 'force'], cwd=out, env=env, stdout=log,
                               stderr=subprocess.STDOUT, timeout=30)
     text = (out / 'server.log').read_text(errors='replace')
-    assert proc.returncode == 0, f'Server exited {proc.returncode}; inspect {out / "server.log"}'
+    assert proc.returncode == 0, f'Server exited {proc.returncode}; inspect {out / "server.log"}\n{text}'
     assert 'ENGINE_SANITIZER_OK' in text, 'Startup did not reach the command fixture'
     assert not re.search(r'AddressSanitizer|UndefinedBehaviorSanitizer|runtime error:', text), text
     (out / 'results.json').write_text(json.dumps({'server_startup_shutdown': 'passed'}, indent=2) + '\n')

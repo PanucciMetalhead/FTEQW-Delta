@@ -3924,7 +3924,9 @@ static void FS_LoadWildDataFiles (filelist_t *list, wildpaks_t *wp)
 	size_t f;
 	//sort them
 	qsortsucks = list->names;
-	qsort(list->files, list->numfiles, sizeof(*list->files), FS_SortWildDataFiles);
+	// Empty scans leave files NULL; qsort still requires a non-null array.
+	if (list->numfiles > 1)
+		qsort(list->files, list->numfiles, sizeof(*list->files), FS_SortWildDataFiles);
 	qsortsucks = NULL;
 
 	for (f = 0; f < list->numfiles; f++)
