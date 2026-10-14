@@ -968,7 +968,7 @@ void NewNQClient(cluster_t *cluster, netadr_t *addr)
 
 	cluster->numviewers++;
 
-	sprintf(viewer->userinfo, "\\name\\%s", "unnamed");
+	snprintf(viewer->userinfo, sizeof(viewer->userinfo), "\\name\\%s", "unnamed");
 
 	ParseUserInfo(cluster, viewer);
 
@@ -1161,22 +1161,22 @@ void QTV_Status(cluster_t *cluster, netadr_t *from)
 			if (!sv->map.players[i].active)
 				continue;
 			//userid
-			sprintf(elem, "%i", i);
+			snprintf(elem, sizeof(elem), "%i", i);
 			WriteString2(&msg, elem);
 			WriteString2(&msg, " ");
 
 			//frags
-			sprintf(elem, "%i", sv->map.players[i].frags);
+			snprintf(elem, sizeof(elem), "%i", sv->map.players[i].frags);
 			WriteString2(&msg, elem);
 			WriteString2(&msg, " ");
 
 			//time (minuites)
-			sprintf(elem, "%i", 0);
+			snprintf(elem, sizeof(elem), "%i", 0);
 			WriteString2(&msg, elem);
 			WriteString2(&msg, " ");
 
 			//ping
-			sprintf(elem, "%i", sv->map.players[i].ping);
+			snprintf(elem, sizeof(elem), "%i", sv->map.players[i].ping);
 			WriteString2(&msg, elem);
 			WriteString2(&msg, " ");
 
@@ -1213,7 +1213,7 @@ void QTV_Status(cluster_t *cluster, netadr_t *from)
 
 		for (sv = cluster->servers, i = 0; sv; sv = sv->next, i++)
 		{
-			sprintf(elem, "\\%i\\", sv->streamid);
+			snprintf(elem, sizeof(elem), "\\%i\\", sv->streamid);
 			WriteString2(&msg, elem);
 			WriteString2(&msg, sv->server);
 //			sprintf(elem, " (%s)", sv->serveraddress);
@@ -1963,7 +1963,7 @@ void SendNQClientData(sv_t *tv, viewer_t *v, netmsg_t *msg)
 		bits |= SU_ARMOR;
 
 //	if (pl->stats[STAT_WEAPON])
-		bits |= SU_WEAPON;
+	bits |= SU_WEAPON;
 
 // send the data
 
@@ -4164,7 +4164,7 @@ void ParseQWC(cluster_t *cluster, sv_t *qtv, viewer_t *v, netmsg_t *m)
 			else if (!iscont && !strncmp(buf, "spawn", 5))
 			{
 				char skin[64];
-				sprintf(skin, "%cskins\n", svc_stufftext);
+				snprintf(skin, sizeof(skin), "%cskins\n", svc_stufftext);
 				SendBufferToViewer(v, skin, strlen(skin)+1, true);
 
 				QW_PositionAtIntermission(qtv, v);

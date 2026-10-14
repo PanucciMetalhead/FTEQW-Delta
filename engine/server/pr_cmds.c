@@ -4277,7 +4277,7 @@ static void QCBUILTIN PF_h2dprintf (pubprogfuncs_t *prinst, struct globalvars_s 
 	char printable[2048];
 	char *pct;
 
-	sprintf (temp, "%g", G_FLOAT(OFS_PARM1));
+	snprintf (temp, sizeof(temp), "%g", G_FLOAT(OFS_PARM1));
 
 	Q_strncpyz(printable, PR_GetStringOfs(prinst, OFS_PARM0), sizeof(printable));
 	while((pct = strstr(printable, "%s")))
@@ -4296,7 +4296,7 @@ static void QCBUILTIN PF_h2dprintv (pubprogfuncs_t *prinst, struct globalvars_s 
 	char printable[2048];
 	char *pct;
 
-	sprintf (temp, "'%g %g %g'", G_VECTOR(OFS_PARM1)[0], G_VECTOR(OFS_PARM1)[1], G_VECTOR(OFS_PARM1)[2]);
+	snprintf (temp, sizeof(temp), "'%g %g %g'", G_VECTOR(OFS_PARM1)[0], G_VECTOR(OFS_PARM1)[1], G_VECTOR(OFS_PARM1)[2]);
 
 	Q_strncpyz(printable, PR_GetStringOfs(prinst, OFS_PARM0), sizeof(printable));
 	while((pct = strstr(printable, "%s")))
@@ -8186,7 +8186,7 @@ static void QCBUILTIN PF_h2setclass (pubprogfuncs_t *prinst, struct globalvars_s
 	e->xv->playerclass = NewClass;
 	client->playerclass = NewClass;
 
-	sprintf(temp,"%d",(int)NewClass);
+	snprintf(temp, sizeof(temp),"%d",(int)NewClass);
 	InfoBuf_SetValueForKey (&client->userinfo, "cl_playerclass", temp);
 	client->sendinfo = true;
 }

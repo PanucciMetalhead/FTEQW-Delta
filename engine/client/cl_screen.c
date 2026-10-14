@@ -2021,7 +2021,7 @@ void SCR_DrawFPS (void)
 
 	if (gpu>=0)
 	{
-		sprintf(str, "%.0f%% GPU", gpu*100);
+		snprintf(str, sizeof(str), "%.0f%% GPU", gpu*100);
 		SCR_StringXY(str, show_fps_x.value, (show_fps_y.value>=0)?(show_fps_y.value+8):(show_fps_y.value-1));
 	}
 /*	if (gpumem>=0)
@@ -2081,7 +2081,7 @@ void SCR_DrawGameClock(void)
 
 	minutes = showtime/60;
 	seconds = (int)showtime - (minutes*60);
-	sprintf(str, "%02i:%02i", minutes, seconds);
+	snprintf(str, sizeof(str), "%02i:%02i", minutes, seconds);
 
 	SCR_StringXY(str, show_gameclock_x.value, show_gameclock_y.value);
 #endif

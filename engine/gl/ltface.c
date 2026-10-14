@@ -795,7 +795,10 @@ void LightPlane (struct relight_ctx_s *ctx, struct llightinfo_s *l, lightstylein
 {
 	int		s, t;
 	int		i,c,ch;
-	vec_t	total, mean;
+	vec_t	total;
+#ifdef UTILITY
+	vec_t mean;
+#endif
 	int		size;
 	int		lightmapwidth;
 #ifdef UTILITY
@@ -936,7 +939,9 @@ void LightPlane (struct relight_ctx_s *ctx, struct llightinfo_s *l, lightstylein
 		{
 			for (s=0 ; s<=l->texsize[0] ; s++, c++)
 			{
+				#ifdef UTILITY
 				mean = 0;
+				#endif
 
 				for (ch = 0; ch < 3; ch++)
 				{
@@ -967,7 +972,9 @@ void LightPlane (struct relight_ctx_s *ctx, struct llightinfo_s *l, lightstylein
 					
 					if (rgbout)
 						*rgbout++ = total;
+					#ifdef UTILITY
 					mean += total;
+					#endif
 				}
 				if (expout)
 					*expout++ = PackE5BRG9(temp);

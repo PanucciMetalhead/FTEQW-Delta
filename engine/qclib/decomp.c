@@ -1348,7 +1348,7 @@ QCD_def_t *GlobalAtOffset(QCD_function_t *df, gofs_t ofs)
 					if (def->ofs == ofs)
 					{
 						char line[256], *buf;
-						sprintf(line, "%s_%c", GetNameString(def->s_name), 'x'+parmofs);	//globals, which are defined after the locals of the function they are first used in...
+						snprintf(line, sizeof(line), "%s_%c", GetNameString(def->s_name), 'x'+parmofs);	//globals, which are defined after the locals of the function they are first used in...
 						def = malloc(sizeof(*def)+strlen(line)+1);		//must be static variables, but we can't handle them very well
 						buf = (char*)(def+1);
 						strcpy(buf, line);
@@ -3430,7 +3430,7 @@ void DecompileDecompileFunctions(const char *origcopyright)
 			lastfileofs = d->s_file;
 			fname[0] = '\0';
 			//if (d->s_file <= strofs && d->s_file >= 0)
-				sprintf(fname, "%s", GetNameString(d->s_file));
+				snprintf(fname, sizeof(fname), "%s", GetNameString(d->s_file));
 			// FrikaC -- not sure if this is cool or what?
 			bogusname = false;
 			if (strlen(fname) <= 0)

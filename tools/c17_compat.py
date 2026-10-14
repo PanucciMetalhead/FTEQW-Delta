@@ -84,7 +84,7 @@ def main():
     compiler = command(c_entries[0])[0]
     exe = out/'endian-check'
     subprocess.run([compiler, '-std=c17', '-pedantic-errors', '-Wall', '-Wextra', '-Werror',
-                    '-fsanitize=address,undefined', '-I'+str(ROOT),
+                    '-fsanitize=address,undefined','-fno-sanitize-recover=undefined', '-I'+str(ROOT),
                     str(ROOT/'tools/tests/c17_endian.c'), '-o', str(exe)], check=True)
     subprocess.run([str(exe)], check=True)
     results['endian_sanitizers'] = 'passed'

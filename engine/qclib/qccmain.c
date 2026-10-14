@@ -4540,8 +4540,8 @@ static void _QCC_CopyFiles (int blocknum, int copytype, char *srcdir, char *dest
 	{
 		if (precache_sound[i].block != blocknum)
 			continue;
-		sprintf (srcfile,"%s%s",srcdir, precache_sound[i].name);
-		sprintf (destfile,"%s%s",destdir, precache_sound[i].name);
+		snprintf (srcfile, sizeof(srcfile),"%s%s",srcdir, precache_sound[i].name);
+		snprintf (destfile, sizeof(destfile),"%s%s",destdir, precache_sound[i].name);
 		if (copytype == 1)
 			QCC_CopyFile (srcfile, destfile);
 		else
@@ -4551,8 +4551,8 @@ static void _QCC_CopyFiles (int blocknum, int copytype, char *srcdir, char *dest
 	{
 		if (precache_model[i].block != blocknum)
 			continue;
-		sprintf (srcfile,"%s%s",srcdir, precache_model[i].name);
-		sprintf (destfile,"%s%s",destdir, precache_model[i].name);
+		snprintf (srcfile, sizeof(srcfile),"%s%s",srcdir, precache_model[i].name);
+		snprintf (destfile, sizeof(destfile),"%s%s",destdir, precache_model[i].name);
 		if (copytype == 1)
 			QCC_CopyFile (srcfile, destfile);
 		else
@@ -4564,27 +4564,27 @@ static void _QCC_CopyFiles (int blocknum, int copytype, char *srcdir, char *dest
 			continue;
 
 		{
-			sprintf (name, "%s", precache_texture[i].name);
-			sprintf (srcfile,"%s%s",srcdir, name);
-			sprintf (destfile,"%s%s",destdir, name);
+			snprintf (name, sizeof(name), "%s", precache_texture[i].name);
+			snprintf (srcfile, sizeof(srcfile),"%s%s",srcdir, name);
+			snprintf (destfile, sizeof(destfile),"%s%s",destdir, name);
 			if (copytype == 1)
 				QCC_CopyFile (srcfile, destfile);
 			else
 				QCC_PackFile (srcfile, name);
 		}
 		{
-			sprintf (name, "%s.bmp", precache_texture[i].name);
-			sprintf (srcfile,"%s%s",srcdir, name);
-			sprintf (destfile,"%s%s",destdir, name);
+			snprintf (name, sizeof(name), "%s.bmp", precache_texture[i].name);
+			snprintf (srcfile, sizeof(srcfile),"%s%s",srcdir, name);
+			snprintf (destfile, sizeof(destfile),"%s%s",destdir, name);
 			if (copytype == 1)
 				QCC_CopyFile (srcfile, destfile);
 			else
 				QCC_PackFile (srcfile, name);
 		}
 		{
-			sprintf (name, "%s.tga", precache_texture[i].name);
-			sprintf (srcfile,"%s%s",srcdir, name);
-			sprintf (destfile,"%s%s",destdir, name);
+			snprintf (name, sizeof(name), "%s.tga", precache_texture[i].name);
+			snprintf (srcfile, sizeof(srcfile),"%s%s",srcdir, name);
+			snprintf (destfile, sizeof(destfile),"%s%s",destdir, name);
 			if (copytype == 1)
 				QCC_CopyFile (srcfile, destfile);
 			else
@@ -4595,8 +4595,8 @@ static void _QCC_CopyFiles (int blocknum, int copytype, char *srcdir, char *dest
 	{
 		if (precache_file[i].block != blocknum)
 			continue;
-		sprintf (srcfile,"%s%s",srcdir, precache_file[i].name);
-		sprintf (destfile,"%s%s",destdir, precache_file[i].name);
+		snprintf (srcfile, sizeof(srcfile),"%s%s",srcdir, precache_file[i].name);
+		snprintf (destfile, sizeof(destfile),"%s%s",destdir, precache_file[i].name);
 		if (copytype == 1)
 			QCC_CopyFile (srcfile, destfile);
 		else

@@ -33,6 +33,8 @@ cmake --build build --target fteqw --config Release --parallel
 Requires SDL **3.4 or newer**, CMake, and a C/C++ compiler. See
 [building](documentation/Building.md), [dependencies](documentation/Dependencies.md),
 and [renderer controls and validation](documentation/SDL3-GPU.md).
+Warning audits and expanded sanitizer checks are documented in
+[SafetyChecks.md](documentation/SafetyChecks.md).
 
 The [console command and cvar reference](documentation/console_commands.md) covers
 Quake 1 and Quake 3/OpenArena, including shared settings, game-specific behavior,
@@ -53,7 +55,9 @@ replacement textures are supplied by the player and are not included here.
 This is an active renderer migration. The validation record and remaining feature
 work are listed in [SDL3-GPU.md](documentation/SDL3-GPU.md); upstream-wide visual
 compatibility is not yet established.
-Upstream binary self-updates are disabled for this fork.
+Upstream binary self-updates are disabled for this fork. Package downloads use
+[signature-based trust](documentation/PackageTrust.md), with no automatic
+mirror/TLS exception.
 
 FTEQW and the new engine code retain the GNU GPL version 2 or later. See
 [LICENSE](LICENSE) and [upstream credits](documentation/Credits.md).

@@ -678,9 +678,9 @@ static void CODBSP_GenerateMaterials(void *ctx, void *data, size_t a, size_t b)
 
 static void CODBSP_PrepareFrame(struct model_s *mod, refdef_t *refdef, int area, int clusters[2], pvsbuffer_t *vis, qbyte **entvis_out, qbyte **surfvis_out)
 {
-	*entvis_out = *surfvis_out = CODBSP_ClusterPVS(mod, clusters[0], vis, false);
+	*entvis_out = *surfvis_out = CODBSP_ClusterPVS(mod, clusters[0], vis, PVM_REPLACE);
 	if (clusters[1] != -1)
-		CODBSP_ClusterPVS(mod, clusters[1], vis, true);
+		CODBSP_ClusterPVS(mod, clusters[1], vis, PVM_MERGE);
 
 	/*if (!refdef->areabitsknown)
 	{	//generate the info each frame, as the gamecode didn't tell us what to use.

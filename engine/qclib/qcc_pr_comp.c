@@ -2420,7 +2420,7 @@ static QCC_sref_t QCC_GetTemp(QCC_type_t *type)
 		tempsinfo[u].def->ofs = u;
 		tempsinfo[u].def->type = type;
 
-		sprintf(buffer, "temp_%u", (unsigned)u);
+		snprintf(buffer, sizeof(buffer), "temp_%u", (unsigned)u);
 		tempsinfo[u].def->name = qccHunkAlloc(strlen(buffer)+1);
 		strcpy(tempsinfo[u].def->name, buffer);
 	}
@@ -2579,7 +2579,7 @@ static QCC_def_t *QCC_MakeLocked(gofs_t tofs, gofs_t tsize, QCC_def_t *tmp)
 	def = QCC_PR_DummyDef(type_float, NULL, pr_scope, tsize==1?0:tsize, NULL, 0, false, GDF_STRIP);
 	def->arraylengthprefix = false;	//don't waste space with temps.
 #ifdef WRITEASM
-	sprintf(buffer, "locked_%i", tofs);
+	snprintf(buffer, sizeof(buffer), "locked_%i", tofs);
 	def->name = qccHunkAlloc(strlen(buffer)+1);
 	strcpy(def->name, buffer);
 #endif
@@ -16956,20 +16956,12 @@ static int QCC_CheckOneUninitialised(int firststatement, int laststatement, uint
 static pbool QCC_CheckUninitialised(int firststatement, int laststatement)
 {
 	QCC_def_t *local, *c, *uninit;
-	unsigned int i;
 	pbool result = false;
-	unsigned int paramend = FIRST_LOCAL;
-	QCC_type_t *type = pr_scope->type;
 	int err;
 
 	//assume all, because we don't care for optimisations once we know we're not going to compile anything (removes warning about uninitialised unknown variables/typos).
 	if (pr_error_count)
 		return true;
-
-	for (i = 0; i < type->num_parms; i++)
-	{
-		paramend += type->params[i].type->size;
-	}
 
 	for (local = pr.local_head.nextlocal; local; local = local->nextlocal)
 	{

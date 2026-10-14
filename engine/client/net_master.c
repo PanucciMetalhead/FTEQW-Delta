@@ -314,7 +314,7 @@ static void SV_Master_SingleHeartbeat(net_masterlist_t *master)
 							svs.clients[j].state == cs_spawned )
 								active++;
 
-						sprintf (string, "%c\n%i\n%i\n", S2M_HEARTBEAT,
+						snprintf (string, sizeof(string), "%c\n%i\n%i\n", S2M_HEARTBEAT,
 							svs.heartbeat_sequence, active);
 
 						madeqwstring = true;
@@ -801,7 +801,7 @@ void SV_Master_Shutdown (void)
 	//we send it out anyway as for us its all good.
 	//master servers ought to try and check up on the status of the server first, if they listen to this.
 
-	sprintf (string, "%c\n", S2M_SHUTDOWN);
+	snprintf (string, sizeof(string), "%c\n", S2M_SHUTDOWN);
 
 	// send to group master
 	for (i = 0; net_masterlist[i].cv.name; i++)
@@ -1576,7 +1576,7 @@ char *Master_ReadKeyString(serverinfo_t *server, unsigned int keynum)
 		default:
 			{
 				static char s[64];
-				sprintf(s, "%f", Master_ReadKeyFloat(server, keynum));
+				snprintf(s, sizeof(s), "%f", Master_ReadKeyFloat(server, keynum));
 				return s;
 			}
 		}

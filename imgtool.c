@@ -1345,7 +1345,7 @@ static struct pendingtextureinfo *ImgTool_DecodeMiptex(struct opts_s *args, mipt
 	struct pendingtextureinfo *out = Z_Malloc(sizeof(*out));
 	qbyte *newdata = NULL;
 	int neww=0, newh=0, sz;
-	unsigned int bw,bh,bb,bd, i;
+	unsigned int bw,bh,bb,bd;
 	out->type = PTI_2D;
 
 	out->encoding = PTI_INVALID;
@@ -3295,6 +3295,8 @@ static void ImgTool_View(const char *inname, struct pendingtextureinfo *in)
 		{
 			switch(*formats)
 			{
+			default: // Other SDL formats have no corresponding engine upload format.
+				break;
 			//packed formats use hex ordering in both apis.
 			case SDL_PIXELFORMAT_RGB565:		outformats[PTI_RGB565] = true;	break;
 //			case SDL_PIXELFORMAT_BGR565:		outformats[PTI_BGR565] = true;	break;

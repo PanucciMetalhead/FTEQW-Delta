@@ -663,7 +663,7 @@ const char *HTTP_RunClient (HTTP_active_connections_t *cl)
 				//fixme: add connection: keep-alive or whatever so that ie3 is happy...
 				if (HTTPmarkup >= 3 && matchetag && matchetag==(unsigned int)timestamp)
 				{
-					sprintf(resource, "HTTP/1.1 304 Not Modified\r\n"	"%s%s%s"		"Connection: %s\r\n"	/*"Content-Length: %i\r\n"*/	"Server: "FULLENGINENAME"/0\r\n"	"\r\n", modifiedline, mimeline, gzipped?"Content-Encoding: gzip\r\n":"", cl->closeaftertransaction?"close":"keep-alive"/*, (int)VFS_GETLEN(cl->file)*/);
+					snprintf(resource, sizeof(resource), "HTTP/1.1 304 Not Modified\r\n"	"%s%s%s"		"Connection: %s\r\n"	/*"Content-Length: %i\r\n"*/	"Server: "FULLENGINENAME"/0\r\n"	"\r\n", modifiedline, mimeline, gzipped?"Content-Encoding: gzip\r\n":"", cl->closeaftertransaction?"close":"keep-alive"/*, (int)VFS_GETLEN(cl->file)*/);
 					if (cl->file)
 					{	//don't send any actual data...
 						VFS_CLOSE(cl->file);

@@ -3464,7 +3464,7 @@ void Media_RecordFrame (void)
 		if (y > vid.height-8)
 			y = vid.height-8;
 
-			Draw_FunString((strlen(capturemessage.string)+1)*8, y, S_COLOR_RED "PAUSED");
+		Draw_FunString((strlen(capturemessage.string)+1)*8, y, S_COLOR_RED "PAUSED");
 
 		if (captureframeforce)
 			capturelastvideotime += captureframeinterval;
@@ -3615,7 +3615,7 @@ skipframe:
 	if (y > vid.height-8)
 		y = vid.height-8;
 
-		Draw_FunString((strlen(capturemessage.string)+1)*8, y, S_COLOR_RED"RECORDING");
+	Draw_FunString((strlen(capturemessage.string)+1)*8, y, S_COLOR_RED"RECORDING");
 }
 }
 

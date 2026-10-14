@@ -1152,9 +1152,9 @@ void SV_SpawnServer (const char *server, const char *startspot, qboolean noents,
 	{
 		char text[64];
 		sv.csqcchecksum = CalcHashInt(&hash_md4, file, fsz);
-		sprintf(text, "0x%x", sv.csqcchecksum);
+		snprintf(text, sizeof(text), "0x%x", sv.csqcchecksum);
 		InfoBuf_SetValueForStarKey(&svs.info, "*csprogs", text);
-		sprintf(text, "0x%x", (unsigned int)fsz);
+		snprintf(text, sizeof(text), "0x%x", (unsigned int)fsz);
 		InfoBuf_SetValueForStarKey(&svs.info, "*csprogssize", text);
 		if (strcmp(csprogsname, "csprogs.dat"))
 			InfoBuf_SetValueForStarKey(&svs.info, "*csprogsname", csprogsname);
@@ -1576,7 +1576,7 @@ MSV_OpenUserDatabase();
 	if (sv.world.worldmodel->entitiescrc)
 	{
 		char crc[12];
-		sprintf(crc, "%i", sv.world.worldmodel->entitiescrc);
+		snprintf(crc, sizeof(crc), "%i", sv.world.worldmodel->entitiescrc);
 		InfoBuf_SetValueForStarKey(&svs.info, "*entfile", crc);
 	}
 	else

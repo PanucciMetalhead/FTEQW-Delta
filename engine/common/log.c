@@ -960,8 +960,10 @@ void Log_MapNowCompleted(void)
 	m = Log_FindMap(packagename, sv.world.worldmodel->name);
 	if (!m)
 	{
-		m = Z_Malloc(sizeof(*m)+strlen(packagename)+strlen(sv.world.worldmodel->name)+2);
-		sprintf(m->name, "%s/%s", packagename, sv.world.worldmodel->name);
+		size_t namesize = strlen(packagename)+strlen(sv.world.worldmodel->name)+2;
+		m = Z_Malloc(sizeof(*m)+namesize);
+		// name[1] is the trailing allocation, not a one-byte output buffer.
+		snprintf(m->name, namesize, "%s/%s", packagename, sv.world.worldmodel->name);
 
 		m->fulltime = m->besttime = FLT_MAX;
 		m->bestkills = m->bestsecrets = 0;

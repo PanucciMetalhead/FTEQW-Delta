@@ -1013,7 +1013,9 @@ int main(int argc, char *argv[])
 	quakeparms_t	parms;
 //	fd_set	fdset;
 //	extern	int		net_socket;
+	#ifdef __linux__
 	char bindir[MAX_OSPATH];
+	#endif
 
 	signal(SIGPIPE, SIG_IGN);
 	tcgetattr(STDIN_FILENO, &orig);

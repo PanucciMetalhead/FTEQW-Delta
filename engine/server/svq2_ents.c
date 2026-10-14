@@ -93,11 +93,12 @@ void MSGQ2_WriteDeltaEntity (q2entity_state_t *from, q2entity_state_t *to, sizeb
 
 	if ( to->effects != from->effects )
 	{
-		if ((uint64_t)to->effects > 0xffffffffu)
+		uint64_t effects = to->effects; // Preserve the wire value; compare in its encoded width.
+		if (effects > 0xffffffffu)
 		{	//this encoding is weird, Q2UEX_EFFECTS64 without any of the other flags is equivelent to the 8|16==32bit flags, so is pointless without the extra ones.
-			if (to->effects < (uint64_t)256<<32)
+			if (effects < (uint64_t)256<<32)
 				bits |= Q2U_EFFECTS8|Q2UEX_EFFECTS64;
-			else if (to->effects < (uint64_t)0x8000<<32)
+			else if (effects < (uint64_t)0x8000<<32)
 				bits |= Q2U_EFFECTS16|Q2UEX_EFFECTS64;
 			else
 				bits |= Q2U_EFFECTS8|Q2U_EFFECTS16|Q2UEX_EFFECTS64;
@@ -969,7 +970,6 @@ void SVQ2_BuildClientFrame (client_t *client)
 	q2entity_state_t	*state;
 	int		l;
 	int		seat;
-	int		c_fullsend;
 	pvsbuffer_t	clientpvs;
 	qbyte	*clientphs = NULL;
 	int		seats;
@@ -1038,7 +1038,6 @@ void SVQ2_BuildClientFrame (client_t *client)
 	frame->num_entities = 0;
 	frame->first_entity = svs_next_client_entities;
 
-	c_fullsend = 0;
 
 	for (e=1 ; e<ge->num_edicts ; e++)
 	{
@@ -1086,7 +1085,6 @@ void SVQ2_BuildClientFrame (client_t *client)
 						cache.headnode = ent->headnode;
 						if (!sv.world.worldmodel->funcs.EdictInFatPVS(sv.world.worldmodel, &cache, clientpvs.buffer, NULL))
 							continue;
-						c_fullsend++;
 					}
 					else
 					{	// check individual leafs

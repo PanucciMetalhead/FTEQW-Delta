@@ -262,7 +262,7 @@ static void Mod_BlockTextureColour_f (void)
 	((qbyte *)&rgba)[2] = atoi(Cmd_Argv(4));
 	((qbyte *)&rgba)[3] = 255;
 
-	sprintf(texname, "purergb_%i_%i_%i", (int)((char *)&rgba)[0], (int)((char *)&rgba)[1], (int)((char *)&rgba)[2]);
+	snprintf(texname, sizeof(texname), "purergb_%i_%i_%i", (int)((char *)&rgba)[0], (int)((char *)&rgba)[1], (int)((char *)&rgba)[2]);
 /*	s = R_RegisterCustom(Cmd_Argv(2), SUF_LIGHTMAP, NULL, NULL);
 	if (!s)
 	{
@@ -3612,7 +3612,6 @@ static void Mod_LoadMiptex(model_t *loadmodel, texture_t *tx, miptex_t *mt, int 
 		{
 			size_t sz, w, h;
 			unsigned int bb,bw,bh,bd;
-			int mip;
 			qbyte *extdata = (void*)(ptr+extofs);
 			char *extfmt = (char*)(extdata+4);
 			extsize = (extdata[0]<<0)|(extdata[1]<<8)|(extdata[2]<<16)|(extdata[3]<<24);
@@ -3673,7 +3672,7 @@ static void Mod_LoadMiptex(model_t *loadmodel, texture_t *tx, miptex_t *mt, int 
 			Image_BlockSizeForEncoding(newfmt, &bb, &bw, &bh, &bd);
 			neww = (extdata[8]<<0)|(extdata[9]<<8)|(extdata[10]<<16)|(extdata[11]<<24);
 			newh = (extdata[12]<<0)|(extdata[13]<<8)|(extdata[14]<<16)|(extdata[15]<<24);
-			for (mip = 0, w=neww, h=newh, sz=0; w || h; mip++, w>>=1,h>>=1)
+			for (w=neww, h=newh, sz=0; w || h; w>>=1,h>>=1)
 			{
 				w = max(1, w);
 				h = max(1, h);
@@ -3803,7 +3802,7 @@ TRACE(("dbg: Mod_LoadTextures: inittexturedescs\n"));
 		i = 0;
 		tx = ZG_Malloc(&loadmodel->memgroup, sizeof(texture_t));
 		memcpy(tx, r_notexture_mip, sizeof(texture_t));
-		sprintf(tx->name, "unnamed%i", i);
+		snprintf(tx->name, sizeof(tx->name), "unnamed%i", i);
 		loadmodel->textures[i] = tx;
 
 		return true;
@@ -3837,7 +3836,7 @@ TRACE(("dbg: Mod_LoadTextures: inittexturedescs\n"));
 badmip:
 			tx = ZG_Malloc(&loadmodel->memgroup, sizeof(texture_t));
 			memcpy(tx, r_notexture_mip, sizeof(texture_t));
-			sprintf(tx->name, "unnamed%i", i);
+			snprintf(tx->name, sizeof(tx->name), "unnamed%i", i);
 			loadmodel->textures[i] = tx;
 			continue;
 		}

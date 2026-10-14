@@ -4687,7 +4687,7 @@ void QCBUILTIN PF_itos (pubprogfuncs_t *prinst, struct globalvars_s *pr_globals)
 	char pr_string_temp[64];
 	v = G_INT(OFS_PARM0);
 
-	sprintf (pr_string_temp, "%d",v);
+	snprintf (pr_string_temp, sizeof(pr_string_temp), "%d",v);
 	RETURN_TSTRING(pr_string_temp);
 }
 
@@ -4706,7 +4706,7 @@ void QCBUILTIN PF_htos (pubprogfuncs_t *prinst, struct globalvars_s *pr_globals)
 	char pr_string_temp[64];
 	v = G_INT(OFS_PARM0);
 
-	sprintf (pr_string_temp, "%08x",v);
+	snprintf (pr_string_temp, sizeof(pr_string_temp), "%08x",v);
 	RETURN_TSTRING(pr_string_temp);
 }
 
@@ -4752,7 +4752,7 @@ void QCBUILTIN PF_vtos (pubprogfuncs_t *prinst, struct globalvars_s *pr_globals)
 {
 	char pr_string_temp[64];
 	//sprintf (pr_string_temp, "'%5.1f %5.1f %5.1f'", G_VECTOR(OFS_PARM0)[0], G_VECTOR(OFS_PARM0)[1], G_VECTOR(OFS_PARM0)[2]);
-	sprintf (pr_string_temp, "'%f %f %f'", G_VECTOR(OFS_PARM0)[0], G_VECTOR(OFS_PARM0)[1], G_VECTOR(OFS_PARM0)[2]);
+	snprintf (pr_string_temp, sizeof(pr_string_temp), "'%f %f %f'", G_VECTOR(OFS_PARM0)[0], G_VECTOR(OFS_PARM0)[1], G_VECTOR(OFS_PARM0)[2]);
 	RETURN_TSTRING(pr_string_temp);
 }
 

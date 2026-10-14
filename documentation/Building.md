@@ -44,6 +44,8 @@ MSVC checks undeclared functions, excessive arguments, and missing returns.
 the inherited code still has warnings. `FTE_EXTRA_WARNINGS` enables additional
 conversion, format, and extension audits. See [C17.md](C17.md) for the policy,
 regression commands, and merge criteria.
+For the warning inventory, parser fixtures and data-free sanitized server tests,
+see [SafetyChecks.md](SafetyChecks.md).
 Bundled menu/client-addon packages require both `fteqcc` and Python 3; CMake
 skips these packages when either is unavailable. They no longer require shell
 `echo` or a command-line ZIP utility on Windows.

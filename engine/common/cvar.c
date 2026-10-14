@@ -1240,7 +1240,7 @@ void Cvar_SetValue (cvar_t *var, float value)
 //	if (value == (int)value)
 //		sprintf (val, "%i",(int)value);	//make it look nicer.
 //	else
-		sprintf (val, "%f",value);
+		snprintf (val, sizeof(val), "%f",value);
 	p = strchr(val, '.');
 	if (p)
 	{
@@ -1260,7 +1260,7 @@ void Cvar_ForceSetValue (cvar_t *var, float value)
 //	if (value == (int)value)
 //		sprintf (val, "%i",(int)value);	//make it look nicer.
 //	else
-		sprintf (val, "%g",value);
+		snprintf (val, sizeof(val), "%g",value);
 	Cvar_ForceSet (var, val);
 }
 

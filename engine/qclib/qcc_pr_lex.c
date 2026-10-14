@@ -4999,7 +4999,6 @@ char *TypeName(QCC_type_t *type, char *buffer, int buffersize)
 
 	if (type->type == ev_function)
 	{
-		int args = type->num_parms;
 		size_t l;
 		pbool vargs = type->vargs;
 		unsigned int i;
@@ -5013,7 +5012,6 @@ char *TypeName(QCC_type_t *type, char *buffer, int buffersize)
 				Q_strlcat(buffer, "inout ", buffersize-1);
 			if (type->params[i].optional)
 				Q_strlcat(buffer, "optional ", buffersize-1);
-			args--;
 
 			l = strlen(buffer);
 			TypeName(type->params[i].type, buffer+l, buffersize-1-l);

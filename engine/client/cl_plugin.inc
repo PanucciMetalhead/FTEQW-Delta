@@ -316,7 +316,7 @@ static void QDECL Plug_Draw_StringH(float x, float y, float h, unsigned int flag
 		cmask |= CON_2NDCHARSETTEXT;
 	if (flags & 2)
 		parseflags |= PFS_FORCEUTF8;
-	COM_ParseFunString(CON_WHITEMASK, instr, buffer, sizeof(buffer), parseflags);
+	COM_ParseFunString(cmask, instr, buffer, sizeof(buffer), parseflags);
 	str = buffer;
 	Font_BeginScaledString(font_default, x, y, h, h, &x, &y);
 	ipx = x;
@@ -344,7 +344,7 @@ static float QDECL Plug_Draw_StringWidth(float h, unsigned int flags, const char
 		cmask |= CON_2NDCHARSETTEXT;
 	if (flags & 2)
 		parseflags |= PFS_FORCEUTF8;
-	str = COM_ParseFunString(CON_WHITEMASK, instr, buffer, sizeof(buffer), parseflags);
+	str = COM_ParseFunString(cmask, instr, buffer, sizeof(buffer), parseflags);
 	
 	Font_BeginScaledString(font_default, 0, 0, h, h, &px, &py);
 	px = Font_LineScaleWidth(buffer, str);

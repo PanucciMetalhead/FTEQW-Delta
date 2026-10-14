@@ -3197,7 +3197,7 @@ static const char *retint(int f)
 	tempstack_t *ret;
 	if (!f)
 		return "";
-	sprintf(s, "%d", f);
+	snprintf(s, sizeof(s), "%d", f);
 	ret = (tempstack_t*)Z_Malloc(sizeof(tempstack_t)+strlen(s));
 	ret->next = ifstack;
 	ifstack=ret;
@@ -3216,7 +3216,7 @@ static const char *retfloat(float f)
 	tempstack_t *ret;
 	if (!f)
 		return "";
-	sprintf(s, "%g", f);
+	snprintf(s, sizeof(s), "%g", f);
 	ret = (tempstack_t*)Z_Malloc(sizeof(tempstack_t)+strlen(s));
 	ret->next = ifstack;
 	ifstack=ret;

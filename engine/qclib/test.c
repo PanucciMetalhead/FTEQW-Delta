@@ -34,37 +34,37 @@ void PF_strcat (pubprogfuncs_t *prinst, struct globalvars_s *pr_globals)
 void PF_ftos (pubprogfuncs_t *prinst, struct globalvars_s *pr_globals)
 {
 	char temp[64];
-	sprintf(temp, "%g", G_FLOAT(OFS_PARM0));
+	snprintf(temp, sizeof(temp), "%g", G_FLOAT(OFS_PARM0));
 	G_INT(OFS_RETURN) = prinst->TempString(prinst, temp);
 }
 void PF_vtos (pubprogfuncs_t *prinst, struct globalvars_s *pr_globals)
 {
 	char temp[64];
-	sprintf(temp, "'%g %g %g'", G_VECTOR(OFS_PARM0)[0], G_VECTOR(OFS_PARM0)[1], G_VECTOR(OFS_PARM0)[2]);
+	snprintf(temp, sizeof(temp), "'%g %g %g'", G_VECTOR(OFS_PARM0)[0], G_VECTOR(OFS_PARM0)[1], G_VECTOR(OFS_PARM0)[2]);
 	G_INT(OFS_RETURN) = prinst->TempString(prinst, temp);
 }
 void PF_etos (pubprogfuncs_t *prinst, struct globalvars_s *pr_globals)
 {
 	char temp[64];
-	sprintf(temp, "%i", G_INT(OFS_PARM0));
+	snprintf(temp, sizeof(temp), "%i", G_INT(OFS_PARM0));
 	G_INT(OFS_RETURN) = prinst->TempString(prinst, temp);
 }
 void PF_itos (pubprogfuncs_t *prinst, struct globalvars_s *pr_globals)
 {
 	char temp[64];
-	sprintf(temp, "%x", G_INT(OFS_PARM0));
+	snprintf(temp, sizeof(temp), "%x", G_INT(OFS_PARM0));
 	G_INT(OFS_RETURN) = prinst->TempString(prinst, temp);
 }
 void PF_ltos (pubprogfuncs_t *prinst, struct globalvars_s *pr_globals)
 {
 	char temp[64];
-	sprintf(temp, "%"PRIx64, G_INT64(OFS_PARM0));
+	snprintf(temp, sizeof(temp), "%"PRIx64, G_INT64(OFS_PARM0));
 	G_INT(OFS_RETURN) = prinst->TempString(prinst, temp);
 }
 void PF_dtos (pubprogfuncs_t *prinst, struct globalvars_s *pr_globals)
 {
 	char temp[64];
-	sprintf(temp, "%g", G_DOUBLE(OFS_PARM0));
+	snprintf(temp, sizeof(temp), "%g", G_DOUBLE(OFS_PARM0));
 	G_INT(OFS_RETURN) = prinst->TempString(prinst, temp);
 }
 void PF_stof (pubprogfuncs_t *prinst, struct globalvars_s *pr_globals)

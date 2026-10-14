@@ -847,7 +847,7 @@ static void PKG_ParseClassFiles(struct pkgctx_s *ctx, struct class_s *c)
 				continue;
 
 //			if (strchr(prop, '*') || strchr(prop, '?'))
-				PKG_AddClassFiles(ctx, c, prop);
+			PKG_AddClassFiles(ctx, c, prop);
 //			else
 //				PKG_AddClassFile(ctx, c, prop);
 		}

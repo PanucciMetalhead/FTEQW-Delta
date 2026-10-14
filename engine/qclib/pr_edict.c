@@ -732,7 +732,7 @@ char *PDECL PR_UglyValueString (pubprogfuncs_t *ppf, etype_t type, eval_t *val)
 			else
 			{
 				f = pr_progstate[(unsigned)i].functions + j;
-				sprintf (line, "%i:%s", i, f->s_name+progfuncs->funcs.stringtable);
+				snprintf (line, sizeof(line), "%i:%s", i, f->s_name+progfuncs->funcs.stringtable);
 			}
 		}
 		break;
@@ -974,12 +974,12 @@ char *PR_GlobalString (progfuncs_t *progfuncs, int ofs, struct QCC_type_s **type
 #endif
 			type = ev_integer;
 		s = PR_ValueString (progfuncs, type, val, false);
-		sprintf (line,"%i(?)%s", ofs, s);
+		snprintf (line, sizeof(line),"%i(?)%s", ofs, s);
 	}
 	else
 	{
 		s = PR_ValueString (progfuncs, def32->type, val, false);
-		sprintf (line,"%i(%s)%s", ofs, def32->s_name+progfuncs->funcs.stringtable, s);
+		snprintf (line, sizeof(line),"%i(%s)%s", ofs, def32->s_name+progfuncs->funcs.stringtable, s);
 	}
 
 	i = strlen(line);
@@ -1040,7 +1040,7 @@ char *PR_GlobalStringImmediate (progfuncs_t *progfuncs, int ofs)
 {
 	int		i;
 	static char	line[128];
-	sprintf (line,"%i", ofs);
+	snprintf (line, sizeof(line),"%i", ofs);
 
 	i = strlen(line);
 	for ( ; i<20 ; i++)
@@ -1854,7 +1854,7 @@ char *PR_SaveCallStack (progfuncs_t *progfuncs, char *buf, size_t *bufofs, size_
 			{
 				progs = prinst.pr_stack[i].progsnum;
 
-				sprintf(buffer, "//%i %s\n", progs, pr_progstate[progs].filename);
+				snprintf(buffer, sizeof(buffer), "//%i %s\n", progs, pr_progstate[progs].filename);
 				AddS (buffer);
 			}
 			if (!f->s_file)
@@ -1874,7 +1874,7 @@ char *PR_SaveCallStack (progfuncs_t *progfuncs, char *buf, size_t *bufofs, size_
 				{
 					if (local->type == ev_entity)
 					{
-						sprintf(buffer, "\t\t\"%s\" \"entity %i\"\n", PR_StaticString(progfuncs, local->s_name), ((eval_t*)(globalbase - f->locals+arg))->edict);
+						snprintf(buffer, sizeof(buffer), "\t\t\"%s\" \"entity %i\"\n", PR_StaticString(progfuncs, local->s_name), ((eval_t*)(globalbase - f->locals+arg))->edict);
 					}
 					else
 						sprintf(buffer, "\t\t\"%s\"\t\"%s\"\n", PR_StaticString(progfuncs, local->s_name), PR_ValueString(progfuncs, local->type, (eval_t*)(globalbase - f->locals+arg), false));

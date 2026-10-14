@@ -4920,7 +4920,7 @@ static neterr_t NET_KexLobby_Received(void *ctx, sizebuf_t *message)
 				p = peer->plidx[p];
 			l = *buf++;	//skip the length info
 			csz = seqend-buf;
-			if (l == csz && l < sizeof(s))
+			if (l == csz) // l is a byte; s has room for all 255 bytes plus NUL.
 			{
 				memcpy(s, buf, l);
 				s[l] = 0;
@@ -4962,7 +4962,7 @@ static neterr_t NET_KexLobby_Received(void *ctx, sizebuf_t *message)
 			{
 				l = *buf++;
 				csz = seqend-buf;
-				if (l == csz && l < sizeof(s))
+				if (l == csz) // l is a byte; s has room for all 255 bytes plus NUL.
 				{
 					memcpy(s, buf, l);
 					s[l] = 0;

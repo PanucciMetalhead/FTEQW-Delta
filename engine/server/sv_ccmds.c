@@ -203,7 +203,7 @@ static void SV_Fraglogfile_f (void)
 	// find an unused name
 	for (i=0 ; i<1000 ; i++)
 	{
-		sprintf (name, "frag_%i.log", i);
+		snprintf (name, sizeof(name), "frag_%i.log", i);
 		sv_fraglogfile = FS_OpenVFS(name, "rb", FS_GAME);
 		if (!sv_fraglogfile)
 		{	// can't read it, so create this one
@@ -3169,7 +3169,7 @@ static void SV_Snap (int uid)
 		return;
 	}
 
-	sprintf(pcxname, "%d-00.pcx", uid);
+	snprintf(pcxname, sizeof(pcxname), "%d-00.pcx", uid);
 
 	strcpy(checkname, "snap");
 

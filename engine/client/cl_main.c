@@ -1919,7 +1919,7 @@ static void CL_ConnectBestRoute_f (void)
 		CL_Disconnect (NULL);
 	else
 #endif*/
-		CL_Disconnect_f ();
+	CL_Disconnect_f ();
 	CL_BeginServerConnect(server, 0, true, CIM_DEFAULT, CIS_DEFAULT);
 }
 #endif

@@ -2329,7 +2329,7 @@ void R_DrawNameTags(void)
 					size_t buflen;
 					int x, y;
 
-					sprintf(asciibuffer, "entity %i ", e->entnum);
+					snprintf(asciibuffer, sizeof(asciibuffer), "entity %i ", e->entnum);
 					buflen = strlen(asciibuffer);
 					entstr = w->progs->saveent(w->progs, asciibuffer, &buflen, sizeof(asciibuffer), (edict_t*)e);	//will save just one entities vars
 					if (entstr)

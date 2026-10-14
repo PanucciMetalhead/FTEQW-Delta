@@ -386,76 +386,97 @@ static qboolean PM_PurgeOnDisable(package_t *p)
 	return true;
 }
 
+// Package trust comes from signatures or an explicitly trusted catalog, never
+// from a mirror's host name or its TLS connection. Validate the complete hash:
+// the general-purpose decoder otherwise accepts a valid prefix and ignores junk.
+static qboolean PM_HashIsValid(const char *hash, size_t bytes)
+{
+	size_t i;
+	if (!hash || strlen(hash) != bytes*2)
+		return false;
+	for (i = 0; i < bytes*2; i++)
+		if (!ishexcode(hash[i]))
+			return false;
+	return true;
+}
+
+// Reject malformed/truncated signatures before asking a crypto provider. Both
+// the standard and URI-safe alphabets, with optional padding, remain supported.
+static size_t PM_DecodeSignature(const char *text, qbyte *out, size_t outsize)
+{
+	size_t len = strlen(text), chars = len, padding = 0, i, bytes;
+	while (chars && text[chars-1] == '=')
+	{
+		chars--;
+		padding++;
+	}
+	if (chars < 2 || chars%4 == 1 || padding > 2 ||
+		(padding && (len%4 || padding != (4-chars%4)%4)))
+		return 0;
+	for (i = 0; i < chars; i++)
+		if (!((text[i] >= 'A' && text[i] <= 'Z') ||
+			(text[i] >= 'a' && text[i] <= 'z') ||
+			(text[i] >= '0' && text[i] <= '9') ||
+			text[i] == '+' || text[i] == '/' || text[i] == '-' || text[i] == '_'))
+			return 0;
+	bytes = (chars/4)*3 + (chars%4 ? chars%4-1 : 0);
+	// Base64_DecodeBlock reserves a byte of capacity even for binary output.
+	if (!bytes || bytes >= outsize)
+		return 0;
+	if (Base64_DecodeBlock(text, NULL, out, outsize) != bytes)
+		return 0;
+	return bytes;
+}
+
 static void PM_ValidateAuthenticity(package_t *p, enum hashvalidation_e validated)
 {
-	qbyte hashdata[512+MAX_QPATH];
+	qbyte hashdata[64];
 	size_t hashsize = 0;
 	qbyte signdata[1024];
 	size_t signsize = 0;
-	int r, i;
+	enum hashvalidation_e r;
+	int i;
 	char authority[MAX_QPATH], *sig;
-
-	const qbyte *pubkey;
-	size_t pubkeysize;
-
-#ifndef _DEBUG
-#pragma message("Temporary code.")
-	//this is temporary code and should be removed once everything else has been fixed.
-	//ignore the signature (flag as accepted) for any packages with all mirrors on our own update site.
-	//we can get away with this because we enforce a known certificate for the download.
-	if (!COM_CheckParm("-notlstrust") && p->mirror[0])
-	{
-		conchar_t musite[256], *e;
-		char site[256];
-		char *oldprefix = "http://fte.";
-		char *newprefix = "https://updates.";
-		int m;
-		e = COM_ParseFunString(CON_WHITEMASK, ENGINEWEBSITE, musite, sizeof(musite), false);
-		COM_DeFunString(musite, e, site, sizeof(site)-1, true, true);
-		if (!strncmp(site, oldprefix, strlen(oldprefix)))
-		{
-			memmove(site+strlen(newprefix), site+strlen(oldprefix), strlen(site)-strlen(oldprefix)+1);
-			memcpy(site, newprefix, strlen(newprefix));
-		}
-		Q_strncatz(site, "/", sizeof(site));
-		for (m = 0; m < countof(p->mirror); m++)
-		{
-			if (p->mirror[m] && strncmp(p->mirror[m], site, strlen(site)))
-				break;	//some other host
-		}
-		if (m == countof(p->mirror))
-		{
-			p->flags |= DPF_SIGNATUREACCEPTED;
-			return;
-		}
-	}
-#endif
+	const qbyte *pubkey = NULL;
+	size_t pubkeysize = 0;
 
 	*authority = 0;
-	if (!p->signature)
+	if ((p->filesha512 && !PM_HashIsValid(p->filesha512, 64)) ||
+		(p->filesha1 && !PM_HashIsValid(p->filesha1, 20)))
+		r = VH_INCORRECT;
+	else if (!p->signature)
 		r = VH_AUTHORITY_UNKNOWN;
 	else if (!p->filesha512)
 		r = VH_INCORRECT;
 	else
 	{
 		sig = strchr(p->signature, ':');
-		if (sig && sig-p->signature<countof(authority)-1)
+		if (sig)
 		{
+			if (sig == p->signature || (size_t)(sig-p->signature) >= sizeof(authority))
+			{
+				r = VH_INCORRECT;
+				goto result;
+			}
 			memcpy(authority, p->signature, sig-p->signature);
 			authority[sig-p->signature] = 0;
 			sig++;
 		}
 		else
 		{
-			strcpy(authority, "Spike");	//legacy bollocks
+			strcpy(authority, "Spike"); // Legacy signatures omit the authority.
 			sig = p->signature;
 		}
 
-		//to validate it, we need a single blob that composits all the parts that might need to be validated. mostly just prefix and file hash.
+		signsize = PM_DecodeSignature(sig, signdata, sizeof(signdata));
+		if (!signsize)
+		{
+			r = VH_INCORRECT;
+			goto result;
+		}
 		hashsize = Base16_DecodeBlock(p->filesha512, hashdata, sizeof(hashdata));
-
 		if (p->packprefix && *p->packprefix)
-		{	//need to a bit of extra hashing when we have extra data, to get it to fit.
+		{ // The signature also binds any archive prefix to the download hash.
 			hashfunc_t *h = &hash_sha2_512;
 			void *ctx = alloca(h->contextsize);
 			h->init(ctx);
@@ -465,23 +486,15 @@ static void PM_ValidateAuthenticity(package_t *p, enum hashvalidation_e validate
 			h->terminate(hashdata, ctx);
 			hashsize = h->digestsize;
 		}
-
-		//and the proof...
-		signsize = Base64_DecodeBlock(sig, NULL, signdata, sizeof(signdata));
-		r = VH_UNSUPPORTED;//preliminary
+		pubkey = Auth_GetKnownCertificate(authority, &pubkeysize);
+		r = pubkey ? VH_UNSUPPORTED : VH_AUTHORITY_UNKNOWN;
 	}
 
-	pubkey = Auth_GetKnownCertificate(authority, &pubkeysize);
-	if (!pubkey)
-		r = VH_AUTHORITY_UNKNOWN;
-
-	//try and get one of our providers to verify it...
-	for (i = 0; r==VH_UNSUPPORTED && i < cryptolib_count; i++)
-	{
+	for (i = 0; r == VH_UNSUPPORTED && i < cryptolib_count; i++)
 		if (cryptolib[i] && cryptolib[i]->VerifyHash)
 			r = cryptolib[i]->VerifyHash(hashdata, hashsize, pubkey, pubkeysize, signdata, signsize);
-	}
 
+result:
 	p->flags &= ~(DPF_SIGNATUREACCEPTED|DPF_SIGNATUREREJECTED|DPF_SIGNATUREUNKNOWN);
 	if (r == VH_CORRECT)
 		p->flags |= DPF_SIGNATUREACCEPTED;
@@ -491,7 +504,7 @@ static void PM_ValidateAuthenticity(package_t *p, enum hashvalidation_e validate
 		p->flags |= DPF_SIGNATUREREJECTED;
 	}
 	else if (validated == VH_CORRECT && p->filesize && (p->filesha1||p->filesha512))
-		p->flags |= DPF_SIGNATUREACCEPTED;	//parent validation was okay, expand that to individual packages too.
+		p->flags |= DPF_SIGNATUREACCEPTED; // A trusted catalog binds hash and size.
 	else if (p->signature)
 		p->flags |= DPF_SIGNATUREUNKNOWN;
 }
@@ -1471,7 +1484,9 @@ static qboolean PM_ParsePackageList(const char *f, unsigned int parseflags, cons
 	if (!f)
 		return forcewrite;
 
-	source.validated = (parseflags & (DPF_ENABLED|DPF_SIGNATUREACCEPTED))?VH_CORRECT/*FIXME*/:VH_UNSUPPORTED;
+	// Local installed state and explicitly unsafe sources are caller-granted trust.
+	// Remote catalogs otherwise need a verified signature of their complete text.
+	source.validated = (parseflags & (DPF_ENABLED|DPF_SIGNATUREACCEPTED))?VH_CORRECT:VH_UNSUPPORTED;
 	Q_strncpyz(source.gamedir, FS_GetGamedir(false), sizeof(source.gamedir));
 
 	if (url)
@@ -1566,16 +1581,16 @@ static qboolean PM_ParsePackageList(const char *f, unsigned int parseflags, cons
 					tokstart = COM_StringParse (tokstart, authority, sizeof(authority), false, false);
 					tokstart = COM_StringParse (tokstart, signature_base64, sizeof(signature_base64), false, false);
 
-					signsize = Base64_DecodeBlock(signature_base64, NULL, signdata, sizeof(signdata));
+					signsize = PM_DecodeSignature(signature_base64, (qbyte *)signdata, sizeof(signdata));
 					hf->init(hashctx);
 					hf->process(hashctx, filestart, linestart-filestart);	//hash the text leading up to the signature line
 					hf->process(hashctx, f, strlen(f));						//and hash the data after it. so the only bit not hashed is the signature itself.
 					hf->terminate(hashdata, hashctx);
 					Z_Free(hashctx);
-					r = VH_UNSUPPORTED;//preliminary
+					r = signsize ? VH_UNSUPPORTED : VH_INCORRECT;
 
 					pubkey = Auth_GetKnownCertificate(authority, &pubkeysize);
-					if (!pubkey)
+					if (!pubkey && r == VH_UNSUPPORTED)
 					{
 						r = VH_AUTHORITY_UNKNOWN;
 						Con_Printf(CON_ERROR"%s: Unknown signature authority %s\n", url, authority);
@@ -2991,7 +3006,7 @@ static void PM_ListDownloaded(struct dl_download *dl)
 	}
 	pm_source[listidx].curdl = NULL;
 
-	//FIXME: validate a signature!
+	// PM_ParsePackageList verifies catalog signatures before inheriting trust.
 
 	if (f)
 	{
@@ -6543,7 +6558,6 @@ static void MD_Download_UpdateStatus(struct emenu_s *m)
 	menubutton_t *b, *d;
 #ifdef WEBCLIENT
 	int i;
-	unsigned int downloads=0;
 	menucustom_t *c;
 	qboolean sources;
 #endif
@@ -6581,10 +6595,6 @@ static void MD_Download_UpdateStatus(struct emenu_s *m)
 			p = p->alternative;
 
 		totalpackages++;
-#ifdef WEBCLIENT
-		if ((p->flags&DPF_PENDING) || p->trymirrors)
-			downloads++;	//downloading or pending
-#endif
 		if (p->flags & DPF_MARKED)
 		{
 			if (p->flags & DPF_ENABLED)

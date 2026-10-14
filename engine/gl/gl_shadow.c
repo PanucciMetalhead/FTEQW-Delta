@@ -2471,9 +2471,11 @@ qboolean Sh_GenShadowMap (dlight_t *l, int lighttype, vec3_t axis[3], qbyte *lvi
 	int oldflip = r_refdef.flipcull;
 	unsigned int oldcolourmask = r_refdef.colourmask;
 	int oldexternalview = r_refdef.externalview;
-	int twidth;
+	#if defined(D3D11QUAKE) || defined(VKQUAKE)
 	int theight;
+	int twidth;
 	int smapidx;
+#endif
 	uploadfmt_t fmt;
 
 	if (r_shadow_shadowmapping_depthbits.ival >= 32 && sh_config.texfmt[PTI_DEPTH32])
@@ -2491,21 +2493,25 @@ qboolean Sh_GenShadowMap (dlight_t *l, int lighttype, vec3_t axis[3], qbyte *lvi
 		f = 4;
 		lf = f+1;
 		sidevisible = 1<<f;
-		twidth = theight = txsize;
-
+		#if defined(D3D11QUAKE) || defined(VKQUAKE)
+		theight = txsize;
+		twidth = txsize;
 		if (lighttype & LSHADER_FAKESHADOWS)
 			smapidx = 2;
 		else
 			smapidx = 1;
+#endif
 	}
 	else
 	{
 		f = 0;
 		lf = 6;
 		sidevisible = (1<<6)-1;
-		twidth = txsize*3;
+		#if defined(D3D11QUAKE) || defined(VKQUAKE)
 		theight = txsize*2;
+		twidth = txsize*3;
 		smapidx = 0;
+#endif
 	}
 	if (R_CullSphere(l->origin, 0))
 	{	//if the light's center isn't onscreen, cull individual faces

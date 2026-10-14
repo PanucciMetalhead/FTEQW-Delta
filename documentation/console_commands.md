@@ -573,7 +573,7 @@ Jump to [input actions](#held-input-actions), [menus](#built-in-menu-entry-point
 | `pin_delete` | Both | Delete the oldest pinned server notice. |
 | `pin_reload` | Both | Reload pinned server notices from disk. |
 | `pin_save` | Both | Save pinned server notices to disk. |
-| `pkg` | Both | Provides a way to install / list / disable / purge packages via the console. |
+| `pkg` | Both | Install / list / disable / purge packages via the console. See [package trust rules](PackageTrust.md) for signatures and unsigned data downloads. |
 | `play` | Client | Play one or more local sound files without spatial attenuation. This fork uses the same playback behavior for both names; omitted extensions default to `.wav`. |
 | `play2` | Client | Play one or more local sound files without spatial attenuation. This fork uses the same playback behavior for both names; omitted extensions default to `.wav`. |
 | `playclip` | Client | Play a video inside an engine console window; requires a suitable video decoder. |

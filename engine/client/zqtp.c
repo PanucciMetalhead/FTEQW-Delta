@@ -43,6 +43,9 @@ typedef qboolean qbool;
 
 #define Com_Printf Con_Printf
 
+// These compatibility aliases intentionally use the engine string helpers.
+#undef strlcpy
+#undef strlcat
 #define strlcpy Q_strncpyz
 #define strlcat Q_strncatz
 #define Q_stricmp strcasecmp
@@ -446,7 +449,7 @@ static void MacroBuf_strcat_with_separator (char *str) {
 
 static char *Macro_Latency (void)
 {
-	sprintf(macro_buf, "%i", Q_rint(cls.latency*1000));
+	snprintf(macro_buf, sizeof(macro_buf), "%i", Q_rint(cls.latency*1000));
 	return macro_buf;
 }
 
@@ -460,43 +463,43 @@ static char *Macro_Gamedir (void)
 #ifdef QUAKESTATS
 static char *Macro_Health (void)
 {
-	sprintf(macro_buf, "%i", cl.playerview[SP].stats[STAT_HEALTH]);
+	snprintf(macro_buf, sizeof(macro_buf), "%i", cl.playerview[SP].stats[STAT_HEALTH]);
 	return macro_buf;
 }
 
 static char *Macro_Armor (void)
 {
-	sprintf(macro_buf, "%i", cl.playerview[SP].stats[STAT_ARMOR]);
+	snprintf(macro_buf, sizeof(macro_buf), "%i", cl.playerview[SP].stats[STAT_ARMOR]);
 	return macro_buf;
 }
 
 static char *Macro_Shells (void)
 {
-	sprintf(macro_buf, "%i", cl.playerview[SP].stats[STAT_SHELLS]);
+	snprintf(macro_buf, sizeof(macro_buf), "%i", cl.playerview[SP].stats[STAT_SHELLS]);
 	return macro_buf;
 }
 
 static char *Macro_Nails (void)
 {
-	sprintf(macro_buf, "%i", cl.playerview[SP].stats[STAT_NAILS]);
+	snprintf(macro_buf, sizeof(macro_buf), "%i", cl.playerview[SP].stats[STAT_NAILS]);
 	return macro_buf;
 }
 
 static char *Macro_Rockets (void)
 {
-	sprintf(macro_buf, "%i", cl.playerview[SP].stats[STAT_ROCKETS]);
+	snprintf(macro_buf, sizeof(macro_buf), "%i", cl.playerview[SP].stats[STAT_ROCKETS]);
 	return macro_buf;
 }
 
 static char *Macro_Cells (void)
 {
-	sprintf(macro_buf, "%i", cl.playerview[SP].stats[STAT_CELLS]);
+	snprintf(macro_buf, sizeof(macro_buf), "%i", cl.playerview[SP].stats[STAT_CELLS]);
 	return macro_buf;
 }
 
 static char *Macro_Ammo (void)
 {
-	sprintf(macro_buf, "%i", cl.playerview[SP].stats[STAT_AMMO]);
+	snprintf(macro_buf, sizeof(macro_buf), "%i", cl.playerview[SP].stats[STAT_AMMO]);
 	return macro_buf;
 }
 
@@ -1053,7 +1056,7 @@ static char *Macro_CountNearbyEnemyPlayers (void)
 	if (!ruleset_allow_playercount.ival)
 		return " ";
 	CountNearbyPlayers(false);
-	sprintf(macro_buf, "\xffz%d\xff", vars.numenemies);
+	snprintf(macro_buf, sizeof(macro_buf), "\xffz%d\xff", vars.numenemies);
 	suppress = true;
 	return macro_buf;
 }
@@ -1065,12 +1068,12 @@ static char *Macro_Count_Last_NearbyEnemyPlayers (void)
 		return " ";
 	if (vars.deathtrigger_time && realtime - vars.deathtrigger_time <= 5)
 	{
-		sprintf(macro_buf, "\xffz%d\xff", vars.last_numenemies);
+		snprintf(macro_buf, sizeof(macro_buf), "\xffz%d\xff", vars.last_numenemies);
 	}
 	else
 	{
 		CountNearbyPlayers(false);
-		sprintf(macro_buf, "\xffz%d\xff", vars.numenemies);
+		snprintf(macro_buf, sizeof(macro_buf), "\xffz%d\xff", vars.numenemies);
 	}
 	suppress = true;
 	return macro_buf;
@@ -1082,7 +1085,7 @@ static char *Macro_CountNearbyFriendlyPlayers (void)
 	if (!ruleset_allow_playercount.ival)
 		return " ";
 	CountNearbyPlayers(false);
-	sprintf(macro_buf, "\xffz%d\xff", vars.numfriendlies);
+	snprintf(macro_buf, sizeof(macro_buf), "\xffz%d\xff", vars.numfriendlies);
 	suppress = true;
 	return macro_buf;
 }
@@ -1094,12 +1097,12 @@ static char *Macro_Count_Last_NearbyFriendlyPlayers (void)
 		return " ";
 	if (vars.deathtrigger_time && realtime - vars.deathtrigger_time <= 5)
 	{
-		sprintf(macro_buf, "\xffz%d\xff", vars.last_numfriendlies);
+		snprintf(macro_buf, sizeof(macro_buf), "\xffz%d\xff", vars.last_numfriendlies);
 	}
 	else
 	{
 		CountNearbyPlayers(false);
-		sprintf(macro_buf, "\xffz%d\xff", vars.numfriendlies);
+		snprintf(macro_buf, sizeof(macro_buf), "\xffz%d\xff", vars.numfriendlies);
 	}
 	suppress = true;
 	return macro_buf;
@@ -1627,7 +1630,6 @@ static void TP_LoadLocFile (char *filename, qbool quiet)
 	char	*buf, *p;
 	char	line[1024];
 	int		i, argc;
-	int		errorcount = 0;
 	locdata_t	*loc;
 	char *comma, *space;
 
@@ -1732,8 +1734,6 @@ static void TP_LoadLocFile (char *filename, qbool quiet)
 					}
 				}
 			}
-
-			errorcount++;
 		}
 		else
 		{
@@ -1745,14 +1745,12 @@ static void TP_LoadLocFile (char *filename, qbool quiet)
 
 			if (argc < 4)
 			{
-				errorcount++;
 				continue;
 			}
 
 			if (atoi(Cmd_Argv(0)) == 0 && Cmd_Argv(0)[0] != '0')
 			{
 				// first token is not a number
-				errorcount++;
 				continue;
 			}
 

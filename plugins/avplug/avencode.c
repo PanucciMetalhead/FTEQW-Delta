@@ -770,7 +770,7 @@ static void AVEnc_End (void *vctx)
 	for(i = 0; i < ctx->fc->nb_streams; i++)
 		av_freep(&ctx->fc->streams[i]);
 //	if (!(fmt->flags & AVFMT_NOFILE))
-		avio_close(ctx->fc->pb);
+	avio_close(ctx->fc->pb);
 	av_free(ctx->audio_outbuf);
 	avformat_free_context(ctx->fc);
 	free(ctx);

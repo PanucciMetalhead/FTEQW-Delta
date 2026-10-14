@@ -364,10 +364,15 @@ int PS_ReadWhiteSpace(script_t *script)
 //============================================================================
 int PS_ReadEscapeCharacter(script_t *script, char *ch)
 {
-	int c, val, i;
+	int c, val;
 
 	//step over the leading '\\'
 	script->script_p++;
+	if (!*script->script_p)
+	{
+		ScriptError(script, "unterminated escape character");
+		return 0;
+	}
 	//determine the escape character
 	switch(*script->script_p)
 	{
@@ -385,14 +390,15 @@ int PS_ReadEscapeCharacter(script_t *script, char *ch)
 		case 'x':
 		{
 			script->script_p++;
-			for (i = 0, val = 0; ; i++, script->script_p++)
+			for (val = 0; ; script->script_p++)
 			{
 				c = *script->script_p;
 				if (c >= '0' && c <= '9') c = c - '0';
 				else if (c >= 'A' && c <= 'Z') c = c - 'A' + 10;
 				else if (c >= 'a' && c <= 'z') c = c - 'a' + 10;
 				else break;
-				val = (val << 4) + c;
+				// Once too large, keep consuming digits without overflowing.
+				if (val <= 0xFF) val = (val << 4) + c;
 			} //end for
 			script->script_p--;
 			if (val > 0xFF)
@@ -405,13 +411,17 @@ int PS_ReadEscapeCharacter(script_t *script, char *ch)
 		} //end case
 		default: //NOTE: decimal ASCII code, NOT octal
 		{
-			if (*script->script_p < '0' || *script->script_p > '9') ScriptError(script, "unknown escape char");
-			for (i = 0, val = 0; ; i++, script->script_p++)
+			if (*script->script_p < '0' || *script->script_p > '9')
+			{
+				ScriptError(script, "unknown escape char");
+				return 0;
+			}
+			for (val = 0; ; script->script_p++)
 			{
 				c = *script->script_p;
 				if (c >= '0' && c <= '9') c = c - '0';
 				else break;
-				val = val * 10 + c;
+				if (val <= 0xFF) val = val * 10 + c;
 			} //end for
 			script->script_p--;
 			if (val > 0xFF)

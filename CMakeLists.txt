@@ -275,9 +275,7 @@ add_compile_definitions(
 find_package(Python3 COMPONENTS Interpreter QUIET)
 FUNCTION(EMBED_PLUGIN_META PLUGNAME PLUGTITLE PLUGDESC)
     SET_TARGET_PROPERTIES(plug_${PLUGNAME} PROPERTIES OUTPUT_NAME "${PLUGNAME}" PREFIX "fteplug_")
-    if(APPLE)
-        target_link_options(plug_${PLUGNAME} PRIVATE "-Wl,-undefined,error")
-    elseif(NOT MSVC)
+    if(NOT APPLE AND NOT MSVC)
         target_link_options(plug_${PLUGNAME} PRIVATE "-Wl,--no-undefined")
     endif()
     SET(INSTALLTARGS ${INSTALLTARGS} "plug_${PLUGNAME}" PARENT_SCOPE)
@@ -1549,6 +1547,22 @@ if(BUILD_TESTING)
     add_executable(c17-endian-check tools/tests/c17_endian.c)
     target_include_directories(c17-endian-check PRIVATE "${PROJECT_SOURCE_DIR}")
     add_test(NAME c17-endian COMMAND c17-endian-check)
+    if(FTE_SANITIZERS AND Python3_Interpreter_FOUND)
+        add_test(NAME parser-sanitizers
+            COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/parser_sanitizer_tests.py"
+                --cc "${CMAKE_C_COMPILER}" --out "${CMAKE_BINARY_DIR}/parser-tests")
+        set_tests_properties(parser-sanitizers PROPERTIES TIMEOUT 180)
+        add_test(NAME package-signatures
+            COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/package_signature_tests.py"
+                --cc "${CMAKE_C_COMPILER}" --out "${CMAKE_BINARY_DIR}/package-tests")
+        set_tests_properties(package-signatures PROPERTIES TIMEOUT 180)
+        if(TARGET fteqw-sv)
+            add_test(NAME engine-sanitizer-smoke
+                COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/engine_sanitizer_smoke.py"
+                    --server $<TARGET_FILE:fteqw-sv> --out "${CMAKE_BINARY_DIR}/engine-sanitize-tests")
+            set_tests_properties(engine-sanitizer-smoke PROPERTIES TIMEOUT 45)
+        endif()
+    endif()
     if(TARGET fteqcc AND TARGET qcvm AND Python3_Interpreter_FOUND)
         add_test(NAME qcc-regression
             COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/qcc_regression.py"

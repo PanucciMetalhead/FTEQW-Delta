@@ -45,6 +45,9 @@ extern pluginputfuncs_t *inputfuncs;
 #define Q_free free
 #define Q_rint(x) ((int)(x+0.5))
 #define Q_atoi atoi
+// Intentional compatibility aliases, overriding platform SDK macros.
+#undef strlcpy
+#undef strlcat
 #ifdef FTEENGINE
 	#define strlcpy Q_strncpyz
 	#define strlcat Q_strncatz

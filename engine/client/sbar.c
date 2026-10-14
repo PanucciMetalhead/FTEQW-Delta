@@ -545,7 +545,7 @@ void Sbar_ExecuteLayoutString (char *s, int seat)
 			if (ping > 999)
 				ping = 999;
 
-			sprintf(block, "%3d %3d %-12.12s", score, ping, cl.players[value].name);
+			snprintf(block, sizeof(block), "%3d %3d %-12.12s", score, ping, cl.players[value].name);
 
 //			if (value == cl.playernum)
 //				Draw_Alt_String (x, y, block);
@@ -1811,7 +1811,7 @@ void Sbar_SoloScoreboard (void)
 	seconds = time - 60*minutes;
 	tens = seconds / 10;
 	units = seconds - 10*tens;
-	sprintf (str,"Time :%3i:%i%i", minutes, tens, units);
+	snprintf (str, sizeof(str),"Time :%3i:%i%i", minutes, tens, units);
 	Sbar_DrawString (184, 4, str);
 
 	// draw level name
@@ -1827,10 +1827,10 @@ void Sbar_CoopScoreboard (void)
 	int		l;
 	int pnum = 0;	//doesn't matter, should all be the same
 
-	sprintf (str,"Monsters:%3i /%3i", cl.playerview[pnum].stats[STAT_MONSTERS], cl.playerview[pnum].stats[STAT_TOTALMONSTERS]);
+	snprintf (str, sizeof(str),"Monsters:%3i /%3i", cl.playerview[pnum].stats[STAT_MONSTERS], cl.playerview[pnum].stats[STAT_TOTALMONSTERS]);
 	Sbar_DrawString (8, 4, str);
 
-	sprintf (str,"Secrets :%3i /%3i", cl.playerview[pnum].stats[STAT_SECRETS], cl.playerview[pnum].stats[STAT_TOTALSECRETS]);
+	snprintf (str, sizeof(str),"Secrets :%3i /%3i", cl.playerview[pnum].stats[STAT_SECRETS], cl.playerview[pnum].stats[STAT_TOTALSECRETS]);
 	Sbar_DrawString (8, 12, str);
 
 // time
@@ -1839,7 +1839,7 @@ void Sbar_CoopScoreboard (void)
 	seconds = time - 60*minutes;
 	tens = seconds / 10;
 	units = seconds - 10*tens;
-	sprintf (str,"Time :%3i:%i%i", minutes, tens, units);
+	snprintf (str, sizeof(str),"Time :%3i:%i%i", minutes, tens, units);
 	Sbar_DrawString (184, 4, str);
 
 // draw level name
@@ -2203,7 +2203,7 @@ void Sbar_DrawFrags (playerview_t *pv)
 
 	// draw number
 		f = s->frags;
-		sprintf (num, "%3i",f);
+		snprintf (num, sizeof(num), "%3i",f);
 
 		Sbar_DrawCharacter ( (x+1)*8 , -24, num[0]);
 		Sbar_DrawCharacter ( (x+2)*8 , -24, num[1]);
@@ -3026,7 +3026,7 @@ extern cvar_t	show_speed_y;
 		lastupstime = t;
 	}
 
-	sprintf(str, "%3.1f UPS", lastups);
+	snprintf(str, sizeof(str), "%3.1f UPS", lastups);
 	SCR_StringXY(str, show_speed_x.value, show_speed_y.value);
 }
 
@@ -4120,7 +4120,7 @@ static void Sbar_MiniDeathmatchOverlay (playerview_t *pv)
 
 	// draw number
 		f = s->frags;
-		sprintf (num, "%3i",f);
+		snprintf (num, sizeof(num), "%3i",f);
 
 		Font_BeginString(font_default, x+8, y, &px, &py);
 		Font_DrawChar ( px, py, CON_WHITEMASK, num[0] | 0xe000);
@@ -4182,7 +4182,7 @@ static void Sbar_MiniDeathmatchOverlay (playerview_t *pv)
 			Sbar_FillPC ( x, y+1, 48, 3, tm->topcolour);
 			Sbar_FillPC ( x, y+4, 48, 4, tm->bottomcolour);
 			R2D_ImageColours(1,1,1,1);
-			sprintf (num, "%i", tm->frags);
+			snprintf (num, sizeof(num), "%i", tm->frags);
 			Draw_FunStringWidth(x,y,num, 40, true, false);
 			if (!strncmp(cl.players[pv->playernum].team, tm->team, 16))
 			{
@@ -4199,7 +4199,7 @@ static void Sbar_MiniDeathmatchOverlay (playerview_t *pv)
 			Draw_FunStringWidth (x, y, tm->team, 32, false, false);
 
 		// draw total
-			sprintf (num, "%5i", tm->frags);
+			snprintf (num, sizeof(num), "%5i", tm->frags);
 			Draw_FunString(x + 40, y, num);
 
 			if (!strncmp(cl.players[pv->playernum].team, tm->team, 16))

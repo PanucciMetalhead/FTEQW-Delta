@@ -20,6 +20,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // common.c -- misc functions used in client and server
 
 #include "quakedef.h"
+#include <limits.h>
 
 #include <wctype.h>
 #include <ctype.h>
@@ -429,7 +430,7 @@ void Q_ftoa(char *str, float in)
 	{
 		char tstr[32];
 		char *lsig = str - 1;
-		sprintf(tstr, "%%.%if", exp);
+		snprintf(tstr, sizeof(tstr), "%%.%if", exp);
 		sprintf(str, tstr, in);
 		// find last significant digit and trim
 		while (*str)
@@ -456,7 +457,7 @@ static int dehex(int i)
 
 int Q_atoi (const char *str)
 {
-	int		val;
+	unsigned int val; // Config bitmasks intentionally wrap to the engine integer width.
 	int		sign;
 	int		c;
 
@@ -486,7 +487,7 @@ int Q_atoi (const char *str)
 			else if (c >= 'A' && c <= 'F')
 				val = (val<<4) + c - 'A' + 10;
 			else
-				return val*sign;
+				return (int)(sign < 0 ? 0u-val : val);
 		}
 	}
 
@@ -505,7 +506,7 @@ int Q_atoi (const char *str)
 	{
 		c = *str++;
 		if (c <'0' || c > '9')
-			return val*sign;
+			return (int)(sign < 0 ? 0u-val : val);
 		val = val*10 + c - '0';
 	}
 
@@ -782,12 +783,21 @@ static void MSG_WriteRawBytes(sizebuf_t *msg, int value, int bits)
 static void MSG_WriteRawBits(sizebuf_t *msg, int value, int bits)
 {
 	int i;
+	// Preflight the complete field, including an existing partial byte. Keep
+	// the buffer intact on overflow so packet builders can discard it safely.
+	if (msg->currentbit < 0 || msg->maxsize < 0 ||
+		msg->currentbit > INT_MAX-bits ||
+		((size_t)msg->currentbit + (unsigned int)bits + 7)/8 > (size_t)msg->maxsize)
+	{
+		msg->overflowed = true;
+		return;
+	}
 	for (i=0; i<bits; )
 	{
 		if (!(msg->currentbit&7))
 		{	//we need another byte now...
 			msg->cursize++;
-			if (bits >= 8)
+			if (bits-i >= 8)
 			{	//splurge an entire byte
 				msg->data[msg->currentbit>>3] = (value>>i)&0xff;
 				i += 8;
@@ -1849,39 +1859,36 @@ int MSG_GetReadCount(void)
 MSG_ReadRawBytes
 ============
 */
+
 static int MSG_ReadRawBytes(sizebuf_t *msg, int bits)
 {
-	int bitmask = 0;
-	unsigned int readcount = msg->currentbit>>3;
+	uint32_t bitmask;
+	int readcount = msg->currentbit/8;
+	int bytes = bits <= 8 ? 1 : bits <= 16 ? 2 : 4;
 
-	if (readcount + (bits>>3) >= msg->cursize)
+	if (msg->currentbit < 0 || msg->cursize < 0 ||
+		readcount > msg->cursize || bytes > msg->cursize-readcount)
 	{
 		msg_badread = true;
-		msg->currentbit += bits;
+		msg->currentbit = msg->cursize >= 0 && msg->cursize <= INT_MAX/8 ? msg->cursize*8 : 0;
 		return -1;
 	}
 
-	if (bits <= 8)
+	bitmask = msg->data[readcount];
+	if (bytes >= 2)
+		bitmask |= (uint32_t)msg->data[readcount+1] << 8;
+	if (bytes == 4)
 	{
-		bitmask = (unsigned char)msg->data[readcount];
-		msg->currentbit += 8;
+		bitmask |= (uint32_t)msg->data[readcount+2] << 16;
+		bitmask |= (uint32_t)msg->data[readcount+3] << 24;
 	}
-	else if (bits <= 16)
+	if (msg->currentbit > INT_MAX-bytes*8)
 	{
-		bitmask = (unsigned short)(msg->data[readcount]
-			+ (msg->data[readcount+1] << 8));
-		msg->currentbit += 16;
+		msg_badread = true;
+		return -1;
 	}
-	else if (bits <= 32)
-	{
-		bitmask = msg->data[readcount]
-			+ (msg->data[readcount+1] << 8)
-			+ (msg->data[readcount+2] << 16)
-			+ (msg->data[readcount+3] << 24);
-		msg->currentbit += 32;
-	}
-
-	return bitmask;
+	msg->currentbit += bytes*8;
+	return (int)bitmask;
 }
 
 /*
@@ -1889,27 +1896,28 @@ static int MSG_ReadRawBytes(sizebuf_t *msg, int bits)
 MSG_ReadRawBits
 ============
 */
-static int MSG_ReadRawBits(sizebuf_t *msg, int bits)
- {
-	int i;
-	int val;
-	int bitmask = 0;
 
-	if (msg->currentbit + bits > (msg->cursize<<3))
+static int MSG_ReadRawBits(sizebuf_t *msg, int bits)
+{
+	uint32_t bitmask = 0;
+	int i;
+
+	if (msg->currentbit < 0 || msg->cursize < 0 ||
+		msg->currentbit > INT_MAX-bits ||
+		(size_t)msg->currentbit + (unsigned int)bits > (size_t)msg->cursize*8)
 	{
 		msg_badread = true;
-		msg->currentbit = msg->cursize<<3;
+		msg->currentbit = msg->cursize >= 0 && msg->cursize <= INT_MAX/8 ? msg->cursize*8 : 0;
 		return -1;
 	}
 
 	for(i=0 ; i<bits ; i++)
 	{
-		val = msg->data[msg->currentbit >> 3] >> (msg->currentbit & 7);
+		uint32_t val = msg->data[msg->currentbit >> 3] >> (msg->currentbit & 7);
 		msg->currentbit++;
-		bitmask |= (val & 1) << i;
+		bitmask |= (val & 1u) << i;
 	}
-
-	return bitmask;
+	return (int)bitmask;
 }
 
 #ifdef HUFFNETWORK
@@ -1922,7 +1930,7 @@ static int MSG_ReadHuffBits(sizebuf_t *msg, int bits)
 {
 	int i;
 	int val;
-	int bitmask;
+	uint32_t bitmask;
 	int remaining = bits & 7;
 
 	bitmask = MSG_ReadRawBits(msg, remaining);
@@ -1930,7 +1938,7 @@ static int MSG_ReadHuffBits(sizebuf_t *msg, int bits)
 	for (i=0 ; i<bits-remaining ; i+=8)
 	{
 		val = Huff_GetByte(msg->data, &msg->currentbit);
-		bitmask |= val << (i + remaining);
+		bitmask |= (uint32_t)val << (i + remaining);
 	}
 
 	if (msg->currentbit > (msg->cursize<<3))
@@ -1949,10 +1957,8 @@ int MSG_ReadBits(int bits)
 	int bitmask = 0;
 	qboolean extend = false;
 
-#ifdef PARANOID
 	if (!bits || bits < -31 || bits > 32)
-		Host_EndGame("MSG_ReadBits: bad bits %i", bits );
-#endif
+		Sys_Error("MSG_ReadBits: bad bits %i", bits );
 
 	if (bits < 0)
 	{
@@ -1981,10 +1987,8 @@ int MSG_ReadBits(int bits)
 
 	if (extend)
 	{
-		if(bitmask & (1 << (bits - 1)))
-		{
-			bitmask |= ~((1 << bits) - 1);
-		}
+		if ((unsigned int)bitmask & (1u << (bits - 1)))
+			bitmask = (int)((unsigned int)bitmask | (~0u << bits));
 	}
 
 	return bitmask;
@@ -2615,7 +2619,11 @@ void *SZ_GetSpace (sizebuf_t *buf, int length)
 {
 	void	*data;
 
-	if (buf->cursize + length > buf->maxsize)
+	if (length < 0 || buf->maxsize < 0 || length > buf->maxsize ||
+		buf->cursize < 0 || buf->cursize > buf->maxsize)
+		Sys_Error("SZ_GetSpace: invalid buffer request (%d bytes)", length);
+
+	if (length > buf->maxsize-buf->cursize)
 	{
 		if (!buf->allowoverflow)
 			Sys_Error ("SZ_GetSpace: overflow without allowoverflow set (%d)", buf->maxsize);
@@ -2625,7 +2633,7 @@ void *SZ_GetSpace (sizebuf_t *buf, int length)
 		buf->overflowed = true;
 	}
 
-	data = buf->data + buf->cursize;
+	data = buf->cursize ? buf->data + buf->cursize : buf->data;
 	buf->cursize += length;
 
 	return data;
@@ -5101,13 +5109,14 @@ char *COM_ParseCString (const char *data, char *token, size_t sizeoftoken, size_
 	size_t		len;
 
 	len = 0;
+	if (lengthwritten)
+		*lengthwritten = 0;
+	if (!token || !sizeoftoken)
+		return NULL;
 	token[0] = 0;
 
 	if (token == com_token)
 		COM_AssertMainThread("COM_ParseCString: com_token");
-
-	if (lengthwritten)
-		*lengthwritten = 0;
 
 	if (!data)
 		return NULL;
@@ -5139,7 +5148,7 @@ skipwhite:
 		data++;
 		while (1)
 		{
-			if (len >= sizeoftoken-2)
+			if (len >= sizeoftoken-1)
 			{
 				token[len] = '\0';
 				if (lengthwritten)
@@ -5160,9 +5169,15 @@ skipwhite:
 				c = *data++;
 				switch(c)
 				{
+				case 0: // A trailing backslash must not read past the terminator.
+					token[len] = 0;
+					if (lengthwritten)
+						*lengthwritten = len;
+					return (char*)data-1;
 				case '\r':
 					if (*data == '\n')
 						data++;
+					/* fall through */
 				case '\n':
 					continue;
 				case 'n':

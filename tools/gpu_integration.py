@@ -27,6 +27,7 @@ con_notifytime 0
 r_fullbright 0
 sv_csqc_progname gpu-rtt.dat
 set gpu_test_rtt 0
+set gpu_test_static 0
 set gpu_test_water 0
 set gpu_test_slime 0
 set gpu_test_ad 0
@@ -87,6 +88,7 @@ defer 49 screenshot gpu-second-map.png
 defer 50 vid_restart
 defer 55 screenshot gpu-restart.png
 defer 56 set gpu_test_rtt 0
+defer 56.4 set gpu_test_static 1
 defer 56.1 r_bloom 0
 defer 56.2 r_hdr_framebuffer 0
 defer 56.3 r_fxaa 0
@@ -101,7 +103,8 @@ defer 64 closemenu
 defer 65 vid_restart
 defer 70 gpu_info
 defer 71 screenshot gpu-static-restart.png
-defer 72 map start
+defer 72 set gpu_test_static 0
+defer 72.1 map start
 defer 76 set gpu_test_water 1
 defer 76.1 r_waterstyle 2
 defer 77 r_wateralpha 0.35

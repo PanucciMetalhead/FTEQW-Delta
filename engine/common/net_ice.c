@@ -3403,7 +3403,7 @@ neterr_t SCTP_Transmit(sctp_t *sctp, const void *data, size_t length)
 				init->numoutstreams = BigShort(2);
 				init->numinstreams = BigShort(2);
 				init->tsn = BigLong(sctp->o.tsn);
-				ftsn->ptype = BigShort(49152);
+				ftsn->ptype = BigShort((short)0xc000u);
 				ftsn->plen = BigShort(sizeof(*ftsn));
 				pktlen += sizeof(*init) + sizeof(*ftsn);
 
@@ -3843,7 +3843,7 @@ void SCTP_Decode(sctp_t *sctp, ftenet_connections_t *col)
 					rinitcookie->ptype = BigShort(7);
 					rinitcookie->plen = BigShort(sizeof(*rinitcookie));
 					memcpy(&rinitcookie->cookie, "deadbeefdeadbeef", sizeof(rinitcookie->cookie));	//frankly the contents of the cookie are irrelevant to anything. we've already verified the peer's ice pwd/ufrag stuff as well as their dtls certs etc.
-					rftsn->ptype = BigShort(49152);
+					rftsn->ptype = BigShort((short)0xc000u);
 					rftsn->plen = BigShort(sizeof(*rftsn));
 
 					//complete. calc the proper crc and send it off.
@@ -4134,7 +4134,7 @@ qboolean SCTP_Handshake(const dtlsfuncs_t *dtlsfuncs, void *dtlsstate, sctp_t **
 				rinitcookie->ptype = BigShort(7);
 				rinitcookie->plen = BigShort(sizeof(*rinitcookie));
 				memcpy(&rinitcookie->cookie, &cookie, sizeof(rinitcookie->cookie));	//frankly the contents of the cookie are irrelevant to anything. we've already verified the peer's ice pwd/ufrag stuff as well as their dtls certs etc.
-				rftsn->ptype = BigShort(49152);
+				rftsn->ptype = BigShort((short)0xc000u);
 				rftsn->plen = BigShort(sizeof(*rftsn));
 
 				//complete. calc the proper crc and send it off.

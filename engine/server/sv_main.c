@@ -1208,7 +1208,6 @@ static void SVC_Status (void)
 	char junk[512];
 	int jlen;
 
-	int slots=0;
 
 	displayflags = atoi(Cmd_Argv(1));
 	if (displayflags == STATUS_OLDSTYLE)
@@ -1255,7 +1254,7 @@ static void SVC_Status (void)
 				else
 				{
 					ping = -ping;
-					sprintf(frags, "%i", -9999);
+					snprintf(frags, sizeof(frags), "%i", -9999);
 					specpre = "\\s\\";
 				}
 			}
@@ -1278,8 +1277,6 @@ static void SVC_Status (void)
 					frags, (int)(realtime - cl->connection_started)/60,
 					ping, specpre, botpre, name, skin, top, bottom, junk);
 		}
-		else
-			slots++;
 	}
 #ifdef MVD_RECORDING
 	if (displayflags & STATUS_QTVLIST)
@@ -4882,7 +4879,7 @@ void SV_OpenRoute_f(void)
 
 	if (NET_StringToAdr(Cmd_Argv(1), PORT_QWCLIENT, &to))
 	{
-		sprintf(data, "\xff\xff\xff\xff%c", S2C_CONNECTION);
+		snprintf(data, sizeof(data), "\xff\xff\xff\xff%c", S2C_CONNECTION);
 
 		Netchan_OutOfBandPrint(NCF_SERVER, &to, "hello");
 //		NET_SendPacket (strlen(data)+1, data, to);

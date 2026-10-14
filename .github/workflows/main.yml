@@ -62,14 +62,17 @@ jobs:
       - name: Network fault injection with sanitizers
         if: runner.os == 'Linux'
         run: python3 tools/network_transport_tests.py --cc clang --out build/network-tests
-      - name: Configure sanitizer tools
+      - name: Package signatures with real GnuTLS
+        if: runner.os == 'Linux'
+        run: python3 tools/package_signature_tests.py --cc clang --gnutls --out build/package-tests
+      - name: Configure sanitizer engine and tools
         if: runner.os != 'Windows'
         shell: bash
-        run: cmake -S . -B build-sanitize -DCMAKE_BUILD_TYPE=Debug -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/build-deps/install" -DFTE_SANITIZERS=ON -DFTE_ENGINE=OFF -DFTE_ENGINE_SERVER_ONLY=OFF -DFTE_TOOL_QCCGUI=OFF -DFTE_TOOL_QCVM=ON -DBUILD_TESTING=ON
-      - name: Build sanitizer tools
+        run: cmake -S . -B build-sanitize -DCMAKE_BUILD_TYPE=Debug -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/build-deps/install" -DFTE_SANITIZERS=ON -DFTE_ENGINE=ON -DFTE_ENGINE_SERVER_ONLY=ON -DFTE_ENGINE_CLIENT_ONLY=ON -DFTE_TOOL_QCCGUI=OFF -DFTE_TOOL_QCVM=ON -DBUILD_TESTING=ON
+      - name: Build sanitizer engine and tools
         if: runner.os != 'Windows'
-        run: cmake --build build-sanitize --target fteqcc qcvm c17-endian-check --parallel 2
-      - name: Run sanitizer compiler and VM checks
+        run: cmake --build build-sanitize --target fteqw fteqw-sv fteqcc qcvm c17-endian-check --parallel 2
+      - name: Run sanitizer engine, compiler, VM and parser checks
         if: runner.os != 'Windows'
         env:
           ASAN_OPTIONS: detect_leaks=0
@@ -85,5 +88,10 @@ jobs:
             build/qcc-tests/*.log
             build-sanitize/Testing/Temporary/LastTest.log
             build-sanitize/qcc-tests/*.log
+            build-sanitize/parser-tests/
+            build-sanitize/package-tests/
+            build/package-tests/
+            build-sanitize/engine-sanitize-tests/
+            build/network-tests/
             build/c17-compat/
           if-no-files-found: ignore

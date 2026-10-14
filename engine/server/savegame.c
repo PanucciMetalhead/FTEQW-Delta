@@ -242,7 +242,7 @@ static qboolean SV_LegacySavegame (const char *savename, qboolean verbose)
 		return false;
 	}
 
-	sprintf (name, "%s", savename);
+	snprintf (name, sizeof(name), "%s", savename);
 	COM_RequireExtension (name, ".sav", sizeof(name));	//do NOT allow .pak etc
 	if (!FS_DisplayPath(name, FS_GAMEONLY, native, sizeof(native)))
 		return false;

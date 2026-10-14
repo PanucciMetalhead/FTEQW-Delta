@@ -17,6 +17,12 @@ void(float width, float height, float do2d) CSQC_UpdateView = {
     addentities(3);
     setproperty(1, '0 0 0');
     setproperty(4, [width, height, 0]);
+    // Static-lighting comparisons must survive physical mouse input and video
+    // menu transitions. Hold the classic E1M1 spawn camera in the fixture.
+    if (cvar("gpu_test_static")) {
+        setproperty(11, '480 -352 110');
+        setproperty(15, '0 90 0');
+    }
     if (cvar("gpu_test_slime")) {
         setproperty(11, '0 2816 -70');
         if (cvar("gpu_test_slime") == 2) setproperty(11, '128 2816 -170');

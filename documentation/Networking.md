@@ -36,6 +36,14 @@ packet pacing, state encoding, and protocol negotiation formats are unchanged.
 Existing encryption preferences and certificate verification remain in effect.
 These fixes do not add encryption support to legacy servers.
 
+## Package signatures
+
+Package mirrors and HTTPS connections no longer grant publisher trust. Native
+package downloads normally require a verified individual signature or a
+hash/size entry in a trusted catalog; unsigned data archives keep their existing
+restricted rules. See [PackageTrust.md](PackageTrust.md) for the complete policy,
+existing explicit overrides, and release/debug regression checks.
+
 ## Native transports and file transfers
 
 The desktop engine retains UDP, TCP/TLS, WebSocket, ICE/WebRTC, and HTTP/HTTPS
