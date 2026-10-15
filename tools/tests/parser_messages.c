@@ -8,6 +8,7 @@
 #include <string.h>
 
 typedef unsigned char qbyte;
+typedef uint64_t quint64_t;
 typedef enum { false, true } qboolean;
 enum { SZ_BAD, SZ_RAWBYTES, SZ_RAWBITS, SZ_HUFFMAN };
 typedef struct {
@@ -16,6 +17,7 @@ typedef struct {
     qboolean allowoverflow, overflowed;
 } sizebuf_t;
 static sizebuf_t *msg_readmsg;
+static sizebuf_t net_message;
 static qboolean msg_badread;
 static jmp_buf failure;
 static int expected_error;
@@ -94,6 +96,36 @@ static void invalid_space(sizebuf_t *msg,int length)
     expected_error=0;
 }
 
+static void full_words(void)
+{
+    qbyte data[8];
+    net_message = (sizebuf_t){.data=data,.maxsize=8,.cursize=8,.packing=SZ_RAWBYTES};
+    msg_readmsg = &net_message;
+    for (int i=0; i<10000; ++i) {
+        uint32_t word = random_value();
+        uint64_t bits = ((uint64_t)random_value()<<32) | word;
+        /* Keep the double finite so the ABI cannot canonicalize a NaN payload. */
+        if ((bits & UINT64_C(0x7ff0000000000000)) == UINT64_C(0x7ff0000000000000))
+            bits ^= UINT64_C(0x0010000000000000);
+        for (int byte=0; byte<8; ++byte) data[byte]=(qbyte)(bits>>(8*byte));
+        net_message.currentbit=0; msg_badread=false;
+        assert((uint32_t)MSG_ReadLong()==word && !msg_badread && net_message.currentbit==32);
+        net_message.currentbit=0;
+        double decoded=MSG_ReadDouble();
+        uint64_t actual;
+        memcpy(&actual,&decoded,sizeof(actual));
+        assert(actual==bits && !msg_badread);
+    }
+    for (int count=0; count<4; ++count) {
+        net_message.cursize=count; net_message.currentbit=0; msg_badread=false;
+        assert(MSG_ReadLong()==-1 && msg_badread && net_message.currentbit==0);
+    }
+    for (int count=0; count<8; ++count) {
+        net_message.cursize=count; net_message.currentbit=0; msg_badread=false;
+        assert(MSG_ReadDouble()==-1 && msg_badread);
+    }
+}
+
 int main(void)
 {
     for (int mode=SZ_RAWBYTES; mode<=SZ_RAWBITS; mode++)
@@ -129,5 +161,6 @@ int main(void)
     invalid_space(&msg,-1);
     msg.cursize=1;
     assert(SZ_GetSpace(&msg,1)==data && msg.overflowed && msg.cursize==1);
-    puts("Message fields: 12,600 signed/unsigned round trips, 10,000 unaligned fields, truncation and buffer overflow passed");
+    full_words();
+    puts("Message fields: 12,600 signed/unsigned round trips, 10,000 unaligned fields, truncation, buffer overflow and 10,000 long/double byte fields passed");
 }

@@ -124,3 +124,11 @@ python3 tools/gpu_openarena.py run --profile materials --out build/oa-materials
 The test enables cheats only in its isolated local server to place the camera;
 normal gameplay rules are unaffected. Results are saved to
 `openarena-material-results.json`.
+
+## Quake rerelease content
+
+No extra model library is required for the rerelease MD5 assets. Point the
+engine at the folder containing `id1/pak0.pak`, using `-quake_rerel` for an
+explicit profile. Portable PAK exports can also be auto-detected. See
+[QuakeRemaster.md](QuakeRemaster.md) for expansion launches, model preferences,
+owned-data checks and compatibility limits.

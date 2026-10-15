@@ -661,6 +661,21 @@ in `engine/common/com_mesh.c`, `engine/gl/gl_model.c` and the glTF loader for th
 precise format variants in your build. Those directory names contain shared
 legacy infrastructure; this fork renders through SDL3 GPU.
 
+### Remaster MD5 assets and skeletal physics
+
+The Quake rerelease's `.md5mesh`/`.md5anim` pairs and indexed `.lmp` skins work
+with the native renderer. With `mod_md5_singleanimation 1`, the matching animation
+is expanded into poses that existing `.frame`/`.weaponframe` numbers can select.
+Automatic replacements can keep the gamecode's `.mdl` paths; `r_replacemodels`
+controls that preference. Load or reload a map after changing the preference.
+For a mod that manages separate animations with skeleton APIs, the existing
+`mod_md5_singleanimation 0` workflow remains available.
+
+Animation bones and weights do not define ragdoll masses, bodies or constraints.
+Those require a separate physics rig. Jolt integration and optional ragdolls
+remain future work. See [Quake Remaster content](QuakeRemaster.md) for launch
+examples, tested assets, original-model fallback and compatibility limits.
+
 ### Frames, animation and the weapon viewmodel
 
 For simple numbered-frame animation, set `.frame`, advance it from a think

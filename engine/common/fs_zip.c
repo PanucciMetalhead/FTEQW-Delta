@@ -458,7 +458,7 @@ static int QDECL FS_GZ_Dec_Write(vfsfile_t *f, const void *buffer, int len)
 			if (n->inlen >= 8)
 			{
 				//unsigned int crc = (n->in[0]<<0) | (n->in[1]<<8) | (n->in[2]<<16) | (n->in[3]<<24);
-				unsigned int isize = (n->in[4]<<0) | (n->in[5]<<8) | (n->in[6]<<16) | (n->in[7]<<24);
+				unsigned int isize = ((unsigned int)n->in[4]<<0) | ((unsigned int)n->in[5]<<8) | ((unsigned int)n->in[6]<<16) | ((unsigned int)n->in[7]<<24);
 				if (n->strm.total_out != isize)
 					return -1;	//the file we just received decoded to a different length (yay, concat...).
 				//FIXME: validate the decoded crc
@@ -1694,7 +1694,7 @@ struct ziplocalentry
 };
 
 #define LittleU2FromPtr(p) (unsigned int)((p)[0] | ((p)[1]<<8u))
-#define LittleU4FromPtr(p) (unsigned int)((p)[0] | ((p)[1]<<8u) | ((p)[2]<<16u) | ((p)[3]<<24u))
+#define LittleU4FromPtr(p) ((unsigned int)(p)[0] | ((unsigned int)(p)[1]<<8u) | ((unsigned int)(p)[2]<<16u) | ((unsigned int)(p)[3]<<24u))
 #define LittleU8FromPtr(p) qofs_Make(LittleU4FromPtr(p), LittleU4FromPtr((p)+4))
 
 #define SIZE_LOCALENTRY 30

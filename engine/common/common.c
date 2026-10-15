@@ -660,26 +660,29 @@ static float	FloatNoSwap (float f)	{	return f;	}
 
 short		ShortSwap	(short l)
 {
-	return	((l>> 8)&0x00ff)|
-			((l<< 8)&0xff00);
+	unsigned short value = (unsigned short)l;
+	return	((value>> 8)&0x00ff)|
+			((value<< 8)&0xff00);
 }
 int			LongSwap	(int l)
 {
-	return	((l>>24)&0x000000ff)|
-			((l>> 8)&0x0000ff00)|
-			((l<< 8)&0x00ff0000)|
-			((l<<24)&0xff000000);
+	unsigned int value = (unsigned int)l;
+	return	((value>>24)&0x000000ff)|
+			((value>> 8)&0x0000ff00)|
+			((value<< 8)&0x00ff0000)|
+			((value<<24)&0xff000000);
 }
 qint64_t    I64Swap		(qint64_t l)
 {
-	return	((l>>56)&        0x000000ff)|
-			((l>>40)&        0x0000ff00)|
-			((l>>24)&        0x00ff0000)|
-			((l>> 8)&        0xff000000)|
-			((l<< 8)&0x000000ff00000000)|
-			((l<<24)&0x0000ff0000000000)|
-			((l<<40)&0x00ff000000000000)|
-			((l<<56)&0xff00000000000000);
+	quint64_t value = (quint64_t)l;
+	return	((value>>56)&        0x000000ff)|
+			((value>>40)&        0x0000ff00)|
+			((value>>24)&        0x00ff0000)|
+			((value>> 8)&        0xff000000)|
+			((value<< 8)&0x000000ff00000000)|
+			((value<<24)&0x0000ff0000000000)|
+			((value<<40)&0x00ff000000000000)|
+			((value<<56)&0xff00000000000000);
 }
 float FloatSwap (float f)
 {
@@ -1161,7 +1164,7 @@ int MSG_ReadSize16 (sizebuf_t *sb)
 		return ssolid;
 	else
 	{
-		int solid = (((ssolid>>7) & 0x1F8) - 32+32768)<<16;	/*up can be negative*/
+		unsigned int solid = (unsigned int)(((ssolid>>7) & 0x1F8) - 32+32768)<<16;	/*up can be negative*/
 		solid|= ((ssolid & 0x1F)<<3);
 		solid|= ((ssolid & 0x3E0)<<6);
 		return solid;
@@ -1195,10 +1198,10 @@ void COM_DecodeSize(int solid, float *mins, float *maxs)
 }
 int COM_EncodeSize(const float *mins, const float *maxs)
 {
-	int solid;
+	unsigned int solid;
 	solid = bound(0, (int)-mins[0], 255);
 	solid |= bound(0, (int)-mins[2], 255)<<8;
-	solid |= bound(0, (int)((maxs[2]+32768)), 65535)<<16;	/*up can be negative*/;
+	solid |= (unsigned int)bound(0, (int)((maxs[2]+32768)), 65535)<<16;	/*up can be negative*/;
 	if (solid == 0x80000000)
 		solid = 0;	//point sized stuff should just be non-solid. you'll thank me for splitscreens.
 	return solid;
@@ -2141,7 +2144,7 @@ int MSG_ReadLong (void)
 		return (int)MSG_ReadBits(32);
 
 	msg_readcount = msg_readmsg->currentbit>>3;
-	if (msg_readcount+4 > msg_readmsg->cursize)
+	if (msg_readmsg->cursize < 0 || msg_readcount+4 > (unsigned int)msg_readmsg->cursize)
 	{
 		msg_badread = true;
 		return -1;
@@ -2150,7 +2153,7 @@ int MSG_ReadLong (void)
 	c = msg_readmsg->data[msg_readcount]
 	+ (msg_readmsg->data[msg_readcount+1]<<8)
 	+ (msg_readmsg->data[msg_readcount+2]<<16)
-	+ (msg_readmsg->data[msg_readcount+3]<<24);
+	+ ((unsigned int)msg_readmsg->data[msg_readcount+3]<<24);
 
 	msg_readcount += 4;
 	msg_readmsg->currentbit = msg_readcount<<3;
@@ -2247,16 +2250,16 @@ double MSG_ReadDouble (void)
 	} dat;
 	unsigned int msg_readcount = msg_readmsg->currentbit>>3;
 
-	if (msg_readcount+8 > net_message.cursize)
+	if (net_message.cursize < 0 || msg_readcount+8 > (unsigned int)net_message.cursize)
 	{
 		msg_badread = true;
 		return -1;
 	}
 
-	dat.l = (           net_message.data[msg_readcount+0]<< 0)|
-			(           net_message.data[msg_readcount+1]<< 8)|
-			(           net_message.data[msg_readcount+2]<<16)|
-			(           net_message.data[msg_readcount+3]<<24)|
+	dat.l = ((quint64_t)net_message.data[msg_readcount+0]<< 0)|
+			((quint64_t)net_message.data[msg_readcount+1]<< 8)|
+			((quint64_t)net_message.data[msg_readcount+2]<<16)|
+			((quint64_t)net_message.data[msg_readcount+3]<<24)|
 			((quint64_t)net_message.data[msg_readcount+4]<<32)|
 			((quint64_t)net_message.data[msg_readcount+5]<<40)|
 			((quint64_t)net_message.data[msg_readcount+6]<<48)|

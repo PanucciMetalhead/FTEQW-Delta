@@ -28,7 +28,7 @@ typedef struct
 } SHA1_CTX;
 #define SHA1_DIGEST_SIZE 20
 
-#define ShaBigLong(l)  (((unsigned char*)&l)[0]<<24) | (((unsigned char*)&l)[1]<<16) | (((unsigned char*)&l)[2]<<8) | (((unsigned char*)&l)[3]<<0)
+#define ShaBigLong(l)  (((unsigned int)((unsigned char*)&(l))[0]<<24) | ((unsigned int)((unsigned char*)&(l))[1]<<16) | ((unsigned int)((unsigned char*)&(l))[2]<<8) | ((unsigned int)((unsigned char*)&(l))[3]<<0))
 
 
 #define rol(value, bits) (((value) << (bits)) | ((value) >> (32 - (bits))))
@@ -57,9 +57,9 @@ static void SHA1Transform(unsigned int state[5], const unsigned char buffer[64])
 	} CHAR64LONG16;
 	CHAR64LONG16* block;
 	#ifdef SHA1HANDSOFF
-	unsigned char workspace[64];
-	block = (CHAR64LONG16*)workspace;
-	memcpy(block, buffer, 64);
+	CHAR64LONG16 workspace;
+	block = &workspace;
+	memcpy(block->c, buffer, sizeof(workspace));
 	#else
 	block = (CHAR64LONG16*)buffer;
 	#endif
@@ -147,7 +147,7 @@ static void SHA1Update(void *ctx, const void* data, size_t len)
 static void SHA1Final(unsigned char digest[SHA1_DIGEST_SIZE], void *ctx)
 {
 	SHA1_CTX *context = ctx;
-	unsigned int i, j;
+	unsigned int i;
 	unsigned char finalcount[8];
 
 	for (i = 0; i < 8; i++)
@@ -166,7 +166,7 @@ static void SHA1Final(unsigned char digest[SHA1_DIGEST_SIZE], void *ctx)
 		((context->state[i>>2] >> ((3-(i & 3)) * 8) ) & 255);
 	}
 	/* Wipe variables */
-	i = j = 0;
+	i = 0;
 	memset(context->buffer, 0, 64);
 	memset(context->state, 0, 20);
 	memset(context->count, 0, 8);
@@ -191,7 +191,7 @@ unsigned int hashfunc_terminate_uint(const hashfunc_t *func, void *context)
 	unsigned char *digest = alloca(func->digestsize);
 	func->terminate(digest, context);
 	for (l = 0; l < func->digestsize; l++)
-		r ^= digest[l]<<((l%sizeof(r))*8);
+		r ^= (unsigned int)digest[l]<<((l%sizeof(r))*8);
 	return r;
 }
 unsigned int CalcHashInt(const hashfunc_t *func, const void *data, size_t datasize)
@@ -236,7 +236,7 @@ hacked up a bit by someone else...
 #define IPAD 0x36
 #define OPAD 0x5c
 
-static void memxor(char *dest, const char *src, size_t length)
+static void memxor(qbyte *dest, const qbyte *src, size_t length)
 {
 	size_t i;
 	for (i = 0; i < length; i++)
@@ -268,6 +268,7 @@ size_t CalcHMAC(const hashfunc_t *hashfunc, unsigned char *digest, size_t maxdig
 		hashfunc->process(ctx, key, keylen);
 		hashfunc->terminate(optkeybuf, ctx);
 		key=optkeybuf;
+		keylen=hashfunc->digestsize;
 	}
 
 	/* Compute INNERHASH from KEY and IN. */

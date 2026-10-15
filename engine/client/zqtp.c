@@ -2964,9 +2964,9 @@ void TP_CheckPickupSound (char *s, vec3_t org, int seat)
 {
 	int entnum;
 	item_t	*item;
-	playerview_t *pv = &cl.playerview[seat];
-	//if we're spectating, we don't want to do any actual triggers, so pretend it was someone else.
-	if (pv->spectator)
+	playerview_t *pv = (unsigned int)seat < countof(cl.playerview) ? &cl.playerview[seat] : NULL;
+	//Non-local pickup sounds use seat -1; spectators also skip local triggers.
+	if (!pv || pv->spectator)
 		seat = -1;
 	if (!s)
 		return;

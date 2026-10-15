@@ -6279,6 +6279,65 @@ static int QDECL FS_DirDoesHaveGame(const char *fname, qofs_t fsize, time_t modt
 	return false;
 }
 
+#ifdef HAVE_LEGACY
+// Portable rerelease data exports may omit the Kex engine's QuakeEX.kpf.
+// Use a combination of archive members, not the directory name or MD5 alone:
+// ordinary Quake mods can also install skeletal replacement models.
+static qboolean FS_QuakeRereleasePak(const char *basedir)
+{
+	char path[MAX_OSPATH];
+	vfsfile_t *f;
+	quint32_t header[3], dirofs, dirlen;
+	qofs_t filesize;
+	unsigned int found = 0, i, count;
+	struct {
+		char name[56];
+		quint32_t offset, length;
+	} entry;
+
+	if (Q_snprintfz(path, sizeof(path), "%s/id1/pak0.pak", basedir))
+		return false;
+	f = VFSOS_Open(path, "rb");
+	if (!f)
+		return false;
+	filesize = VFS_GETLEN(f);
+	if (filesize < sizeof(header) || VFS_READ(f, header, sizeof(header)) != sizeof(header) ||
+		memcmp(header, "PACK", 4))
+		goto done;
+	dirofs = LittleLong(header[1]);
+	dirlen = LittleLong(header[2]);
+	if (dirofs < sizeof(header) || dirofs > filesize || dirlen > filesize-dirofs ||
+		!dirlen || dirlen%sizeof(entry) || dirlen/sizeof(entry) > 65536 || !VFS_SEEK(f, dirofs))
+		goto done;
+	count = dirlen/sizeof(entry);
+	for (i = 0; i < count; i++)
+	{
+		quint32_t offset, length;
+		unsigned int flag = 0;
+		if (VFS_READ(f, &entry, sizeof(entry)) != sizeof(entry))
+			break;
+		if (!memcmp(entry.name, "mapdb.json", sizeof("mapdb.json")))
+			flag = 1;
+		else if (!memcmp(entry.name, "localization/loc_english.txt", sizeof("localization/loc_english.txt")))
+			flag = 2;
+		else if (!memcmp(entry.name, "progs/player.md5mesh", sizeof("progs/player.md5mesh")))
+			flag = 4;
+		if (!flag)
+			continue;
+		offset = LittleLong(entry.offset);
+		length = LittleLong(entry.length);
+		if (offset < sizeof(header) || offset > filesize || !length || length > filesize-offset)
+			goto done;
+		found |= flag;
+		if (found == 7)
+			break;
+	}
+done:
+	VFS_CLOSE(f);
+	return found == 7;
+}
+#endif
+
 //just check each possible file, see if one is there.
 static qboolean FS_DirHasGame(const char *basedir, int gameidx)
 {
@@ -6313,6 +6372,10 @@ static qboolean FS_DirHasGame(const char *basedir, int gameidx)
 				return true;	//search was cancelled by the callback, so it actually got called.
 		}
 	}
+#ifdef HAVE_LEGACY
+	if (!strcmp(gamemode_info[gameidx].argname, "-quake_rerel"))
+		return FS_QuakeRereleasePak(basedir);
+#endif
 	return false;
 }
 

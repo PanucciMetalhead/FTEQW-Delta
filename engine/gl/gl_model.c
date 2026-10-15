@@ -2487,6 +2487,23 @@ qboolean Mod_LoadVertexNormals (model_t *loadmodel, bspx_header_t *bspx, qbyte *
 }
 
 #if defined(Q1BSPS) || defined(Q2BSPS)
+// Packed brush arrays need explicit padding for the aligned position/color types.
+static mesh_t *ModQ1_AllocSurfaceMesh(model_t *mod, int numedges)
+{
+	mesh_t *mesh = ZG_Malloc(&mod->memgroup, sizeof(mesh_t) + (_Alignof(vecV_t)-1) + (_Alignof(avec4_t)-1) + (sizeof(vecV_t)+sizeof(vec2_t)*(1+1)+sizeof(vec3_t)*3+sizeof(vec4_t)*1)* numedges + sizeof(index_t)*(numedges-2)*3);
+	mesh->numvertexes = numedges;
+	mesh->numindexes = (mesh->numvertexes-2)*3;
+	mesh->xyz_array = (vecV_t*)(((quintptr_t)(mesh+1) + _Alignof(vecV_t)-1) & ~(quintptr_t)(_Alignof(vecV_t)-1));
+	mesh->st_array = (vec2_t*)(mesh->xyz_array+mesh->numvertexes);
+	mesh->lmst_array[0] = (vec2_t*)(mesh->st_array+mesh->numvertexes);
+	mesh->normals_array = (vec3_t*)(mesh->lmst_array[0]+mesh->numvertexes);
+	mesh->snormals_array = (vec3_t*)(mesh->normals_array+mesh->numvertexes);
+	mesh->tnormals_array = (vec3_t*)(mesh->snormals_array+mesh->numvertexes);
+	mesh->colors4f_array[0] = (avec4_t*)(((quintptr_t)(mesh->tnormals_array+mesh->numvertexes) + _Alignof(avec4_t)-1) & ~(quintptr_t)(_Alignof(avec4_t)-1));
+	mesh->indexes = (index_t*)(mesh->colors4f_array[0]+mesh->numvertexes);
+	return mesh;
+}
+
 void ModQ1_Batches_BuildQ1Q2Poly(model_t *mod, msurface_t *surf, builddata_t *cookie)
 {
 	unsigned int vertidx;
@@ -2500,17 +2517,7 @@ void ModQ1_Batches_BuildQ1Q2Poly(model_t *mod, msurface_t *surf, builddata_t *co
 
 	if (!mesh)
 	{
-		mesh = surf->mesh = ZG_Malloc(&mod->memgroup, sizeof(mesh_t) + (sizeof(vecV_t)+sizeof(vec2_t)*(1+1)+sizeof(vec3_t)*3+sizeof(vec4_t)*1)* surf->numedges + sizeof(index_t)*(surf->numedges-2)*3);
-		mesh->numvertexes = surf->numedges;
-		mesh->numindexes = (mesh->numvertexes-2)*3;
-		mesh->xyz_array = (vecV_t*)(mesh+1);
-		mesh->st_array = (vec2_t*)(mesh->xyz_array+mesh->numvertexes);
-		mesh->lmst_array[0] = (vec2_t*)(mesh->st_array+mesh->numvertexes);
-		mesh->normals_array = (vec3_t*)(mesh->lmst_array[0]+mesh->numvertexes);
-		mesh->snormals_array = (vec3_t*)(mesh->normals_array+mesh->numvertexes);
-		mesh->tnormals_array = (vec3_t*)(mesh->snormals_array+mesh->numvertexes);
-		mesh->colors4f_array[0] = (vec4_t*)(mesh->tnormals_array+mesh->numvertexes);
-		mesh->indexes = (index_t*)(mesh->colors4f_array[0]+mesh->numvertexes);
+		mesh = surf->mesh = ModQ1_AllocSurfaceMesh(mod, surf->numedges);
 	}
 	mesh->istrifan = true;
 

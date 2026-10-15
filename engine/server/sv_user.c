@@ -521,7 +521,7 @@ void SV_New_f (void)
 
 	host_client->csqcactive = false;
 
-	host_client->realip_num = rand()+(host_client->challenge<<16);
+	host_client->realip_num = (unsigned int)rand()+((unsigned int)host_client->challenge<<16);
 	SV_CheckRealIP(host_client, false);
 
 	SV_LogPlayer(host_client, "new (QW)");

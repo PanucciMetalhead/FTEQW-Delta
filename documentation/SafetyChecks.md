@@ -26,11 +26,29 @@ The new tests exposed and now guard against:
 
 - Rejection of a byte field ending exactly at the end of a packet.
 - Incorrect padding between partial-bit fields and unchecked bit-buffer writes.
-- Signed shifts while reconstructing high packet bits or extending signed fields.
+- Signed shifts while reconstructing high packet bits or extending signed fields,
+  packing reliable headers and connection cookies, and swapping signed words.
 - Oversized/negative buffer allocations, including allowed-overflow buffers.
 - Zero-capacity string outputs and a trailing backslash reading past its NUL.
 - Long Quake 3 script escapes overflowing their numeric accumulator.
 - Normal cvar masks such as `0x80000000` overflowing the signed integer parser.
+- Signed shifts while folding archive hash bytes into a purity checksum,
+  decoding ZIP/GZIP/SHA-1 words, and packing palette/normal-map alpha.
+- Signed shifts of negative PCM samples and surface texture origins, plus
+  signed overflow when creating fallback gloss alpha. Sample scaling,
+  lightmap grid coordinates and alpha byte values are preserved.
+- Signed shifts in solid-box size fields; all 65,536 signed height encodings
+  retain the same protocol bits and decoded bounds.
+- Misaligned grouped payloads in debug builds and packed brush position/color
+  arrays and original MDL animation poses; padding now respects the existing
+  aligned vector types, including grouped poses with odd vertex counts.
+- Misaligned pointer tables following word-sized VM memory in worker GC
+  snapshots; padding preserves both copied memory and temporary string pointers.
+- The top inventory bit using a signed shift; pickup flash timing is preserved.
+- Remote pickup sounds indexing player views with seat `-1`; remote/spectator
+  sounds retain their intended attribution without accessing a local view.
+- Long HMAC keys retaining their original length after hashing, overrunning
+  the reduced key buffer; they now use the resulting digest length.
 - Empty archive scans passing a null array to `qsort` during server startup.
   Linux sanitizer CI exposed this after macOS checks passed; scans now sort
   only when there are at least two files, preserving archive order.
@@ -43,7 +61,7 @@ field definitions are unchanged.
 
 ## Run the sanitizer suite
 
-GCC or Clang, Python 3, and the normal native build dependencies are required.
+GCC or Clang, Python 3.9+, and the normal native build dependencies are required.
 Sanitizer builds are Debug builds on Linux/macOS; this option is not enabled for
 MSVC/Windows. SDL3 is still a build dependency, but these CTest cases need no
 Quake data, display, GPU or remote server.
@@ -63,10 +81,21 @@ The five registered cases are:
 | Case | Coverage |
 | --- | --- |
 | `c17-endian` | Fixed-width endian helper patterns. |
-| `parser-sanitizers` | Actual message, string, number, Q3 escape and archive-scan bodies extracted from the current source; 12,600 signed/unsigned packet round trips, 10,000 unaligned fields, short input, capacities 0–19, all escape bytes, long input, 300,000 number conversions, and empty/single/multiple archive scans with ordering and cleanup checks. |
+| `parser-sanitizers` | Actual message/number/string/Q3 parsers, archive scans and remaster detection; checksum/hash and image/audio conversion; item stats and pickup sounds; model/grouped allocation and worker-GC snapshots. Bodies, relevant types and packing expressions come from current engine source. |
 | `package-signatures` | Actual package authenticity/decoding and installation-gate bodies compiled in release and debug configurations; mirror independence, provider outcomes, catalog trust, malformed metadata, and unsigned data archives. |
-| `engine-sanitizer-smoke` | Actual headless server cvar registration, filesystem initialization, command execution and shutdown in an isolated directory. |
+| `engine-sanitizer-smoke` | Actual headless server cvar registration, filesystem initialization, command execution and shutdown; synthetic-PAK remaster autodetection and an explicit classic-profile override. |
 | `qcc-regression` | Compiler help/diagnostics, warning controls, optimization fixtures and execution in the standalone VM. |
+
+The standalone fixtures cover 12,600 packet round trips, 10,000 unaligned fields,
+10,000 long/double byte fields, truncated inputs, output capacities 0–19, all
+escape bytes, 300,000 number conversions and archive ordering/cleanup. Resource
+checks include malformed remaster PAKs, 16,000 checksums, 100,000 ZIP/GZIP words,
+SHA-1/HMAC reference vectors, palette/normal-map alpha, full-range signed PCM,
+300 resampling cases and 5,409 lightmap bounds. They check every signed solid-box
+height, reliable header flags, connection cookies, native byte swaps, item flash
+masks and pickup attribution. Storage checks exercise release/debug grouped
+allocation/free, 16/32-bit brush indexes, client/server MDL pose groups and
+worker-GC snapshot alignment/content.
 
 Undefined behavior is fatal in sanitizer builds and the standalone sanitizer
 fixtures, even without an environment override. The parser fixtures compile
@@ -145,3 +174,9 @@ See [SDL3-GPU.md](SDL3-GPU.md) for reproduction commands.
 These checks cover the named functions and scenarios. They do not establish
 whole-engine sanitizer cleanliness for every map, mod, codec, plugin or GPU
 driver, and native Windows/Linux gameplay still needs testing on those systems.
+
+Remaster-owned-data checks are documented in [QuakeRemaster.md](QuakeRemaster.md).
+They remain separate from data-free CI and use isolated output directories.
+Enhanced/classic model scenes, 59 skeletal files, 58 animation boundaries,
+lighting changes and video restart also passed in the instrumented Mac/Metal
+client. This does not extend that result to every campaign map or game path.

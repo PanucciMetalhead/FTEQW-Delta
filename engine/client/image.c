@@ -8969,7 +8969,7 @@ static unsigned int * Image_GenerateNormalMap(qbyte *pixels, unsigned int *nmap,
 			/* The highest resolution mipmap level always has a
 			   unit length magnitude. */
 			height = bound(0, (pixels[i*wr + j]*offsetscale)+(255*(1-offsetscale)), 255);
-			nmap[i*w+j] = LittleLong((height << 24)|(b << 16)|(g << 8)|(r));	// <AWE> Added support for big endian.
+			nmap[i*w+j] = LittleLong(((unsigned int)height << 24)|(b << 16)|(g << 8)|(r));	// <AWE> Added support for big endian.
 		}
 	}
 

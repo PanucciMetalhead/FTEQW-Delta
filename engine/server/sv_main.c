@@ -3179,7 +3179,11 @@ void SV_DoDirectConnect(svconnectinfo_t *fte_restrict info)
 	// spectator mode can ONLY be set at join time
 	newcl->spectator = spectator;
 
-	newcl->realip_ping = (((rand()^(rand()<<8) ^ *(int*)&realtime)&0xffffff)<<8) | (newcl-svs.clients);
+	{
+		unsigned int timebits;
+		memcpy(&timebits, &realtime, sizeof(timebits));
+		newcl->realip_ping = ((((unsigned int)rand() ^ ((unsigned int)rand()<<8) ^ timebits)&0xffffffu)<<8) | (unsigned int)(newcl-svs.clients);
+	}
 
 #ifdef HEXEN2
 	if (newcl->istobeloaded && newcl->edict)

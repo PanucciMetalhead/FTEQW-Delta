@@ -928,8 +928,8 @@ int Netchan_Transmit (netchan_t *chan, int length, qbyte *data, int rate)
 	for (; (chan->outgoing_sequence_last&(countof(chan->sentsizes)-1)) != mtuseq; chan->outgoing_sequence_last++)
 		chan->sentsizes[chan->outgoing_sequence_last&(countof(chan->sentsizes)-1)] = 0;	//lost c2s or something, gaps now.
 
-	w1 = chan->outgoing_sequence | (send_reliable<<31);
-	w2 = chan->incoming_sequence | (chan->incoming_reliable_sequence<<31);
+	w1 = chan->outgoing_sequence | ((unsigned int)send_reliable<<31);
+	w2 = chan->incoming_sequence | ((unsigned int)chan->incoming_reliable_sequence<<31);
 
 	if (chan->flags&NCF_STUNAWARE)
 	{

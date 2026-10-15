@@ -1273,16 +1273,16 @@ void R_GenPaletteLookup(void)
 		b = pal[2];
 		pal += 3;
 
-		d_8to24rgbtable[i] = (255<<24) + (r<<0) + (g<<8) + (b<<16);
-		d_8to24srgbtable[i] = (255<<24) + (SRGBb(r)<<0) + (SRGBb(g)<<8) + (SRGBb(b)<<16);
-		d_8to24bgrtable[i] = (255<<24) + (b<<0) + (g<<8) + (r<<16);
+		d_8to24rgbtable[i] = (255u<<24) + (r<<0) + (g<<8) + (b<<16);
+		d_8to24srgbtable[i] = (255u<<24) + (SRGBb(r)<<0) + (SRGBb(g)<<8) + (SRGBb(b)<<16);
+		d_8to24bgrtable[i] = (255u<<24) + (b<<0) + (g<<8) + (r<<16);
 	}
 	d_8to24rgbtable[255] &= 0xffffff;	// 255 is transparent
 	d_8to24srgbtable[255] &= 0xffffff;	// 255 is transparent
 	d_8to24bgrtable[255] &= 0xffffff;	// 255 is transparent
 
 	for (i=0 ; i<256 ; i++)
-		d_quaketo24srgbtable[i] = (255<<24) | (SRGBb(default_quakepal[(i)*3+0])<<0) | (SRGBb(default_quakepal[(i)*3+1])<<8) | (SRGBb(default_quakepal[(i)*3+2])<<16);
+		d_quaketo24srgbtable[i] = (255u<<24) | (SRGBb(default_quakepal[(i)*3+0])<<0) | (SRGBb(default_quakepal[(i)*3+1])<<8) | (SRGBb(default_quakepal[(i)*3+2])<<16);
 }
 qboolean R_ApplyRenderer (rendererstate_t *newr)
 {

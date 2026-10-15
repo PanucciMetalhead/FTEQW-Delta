@@ -36,6 +36,10 @@ and [renderer controls and validation](documentation/SDL3-GPU.md).
 Warning audits and expanded sanitizer checks are documented in
 [SafetyChecks.md](documentation/SafetyChecks.md).
 
+Owned Quake rerelease content, MD5 models, portable-install detection, and
+repeatable campaign/model checks are covered in
+[QuakeRemaster.md](documentation/QuakeRemaster.md).
+
 The [console command and cvar reference](documentation/console_commands.md) covers
 Quake 1 and Quake 3/OpenArena, including shared settings, game-specific behavior,
 and client/server availability.

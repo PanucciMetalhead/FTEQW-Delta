@@ -36,6 +36,22 @@ packet pacing, state encoding, and protocol negotiation formats are unchanged.
 Existing encryption preferences and certificate verification remain in effect.
 These fixes do not add encryption support to legacy servers.
 
+## Packet packing and startup checks
+
+Instrumented Remaster client/server startup exposed signed shifts in reliable
+header flags, connection cookies, solid-box fields, native byte swaps and
+long/double message decoding. These paths now use unsigned bit operations;
+connection-cookie clock bytes are copied without type aliasing. Existing
+sequence/reliable flag layouts and solid-box bounds are preserved. The double
+reader reconstructs all eight bytes without sign-extending its low word.
+
+The additional data-free fixtures check exact decoded fields, truncated input,
+all reliable/ack flag combinations, every encoded solid-box height and high-bit
+cookie/swap patterns. Run `tools/parser_sanitizer_tests.py` as described in
+[SafetyChecks.md](SafetyChecks.md). The owned-data
+[Remaster checks](QuakeRemaster.md) also exercised local client/server joins.
+These changes do not modify movement or the retransmission algorithm.
+
 ## Package signatures
 
 Package mirrors and HTTPS connections no longer grant publisher trust. Native

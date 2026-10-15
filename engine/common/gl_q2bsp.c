@@ -146,7 +146,7 @@ void CalcSurfaceExtents (model_t *mod, msurface_t *s)
 		bmins[i] = floor(mins[i]/(1<<s->lmshift));
 		bmaxs[i] = ceil(maxs[i]/(1<<s->lmshift));
 
-		s->texturemins[i] = bmins[i] << s->lmshift;
+		s->texturemins[i] = bmins[i] * (1 << s->lmshift);
 		s->extents[i] = (bmaxs[i] - bmins[i]);
 
 //		if ( !(tex->flags & TEX_SPECIAL) && s->extents[i] > 17 )	//vanilla used 16(+1), glquake used 17(+1). FTE uses 255(+1), but we omit lightmapping instead of crashing if its larger than our limit, so we omit the check here. different engines use different limits here, many of them make no sense.

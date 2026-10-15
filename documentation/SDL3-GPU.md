@@ -579,3 +579,11 @@ material substitutions and a generated coordinate texture. It checks the
 projected texture coordinate at the zenith, changes cloud height and restores
 it, observes stock cloud animation, switches fast sky, and checks a static
 skybox and video restarts. It never changes the original game data.
+
+## Quake rerelease MD5 checks
+
+The existing SDL3 GPU skeletal path renders rerelease MD5 models and their
+indexed skins. The owned-data harness checks every skeleton/animation header,
+representative textured poses, lighting, original-model fallback, video
+restart, and campaign save/load. See [QuakeRemaster.md](QuakeRemaster.md) for
+commands, the Mac/Metal validation record, and remaining optional builtins.

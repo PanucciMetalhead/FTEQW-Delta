@@ -6,6 +6,8 @@ host/error services and minimal input structures; parser bodies come from the
 current engine source, not copied implementations. Requires GCC or Clang.
 """
 import argparse
+import hashlib
+import hmac
 import json
 import os
 from pathlib import Path
@@ -48,12 +50,34 @@ def main():
     cases = {
         'messages': [('engine/common/common.c', name) for name in
                      ('SZ_Clear', 'SZ_GetSpace', 'MSG_WriteRawBytes', 'MSG_WriteRawBits',
-                      'MSG_WriteBits', 'MSG_ReadRawBytes', 'MSG_ReadRawBits', 'MSG_ReadBits')],
+                      'MSG_WriteBits', 'MSG_ReadRawBytes', 'MSG_ReadRawBits', 'MSG_ReadBits',
+                      'MSG_ReadLong', 'MSG_ReadDouble')],
         'strings': [('engine/common/common.c', 'COM_ParseCString')],
         'escapes': [('plugins/quake3/botlib/l_script.c', 'PS_ReadEscapeCharacter')],
         'numbers': [('engine/common/common.c', 'Q_atoi')],
         'archives': [('engine/common/fs.c', name) for name in
                      ('FS_FindWildDataFiles', 'FS_SortWildDataFiles', 'FS_LoadWildDataFiles')],
+        'remaster': [('engine/common/fs.c', 'FS_QuakeRereleasePak')],
+        'hashes': [('engine/common/sha1.c', 'hashfunc_terminate_uint')],
+        'pickups': [('engine/client/zqtp.c', 'TP_CheckPickupSound')],
+        'stats': [('engine/client/cl_parse.c', 'CL_SetStat_Internal')],
+        'poses': [('engine/common/com_mesh.c', 'Q1MDL_AllocPoses')],
+        'poses_server': [('engine/common/com_mesh.c', 'Q1MDL_AllocPoses')],
+        'headers': [],
+        'byteswap': [('engine/common/common.c', name) for name in ('ShortSwap', 'LongSwap', 'I64Swap')],
+        'cookies': [],
+        'gc': [('engine/qclib/initlib.c', 'PR_QCGC_Snapshot')],
+        'sizes': [('engine/common/common.c', name) for name in ('COM_EncodeSize', 'COM_DecodeSize')],
+        'zone': [('engine/common/zone.c', name) for name in ('ZG_Free', 'ZG_FreeGroup')],
+        'zone_debug': [('engine/common/zone.c', name) for name in ('ZG_Free', 'ZG_FreeGroup')],
+        'mesh': [('engine/gl/gl_model.c', 'ModQ1_AllocSurfaceMesh')],
+        'mesh_wide': [('engine/gl/gl_model.c', 'ModQ1_AllocSurfaceMesh')],
+        'normalmap': [('engine/client/image.c', 'Image_GenerateNormalMap')],
+        'extents': [('engine/common/gl_q2bsp.c', 'CalcSurfaceExtents')],
+        'audio': [('engine/client/snd_mem.c', 'SND_ResampleStream')],
+        'palette': [('engine/client/renderer.c', 'R_GenPaletteLookup')],
+        'sha1': [('engine/common/sha1.c', name) for name in
+                 ('SHA1Transform', 'SHA1Init', 'SHA1Update', 'SHA1Final', 'CalcHash', 'memxor', 'CalcHMAC')],
     }
     results = {}
     env = dict(os.environ)
@@ -66,14 +90,100 @@ def main():
         options = env.get('ASAN_OPTIONS', '')
         env['ASAN_OPTIONS'] = (options + ':' if options else '') + 'detect_leaks=1'
     for name, bodies in cases.items():
-        template = (ROOT / f'tools/tests/parser_{name}.c').read_text()
+        template = (ROOT / f'tools/tests/parser_{name.removesuffix("_debug").removesuffix("_wide").removesuffix("_server")}.c').read_text()
+        if name == 'hashes':
+            # Check the actual ZIP byte-order macro too, rather than duplicating
+            # a corrected decoder in the fixture.
+            macro = re.search(r'^#define LittleU4FromPtr[^\n]+',
+                              (ROOT / 'engine/common/fs_zip.c').read_text(), re.M)[0]
+            template = template.replace('/* ENGINE_ZIP_ENDIAN */', macro)
+            gzip_size = re.search(r'unsigned int isize = [^;\n]+;',
+                                  (ROOT / 'engine/common/fs_zip.c').read_text())[0]
+            template = template.replace('/* ENGINE_GZIP_SIZE */', gzip_size)
+        if name == 'palette':
+            gloss = re.search(r'glossval \|= 0x01000000u? \* [^;\n]+;',
+                              (ROOT / 'engine/client/r_2d.c').read_text())[0]
+            template = template.replace('/* ENGINE_GLOSS_ALPHA */', gloss)
+        if name == 'headers':
+            source = (ROOT / 'engine/common/net_chan.c').read_text()
+            statements = re.findall(r'^\s*w[12] = chan->(?:outgoing_sequence|incoming_sequence) \| [^;]+;', source, re.M)
+            assert len(statements) == 2
+            template = template.replace('/* ENGINE_HEADERS */', '\n'.join(statements))
+        if name == 'cookies':
+            source = (ROOT / 'engine/server/sv_main.c').read_text()
+            start = source.index('unsigned int timebits;')
+            end = source.index(';', source.index('newcl->realip_ping =', start)) + 1
+            template = template.replace('/* ENGINE_COOKIE */', source[start:end])
+            number = re.search(r'host_client->realip_num = [^;]+;',
+                               (ROOT / 'engine/server/sv_user.c').read_text())[0]
+            template = template.replace('/* ENGINE_REALIP_NUMBER */', number)
+        if name == 'gc':
+            context = re.search(r'struct qcgccontext_s\s*\{.*?\};',
+                                (ROOT / 'engine/qclib/initlib.c').read_text(), re.S)[0]
+            template = template.replace('/* ENGINE_GC_CONTEXT */', context)
+        if name in ('zone', 'zone_debug'):
+            source = (ROOT / 'engine/common/zone.c').read_text()
+            start = source.index('typedef struct zonegroupblock_s')
+            end = source.index('void ZG_Free(', start)
+            template = template.replace('/* ENGINE_ZONE_ALLOCATOR */', source[start:end])
+        if name in ('mesh', 'mesh_wide', 'poses', 'poses_server'):
+            source = (ROOT / 'engine/common/mathlib.h').read_text()
+            start = source.index('typedef float vec_t;')
+            end = source.index('typedef\tint\tfixed4_t;', start)
+            template = template.replace('/* ENGINE_VECTOR_TYPES */', source[start:end])
+            mesh = re.search(r'typedef struct mesh_s\s*\{.*?\} mesh_t;',
+                             (ROOT / 'engine/gl/gl_model.h').read_text(), re.S)[0]
+            template = template.replace('/* ENGINE_MESH_TYPE */', mesh)
+        if name in ('poses', 'poses_server'):
+            source = (ROOT / 'engine/common/com_mesh.h').read_text()
+            start = source.index('typedef struct', source.index('#ifdef NONSKELETALMODELS'))
+            end = source.index('} galiaspose_t;', start) + len('} galiaspose_t;')
+            template = template.replace('/* ENGINE_POSE_TYPE */', source[start:end])
+            vbo = re.search(r'typedef union vboarray_s\s*\{.*?\} vboarray_t;',
+                            (ROOT / 'engine/client/merged.h').read_text(), re.S)[0]
+            template = template.replace('/* ENGINE_VBO_TYPE */', vbo)
+        if name == 'audio':
+            source = (ROOT / 'engine/client/snd_mem.c').read_text()
+            start = source.index('#define LINEARUPSCALE(')
+            end = source.index('// SND_ResampleStream:', start)
+            template = template.replace('/* ENGINE_AUDIO_MACROS */', source[start:end])
+        if name == 'sha1':
+            source = (ROOT / 'engine/common/sha1.c').read_text()
+            start = source.index('/* #define SHA1HANDSOFF')
+            end = source.index('/* Hash a single', start)
+            padding = '\n'.join(re.findall(r'^#define (?:IPAD|OPAD) [^\n]+', source, re.M))
+            template = template.replace('/* ENGINE_SHA1_TYPES */', source[start:end] + padding)
+
+            def bytes_for(size, seed):
+                data = bytearray()
+                for _ in range(size):
+                    seed = (seed*1664525+1013904223) & 0xffffffff
+                    data.append(seed >> 24)
+                return bytes(data)
+
+            vectors = []
+            for size in (0, 1, 3, 55, 56, 63, 64, 65, 127, 128, 129, 8193, 1000000):
+                digest = hashlib.sha1(bytes_for(size, 17)).hexdigest()
+                vectors.append(f'{{{size}, 17, "{digest}"}},')
+            template = template.replace('/* SHA1_REFERENCE_CASES */', '\n'.join(vectors))
+            vectors = []
+            for size in (0, 1, 20, 64, 65, 128, 200):
+                digest = hmac.new(bytes_for(size, 99), bytes_for(127, 42), hashlib.sha1).hexdigest()
+                vectors.append(f'{{{size}, "{digest}"}},')
+            template = template.replace('/* HMAC_REFERENCE_CASES */', '\n'.join(vectors))
         generated = out / f'{name}-generated.c'
         generated.write_text(template.replace('/* ENGINE_FUNCTIONS */',
                                               '\n\n'.join(function(*body) for body in bodies)))
         exe = out / name
         compile_cmd = [args.cc, '-std=c17', '-g', '-O1', '-Wall', '-Wextra', '-Werror',
                        '-fsanitize=address,undefined', '-fno-sanitize-recover=all',
-                       '-fno-omit-frame-pointer', str(generated), '-o', str(exe)]
+                       '-fno-omit-frame-pointer', str(generated), '-o', str(exe), '-lm']
+        if name == 'poses_server':
+            compile_cmd.append('-DSERVERONLY')
+        if name == 'mesh_wide':
+            compile_cmd.append('-DTEST_WIDE_INDEX')
+        if name == 'zone_debug':
+            compile_cmd.append('-D_DEBUG')
         with (out / f'{name}-build.log').open('w') as log:
             subprocess.run(compile_cmd, stdout=log, stderr=subprocess.STDOUT, check=True, timeout=120)
         with (out / f'{name}.log').open('w') as log:

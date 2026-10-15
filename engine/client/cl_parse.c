@@ -5991,7 +5991,7 @@ static void CL_SetStat_Internal (int pnum, int stat, int ivalue, float fvalue)
 	{	// set flash times
 		int	j;
 		for (j=0 ; j<32 ; j++)
-			if ( (ivalue & (1<<j)) && !(cl.playerview[pnum].stats[stat] & (1<<j)))
+			if ( (ivalue & (1u<<j)) && !(cl.playerview[pnum].stats[stat] & (1u<<j)))
 				cl.playerview[pnum].item_gettime[j] = cl.time;
 	}
 

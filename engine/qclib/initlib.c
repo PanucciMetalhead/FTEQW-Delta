@@ -1355,6 +1355,22 @@ struct qcgccontext_s
 	size_t memsize;
 	unsigned int amem[1];
 };
+// VM memory is only word aligned; the following native pointer table needs padding.
+static struct qcgccontext_s *PR_QCGC_Snapshot(progfuncs_t *progfuncs)
+{
+	struct qcgccontext_s *gc = malloc(sizeof(*gc) - sizeof(gc->amem) + prinst.addressableused + (_Alignof(tempstr_t*)-1) + sizeof(*gc->tempstrings)*prinst.maxtempstrings);
+	gc->done = false;
+	gc->clearedtemps = 0;
+	gc->progfuncs = progfuncs;
+
+	gc->memsize = prinst.addressableused;
+	memcpy(gc->amem, prinst.addressablehunk, prinst.addressableused);
+
+	gc->maxtemps = prinst.maxtempstrings;
+	gc->tempstrings = (tempstr_t**)(((quintptr_t)gc->amem + prinst.addressableused + _Alignof(tempstr_t*)-1) & ~(quintptr_t)(_Alignof(tempstr_t*)-1));
+	memcpy(gc->tempstrings, prinst.tempstrings, sizeof(*gc->tempstrings)*gc->maxtemps);
+	return gc;
+}
 void PR_QCGC_Done(void *ctx, void *data, size_t a, size_t b)
 {
 	struct qcgccontext_s *gc = ctx;
@@ -1452,17 +1468,7 @@ void PR_RunGC (progfuncs_t *progfuncs)
 #ifdef GCTIMINGS
 			double starttime = Sys_DoubleTime(), endtime;
 #endif
-			struct qcgccontext_s *gc = prinst.gccontext = malloc(sizeof(*gc) - sizeof(gc->amem) + prinst.addressableused + sizeof(*gc->tempstrings)*prinst.maxtempstrings);
-			gc->done = false;
-			gc->clearedtemps = 0;
-			gc->progfuncs = progfuncs;
-
-			gc->memsize = prinst.addressableused;
-			memcpy(gc->amem, prinst.addressablehunk, prinst.addressableused);
-
-			gc->maxtemps = prinst.maxtempstrings;
-			gc->tempstrings = (void*)((char*)gc->amem+prinst.addressableused);
-			memcpy(gc->tempstrings, prinst.tempstrings, sizeof(*gc->tempstrings)*gc->maxtemps);
+			struct qcgccontext_s *gc = prinst.gccontext = PR_QCGC_Snapshot(progfuncs);
 
 			COM_InsertWork(WG_LOADER, PR_QCGC_Thread, gc, NULL, 0, 0);
 

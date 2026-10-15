@@ -560,7 +560,7 @@ typedef struct zonegroupblock_s
 			unsigned int size;
 #endif
 		};
-		vec4_t align16;
+		avec4_t align16;
 	};
 } zonegroupblock_t;
 
@@ -573,7 +573,7 @@ void *QDECL ZG_Malloc(zonegroup_t *ctx, size_t size)
 #endif
 {
 	zonegroupblock_t *newm;
-	size += sizeof(zonegroupblock_t);	//well, at least the memory will be pointer aligned...
+	size += sizeof(zonegroupblock_t);	//keep the grouped payload aligned for SIMD vectors.
 #ifdef USE_MSVCRT_DEBUG
 	newm = Z_MallocNamed(size, file, line);
 #else

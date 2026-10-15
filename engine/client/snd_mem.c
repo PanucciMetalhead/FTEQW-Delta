@@ -37,6 +37,7 @@ typedef struct
 
 static wavinfo_t GetWavinfo (char *name, qbyte *wav, int wavlength);
 
+/* Signed sample values may be negative: scale by multiplication, not left shift. */
 #define LINEARUPSCALE(in, inrate, insamps, out, outrate, outlshift, outrshift) \
 	{ \
 		scale = inrate / (double)outrate; \
@@ -57,7 +58,7 @@ static wavinfo_t GetWavinfo (char *name, qbyte *wav, int wavlength);
 		} \
 		while (outnlsamps) \
 		{ \
-			*out = (*in >> outrshift) << outlshift; \
+			*out = (*in >> outrshift) * (1 << outlshift); \
 			out++; \
 			outnlsamps--; \
 		} \
@@ -84,8 +85,8 @@ static wavinfo_t GetWavinfo (char *name, qbyte *wav, int wavlength);
 		} \
 		while (outnlsamps) \
 		{ \
-			out[0] = (in[0] >> outrshift) << outlshift; \
-			out[1] = (in[1] >> outrshift) << outlshift; \
+			out[0] = (in[0] >> outrshift) * (1 << outlshift); \
+			out[1] = (in[1] >> outrshift) * (1 << outlshift); \
 			out += 2; \
 			outnlsamps--; \
 		} \
@@ -112,7 +113,7 @@ static wavinfo_t GetWavinfo (char *name, qbyte *wav, int wavlength);
 		} \
 		while (outnlsamps) \
 		{ \
-			out[0] = (((in[0] >> outrshift) << outlshift) + ((in[1] >> outrshift) << outlshift)) >> 1; \
+			out[0] = (((in[0] >> outrshift) * (1 << outlshift)) + ((in[1] >> outrshift) * (1 << outlshift))) >> 1; \
 			out++; \
 			outnlsamps--; \
 		} \
@@ -220,7 +221,7 @@ static wavinfo_t GetWavinfo (char *name, qbyte *wav, int wavlength);
 	\
 		while (outsamps) \
 		{ \
-			*out = (*in >> outrshift) << outlshift; \
+			*out = (*in >> outrshift) * (1 << outlshift); \
 			inaccum += infrac; \
 			in += (inaccum >> 16); \
 			inaccum &= 0xFFFF; \
@@ -238,8 +239,8 @@ static wavinfo_t GetWavinfo (char *name, qbyte *wav, int wavlength);
 	\
 		while (outsamps) \
 		{ \
-			out[0] = (in[0] >> outrshift) << outlshift; \
-			out[1] = (in[1] >> outrshift) << outlshift; \
+			out[0] = (in[0] >> outrshift) * (1 << outlshift); \
+			out[1] = (in[1] >> outrshift) * (1 << outlshift); \
 			inaccum += infrac; \
 			in += (inaccum >> 16) * 2; \
 			inaccum &= 0xFFFF; \
@@ -257,7 +258,7 @@ static wavinfo_t GetWavinfo (char *name, qbyte *wav, int wavlength);
 	\
 		while (outsamps) \
 		{ \
-			out[0] = (((in[0] >> outrshift) << outlshift) + ((in[1] >> outrshift) << outlshift)) >> 1; \
+			out[0] = (((in[0] >> outrshift) * (1 << outlshift)) + ((in[1] >> outrshift) * (1 << outlshift))) >> 1; \
 			inaccum += infrac; \
 			in += (inaccum >> 16) * 2; \
 			inaccum &= 0xFFFF; \
@@ -270,7 +271,7 @@ static wavinfo_t GetWavinfo (char *name, qbyte *wav, int wavlength);
 	{ \
 		while (insamps) \
 		{ \
-			*out = (*in >> outrshift) << outlshift; \
+			*out = (*in >> outrshift) * (1 << outlshift); \
 			out++; \
 			in++; \
 			insamps--; \
@@ -281,7 +282,7 @@ static wavinfo_t GetWavinfo (char *name, qbyte *wav, int wavlength);
 	{ \
 		while (insamps) \
 		{ \
-			*out = (((in[0] >> outrshift) << outlshift) + ((in[1] >> outrshift) << outlshift)) >> 1; \
+			*out = (((in[0] >> outrshift) * (1 << outlshift)) + ((in[1] >> outrshift) * (1 << outlshift))) >> 1; \
 			out++; \
 			in += 2; \
 			insamps--; \

@@ -3624,6 +3624,30 @@ static void Q1MDL_LoadPoseQF16(galiasinfo_t *galias, dmdl_t *pq1inmodel, vecV_t 
 		}
 	}
 }
+// Each packed pose starts with aligned positions, independently of header/normal sizes.
+static galiaspose_t *Q1MDL_AllocPoses(model_t *mod, int numposes, int numverts)
+{
+	size_t alignment = _Alignof(vecV_t);
+	size_t stride = sizeof(vecV_t)*numverts;
+#ifndef SERVERONLY
+	stride += sizeof(vec3_t)*3*numverts;
+#endif
+	stride = (stride + alignment-1) & ~(alignment-1);
+	galiaspose_t *poses = ZG_Malloc(&mod->memgroup, sizeof(*poses)*numposes + alignment-1 + stride*numposes);
+	char *data = (char*)(((quintptr_t)(poses+numposes) + alignment-1) & ~(quintptr_t)(alignment-1));
+	int i;
+	for (i = 0; i < numposes; i++, data += stride)
+	{
+		poses[i].ofsverts = (vecV_t*)data;
+#ifndef SERVERONLY
+		poses[i].ofsnormals = (vec3_t*)(poses[i].ofsverts+numverts);
+		poses[i].ofssvector = poses[i].ofsnormals+numverts;
+		poses[i].ofstvector = poses[i].ofssvector+numverts;
+#endif
+	}
+	return poses;
+}
+
 static void *Q1MDL_LoadFrameGroup (galiasinfo_t *galias, dmdl_t *pq1inmodel, model_t *loadmodel, daliasframetype_t *pframetype, int *seamremaps, int mdltype)
 {
 	galiaspose_t *pose;
@@ -3656,11 +3680,7 @@ static void *Q1MDL_LoadFrameGroup (galiasinfo_t *galias, dmdl_t *pq1inmodel, mod
 		case ALIAS_SINGLE:
 			frameinfo = (daliasframe_t*)((char *)(pframetype+1)); // qtest aliasframe is a subset
 			pinframe = (dtrivertx_t*)((char*)frameinfo+aliasframesize);
-#ifndef SERVERONLY
-			pose = (galiaspose_t *)ZG_Malloc(&loadmodel->memgroup, sizeof(galiaspose_t) + (sizeof(vecV_t)+sizeof(vec3_t)*3)*galias->numverts);
-#else
-			pose = (galiaspose_t *)ZG_Malloc(&loadmodel->memgroup, sizeof(galiaspose_t) + (sizeof(vecV_t))*galias->numverts);
-#endif
+			pose = Q1MDL_AllocPoses(loadmodel, 1, galias->numverts);
 			frame->poseofs = pose;
 			frame->numposes = 1;
 			galias->numanimations++;
@@ -3670,15 +3690,11 @@ static void *Q1MDL_LoadFrameGroup (galiasinfo_t *galias, dmdl_t *pq1inmodel, mod
 			else
 				Q_strncpyz(frame->name, frameinfo->name, sizeof(frame->name));
 
-			verts = (vecV_t *)(pose+1);
-			pose->ofsverts = verts;
+			verts = pose->ofsverts;
 #ifndef SERVERONLY
-			normals = (vec3_t*)&verts[galias->numverts];
-			svec = &normals[galias->numverts];
-			tvec = &svec[galias->numverts];
-			pose->ofsnormals = normals;
-			pose->ofssvector = svec;
-			pose->ofstvector = tvec;
+			normals = pose->ofsnormals;
+			svec = pose->ofssvector;
+			tvec = pose->ofstvector;
 #endif
 
 			if (mdltype & 16)
@@ -3713,15 +3729,12 @@ static void *Q1MDL_LoadFrameGroup (galiasinfo_t *galias, dmdl_t *pq1inmodel, mod
 			ingroup = (daliasgroup_t *)(pframetype+1);
 
 			frame->numposes = LittleLong(ingroup->numframes);
-#ifdef SERVERONLY
-			pose = (galiaspose_t *)ZG_Malloc(&loadmodel->memgroup, frame->numposes*(sizeof(galiaspose_t) + sizeof(vecV_t)*galias->numverts));
-			verts = (vecV_t *)(pose+frame->numposes);
-#else
-			pose = (galiaspose_t *)ZG_Malloc(&loadmodel->memgroup, frame->numposes*(sizeof(galiaspose_t) + (sizeof(vecV_t)+sizeof(vec3_t)*3)*galias->numverts));
-			verts = (vecV_t *)(pose+frame->numposes);
-			normals = (vec3_t*)&verts[galias->numverts];
-			svec = &normals[galias->numverts];
-			tvec = &svec[galias->numverts];
+			pose = Q1MDL_AllocPoses(loadmodel, frame->numposes, galias->numverts);
+			verts = frame->numposes ? pose->ofsverts : NULL;
+#ifndef SERVERONLY
+			normals = frame->numposes ? pose->ofsnormals : NULL;
+			svec = frame->numposes ? pose->ofssvector : NULL;
+			tvec = frame->numposes ? pose->ofstvector : NULL;
 #endif
 
 			frame->poseofs = pose;
@@ -3784,15 +3797,16 @@ static void *Q1MDL_LoadFrameGroup (galiasinfo_t *galias, dmdl_t *pq1inmodel, mod
 					pinframe += pq1inmodel->numverts;
 				}
 
-#ifndef SERVERONLY
-				verts = (vecV_t*)&tvec[galias->numverts];
-				normals = (vec3_t*)&verts[galias->numverts];
-				svec = &normals[galias->numverts];
-				tvec = &svec[galias->numverts];
-#else
-				verts = &verts[galias->numverts];
-#endif
 				pose++;
+				if (k+1 < frame->numposes)
+				{
+					verts = pose->ofsverts;
+#ifndef SERVERONLY
+					normals = pose->ofsnormals;
+					svec = pose->ofssvector;
+					tvec = pose->ofstvector;
+#endif
+				}
 			}
 
 //			GL_GenerateNormals((float*)verts, (float*)normals, (int *)((char *)galias + galias->ofs_indexes), galias->numindexes/3, galias->numverts);

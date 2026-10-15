@@ -1281,7 +1281,7 @@ Jump to [symbols and A–C](#cvars-symbols-and-ac), [D–H](#cvars-dh),
 | `com_fullgamename` (alias: `fs_gamename`) | Q1: `"Quake"`; Q3: `"Quake III Arena"` | The filesystem is trying to run this game |
 | `com_gamedirnativecode` | Q1: `"0"`; Q3: `"1"` | FTE QW blocks all downloads of files with a .dll or .so extension, however other engines (eg: ezquake and fodquake) do not - this omission can be used to trigger delayed eremote exploits in any engine (including FTE) which is later run from the same gamedir.<br>Quake2, Quake3(when debugging), and KTX typically run native gamecode from within gamedirs, so if you wish to run any of these games you will need to ensure this cvar is changed to 1, as well as ensure that you don't run unsafe clients. |
 | `com_highlightcolor` | `"12"` | ANSI colour to be used for highlighted text, used when com_parseutf8 is active. |
-| `com_parseutf8` | `"0"` | Interpret console messages/playernames/etc as UTF-8. Requires special fonts. -1=iso 8859-1. 0=quakeascii(chat uses high chars). 1=utf8, revert to ascii on decode errors. 2=utf8 ignoring errors |
+| `com_parseutf8` | `"0"` | Interpret console messages/playernames/etc as UTF-8. Requires special fonts. -1=iso 8859-1. 0=quakeascii(chat uses high chars). 1=utf8, revert to ascii on decode errors. 2=utf8 ignoring errors. The [Quake rerelease profile](QuakeRemaster.md#launch) defaults to `1`. |
 | `com_protocolname` (alias: `com_gamename`) | Q1: `"FTE-Quake DarkPlaces-Quake"`; Q3: `"Quake3"` | The protocol game name used for dpmaster queries. For compatibility with DP, you can set this to 'DarkPlaces-Quake' in order to be listed in DP's master server, and to list DP servers. |
 | `com_protocolversion` | Q1: `"3"`; Q3: `"68"` | **Different:** The protocol version used for dpmaster queries. Quake 3 UI VM requests for protocol are translated to this setting; protocol is not an engine console alias. |
 | `con_centernotify` | `"0"` | Center engine notification text. |
@@ -2016,7 +2016,7 @@ Jump to [symbols and A–C](#cvars-symbols-and-ac), [D–H](#cvars-dh),
 | `r_refract_fbo` | `"1"` | Use an fbo for refraction. If 0, just renders as a portal and uses a copy of the current framebuffer. |
 | `r_refractreflect_scale` | `"0.5"` | Use a different scale for refraction and reflection texturemaps. Because $reasons. |
 | `r_renderscale` | `"1"` | Retained legacy renderer subsampling/supersampling setting; unused by the SDL3 GPU renderer. Use `r_panini_scale` to change the Panini source resolution. |
-| `r_replacemodels` | `"md3 md2 md5mesh"` | A list of filename extensions to attempt to use instead of mdl. |
+| `r_replacemodels` | `"md3 md2 md5mesh"` | Filename extensions to try instead of MDL. This enables remaster MD5 replacements; an empty list selects original models. Set before loading/reloading a map. See [remaster model preferences](QuakeRemaster.md#enhanced-and-classic-models). |
 | `r_rocketlight` | `"1"` | **Q1 target:** strength of dynamic lights attached to rockets. |
 | `r_rocketlight_colour` | `"2.0 1.0 0.25 200"` | This controls the RGB+radius values of MF_ROCKET effects. |
 | `r_rockettrail` | `"1"` | **Q1 target:** engine trail-effect selection for rockets/grenades respectively. [cheat/ruleset restricted.] |
@@ -2364,7 +2364,7 @@ Jump to [symbols and A–C](#cvars-symbols-and-ac), [D–H](#cvars-dh),
 | `sv_maxtic` | `"0.1"` | The maximum interval between running physics frames. If the value is too low, multiple physics interations might be run at a time (based upon sv_limittics). Set to 0 for fixed-interval ticks, which may be required if ODE is used. |
 | `sv_maxvelocity` | `"10000"` | **Q1 target:** maximum entity velocity permitted by engine physics. |
 | `sv_minping` | `""` | Simulate fake lag for any players with a ping under the value specified here. Value is in milliseconds. |
-| `sv_mintic` | `"0"` | The minimum interval between running physics frames. |
+| `sv_mintic` | `"0"` | The minimum interval between running physics frames. The [Quake rerelease profile](QuakeRemaster.md#launch) uses `0.016666667` for both `sv_mintic` and `sv_maxtic` (60 Hz). |
 | `sv_motd1` | `""` | **Q1 target:** line 1 of the server message of the day. |
 | `sv_motd2` | `""` | **Q1 target:** line 2 of the server message of the day. |
 | `sv_motd3` | `""` | **Q1 target:** line 3 of the server message of the day. |
