@@ -260,3 +260,9 @@ Jolt and the adapter enable matching C++ RTTI for UBSan virtual-call checks,
 retaining the vptr sanitizer on Linux. Windows integration logs explicitly use
 plain stdio because the legacy colored console path bypasses redirected stdout.
 The server exit code is included with failed integration diagnostics.
+
+Plugin discovery on Linux exposed a zero-length `memcpy` with a null source in
+`Z_StrCat` (and the same pattern in `Z_StrCatLen`). Both skip empty copies. The
+`concat` fixture extracts the actual helpers and checks initial/empty, bounded
+and self/substring appends, plus allocation cleanup. Its checked-copy host also
+enforces glibc's nonnull contract on platforms whose libc headers lack it.

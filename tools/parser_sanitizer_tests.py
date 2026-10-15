@@ -49,6 +49,7 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     (out / 'results.json').unlink(missing_ok=True)
     cases = {
+        'concat': [('engine/common/zone.c', name) for name in ('Z_StrCatLen', 'Z_StrCat')],
         'skeleton': [('engine/client/pr_skelobj.c', name) for name in
                      ('skel_reset', 'skel_dodelete', 'skel_create', 'skel_get')],
         'messages': [('engine/common/common.c', name) for name in
