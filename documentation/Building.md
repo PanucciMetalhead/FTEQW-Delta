@@ -132,3 +132,8 @@ engine at the folder containing `id1/pak0.pak`, using `-quake_rerel` for an
 explicit profile. Portable PAK exports can also be auto-detected. See
 [QuakeRemaster.md](QuakeRemaster.md) for expansion launches, model preferences,
 owned-data checks and compatibility limits.
+Dawn of the Machine uses `-game mg3`:
+
+```sh
+./build/fteqw -basedir "/path/to/Quake Enhanced" -quake_rerel -game mg3
+```

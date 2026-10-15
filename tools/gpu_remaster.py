@@ -17,7 +17,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 CAMPAIGNS = {'id1': 'e1m1', 'hipnotic': 'hip1m1', 'rogue': 'r1m1',
-             'dopa': 'e5m1', 'mg1': 'mge1m1'}
+             'dopa': 'e5m1', 'mg1': 'mge1m1', 'mg3': 'map1'}
 OPTIONAL_BUILTINS = {'ex_draw_point', 'ex_draw_line', 'ex_draw_arrow', 'ex_draw_ray',
                     'ex_draw_circle', 'ex_draw_bounds', 'ex_draw_worldtext',
                     'ex_draw_sphere', 'ex_draw_cylinder', 'ex_bot_movetopoint',

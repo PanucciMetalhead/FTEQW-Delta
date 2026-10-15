@@ -29,10 +29,24 @@ Choose an installed single-player expansion with `-game`:
 ./build/fteqw -basedir "/path/to/Quake Enhanced" -quake_rerel -game rogue
 ./build/fteqw -basedir "/path/to/Quake Enhanced" -quake_rerel -game dopa
 ./build/fteqw -basedir "/path/to/Quake Enhanced" -quake_rerel -game mg1
+./build/fteqw -basedir "/path/to/Quake Enhanced" -quake_rerel -game mg3
 ```
 
-These are Scourge of Armagon, Dissolution of Eternity, Dimension of the Past,
-and Dimension of the Machine. Keep `id1` beside the expansion directories so
+| Folder | Expansion |
+| --- | --- |
+| `hipnotic` | Scourge of Armagon |
+| `rogue` | Dissolution of Eternity |
+| `dopa` | Dimension of the Past |
+| `mg1` | Dimension of the Machine |
+| `mg3` | Dawn of the Machine |
+
+[Dawn of the Machine](https://www.machinegames.com/news/machinegames-and-id-software-celebrate-quake-tm-s-30th-anniversary-with-a-brand-new-episode)
+is MachineGames' 2026 expansion. Its entry map is `start`, its first gameplay
+map is `map1`, and its hub is `hub`. With `-game mg3`, use the New Game menu or
+enter `map start` in the console. It needs the updated rerelease `id1` data for
+shared assets and localization, alongside `mg3/pak0.pak` and its music directory.
+
+Keep `id1` beside the expansion directories so
 shared models, textures, sounds and localization remain available. On Windows,
 use the executable produced by the selected build configuration, typically
 `build/Release/fteqw.exe`.
@@ -93,7 +107,9 @@ to `prepare`, and `--engine build/all/Release/fteqw.exe` plus
 `--server build/all/Release/fteqw-sv.exe` to `run`.
 
 `--profile models` runs model comparisons; `--profile campaigns` runs the
-single-player campaign checks. The default is `all`. `check` re-evaluates saved
+single-player campaign checks. Installed `id1`, `hipnotic`, `rogue`, `dopa`,
+`mg1` and `mg3` campaigns are included automatically. The default is `all`.
+`check` re-evaluates saved
 outputs without starting the engine. The model capture sequence starts after
 client initialization and uses a fixed camera, so connection time and physical
 mouse input cannot change the comparison pose.
@@ -107,8 +123,14 @@ On the tested macOS/Metal installation, release checks passed for:
   direct MD5 rendering, while disabling replacements selected original MDLs.
 - Animation-pose and lighting changes, plus identical fixed-scene captures
   after video restart.
-- Base-game and four expansion gamecode loads, start/first-map transitions,
+- Base-game and five expansion gamecode loads, start/first-map transitions,
   legacy save/load, restored client views, and dedicated-server map startup.
+
+Dawn of the Machine (`mg3`) additionally passed its own release check: `start`
+to `map1`, saving/loading the start map, restored client rendering and dedicated
+server startup. Its full hub/rune progression and every new weapon, monster or
+map have not been exhaustively tested. The 59-model/58-animation inventory above
+covers `id1`; it does not count the five extra MD5 model/animation pairs in `mg3`.
 
 The enhanced/classic model comparisons also passed in the full ASan/UBSan
 client with undefined behavior fatal, including all model/animation inspections,
