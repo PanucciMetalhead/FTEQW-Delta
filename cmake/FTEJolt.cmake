@@ -14,6 +14,8 @@ function(fte_add_jolt)
     set(OVERRIDE_CXX_FLAGS OFF)
     # Inherit the engine/toolchain CRT; upstream otherwise forces /MT on MSVC.
     set(USE_STATIC_MSVC_RUNTIME_LIBRARY OFF)
+    # Match the adapter: UBSan vptr checks require typeinfo across this boundary.
+    set(CPP_RTTI_ENABLED ON)
     set(INTERPROCEDURAL_OPTIMIZATION OFF)
     set(ENABLE_ALL_WARNINGS OFF)
     set(ENABLE_INSTALL OFF)

@@ -108,7 +108,9 @@ def main():
         backend='ode' if mode==2 else 'jolt'
         load=f'plug_load {backend}' if plugin else 'echo PHYSICS_NO_PLUGIN'
         close=f'plug_close {backend}' if plugin else 'echo PHYSICS_NO_PLUGIN'
-        cfg=f'''sv_public 0
+        # Plain stdio is required when Windows stdout is redirected to a file.
+        cfg=f'''sys_colorconsole 0
+sv_public 0
 sv_port 0
 sv_mintic 0.008333333
 sv_maxtic 0.008333333
@@ -136,7 +138,7 @@ map physics
         text=logpath.read_text(errors='replace')
         if proc.returncode or text.count('PHYSICS_ENGINE_OK')!=3 or re.search(
                 r'PHYSICS_FAIL|AddressSanitizer|UndefinedBehaviorSanitizer|runtime error:|Jolt entity .* rejected|Jolt simulation stopped',text):
-            raise AssertionError(f'{name}: engine checks failed; inspect {logpath}\n{text[-7000:]}')
+            raise AssertionError(f'{name}: exit={proc.returncode}; engine checks failed; inspect {logpath}\n{text[-7000:]}')
         if mode==1 and text.count('PHYSICS_RAGDOLL_OK')!=3:
             raise AssertionError(f'Missing ragdoll checks: {logpath}')
         heights=[float(x) for x in re.findall(r'PHYSICS_CLASSIC_Z ([\d.-]+)',text)]

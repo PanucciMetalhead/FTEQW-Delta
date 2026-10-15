@@ -187,7 +187,9 @@ coverage in `parser-sanitizers`.
 
 Desktop CI runs Release checks on Windows, Linux (GCC/Clang) and macOS,
 plus Debug sanitizer checks on Linux/macOS. Jolt inherits the engine's selected
-MSVC runtime. Clang-instrumented plugins resolve sanitizer symbols through the
+MSVC runtime. Jolt and its adapter both enable C++ RTTI so UBSan's virtual-call
+checks can resolve their type information. The integration fixture selects plain
+console output for redirected Windows logs. Clang-instrumented plugins resolve sanitizer symbols through the
 instrumented host; ordinary plugin builds retain strict symbol resolution.
 Further work includes universal/hinge2 joints,
 real-mod rig compatibility, CSQC validation, animated/kinematic behavior,

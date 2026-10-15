@@ -255,3 +255,8 @@ Physics fixtures use accumulated simulation steps and completion-driven map/plug
 cycling, with a bounded ODE settling deadline, so initialization and host timewarps
 cannot produce premature collision checks. Release builds are checked locally
 as well as Debug and ASan/UBSan; platform CI remains the native Windows/Linux check.
+
+Jolt and the adapter enable matching C++ RTTI for UBSan virtual-call checks,
+retaining the vptr sanitizer on Linux. Windows integration logs explicitly use
+plain stdio because the legacy colored console path bypasses redirected stdout.
+The server exit code is included with failed integration diagnostics.

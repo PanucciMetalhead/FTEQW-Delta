@@ -587,7 +587,7 @@ fte_jolt_joint fte_jolt_joint_add(fte_jolt_world *w, const fte_jolt_joint_desc *
     auto &api = w->physics.GetBodyInterface();
     JPH::BodyID id1 = a ? a->id : JPH::BodyID(), id2 = b ? b->id : JPH::BodyID();
     JPH::Ref<JPH::TwoBodyConstraint> constraint;
-    JPH::Vec3 axis = vec(d->axis), normal;
+    JPH::Vec3 axis = vec(d->axis), normal = JPH::Vec3::sZero();
     if (d->type == FTE_JOLT_HINGE || d->type == FTE_JOLT_SLIDER) {
         if (std::fabs(axis.LengthSq() - 1) > .001) {
             w->fail("Joint axis must be normalized");
