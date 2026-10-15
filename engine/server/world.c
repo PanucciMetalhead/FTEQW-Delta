@@ -2764,6 +2764,10 @@ void World_RBE_Shutdown(world_t *world)
 	wedict_t *ed;
 	if (!world->rbe)
 		return;
+#ifdef RAGDOLL
+	/* Ragdoll objects own backend bodies/joints; release them while it lives. */
+	rag_uninstanciateworld(world);
+#endif
 
 	if (world->progs)
 	{

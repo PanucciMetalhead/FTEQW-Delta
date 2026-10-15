@@ -93,6 +93,7 @@ typedef struct skelobject_s
 
 	unsigned int numbones;
 	float *bonematrix;
+	qboolean ownedmatrix; /* Native network poses can exist without a QC VM. */
 
 #ifdef RAGDOLL
 	int numanimated;
@@ -713,6 +714,13 @@ void rag_freedoll(doll_t *doll)
 	BZ_Free(doll);
 }
 
+void rag_uninstanciateworld(world_t *world)
+{
+    int i;
+    for (i = 0; i < numskelobjectsused; i++)
+        if (skelobjects[i].world == world)
+            rag_uninstanciate(&skelobjects[i]);
+}
 void rag_uninstanciateall(void)
 {
 	int i;
@@ -1041,6 +1049,9 @@ void skel_reset(world_t *world)
 #ifdef RAGDOLL
 			rag_uninstanciate(&skelobjects[i]);
 #endif
+			if (skelobjects[i].ownedmatrix)
+				BZ_Free(skelobjects[i].bonematrix);
+			skelobjects[i].ownedmatrix = false;
 			skelobjects[i].numbones = 0;
 			skelobjects[i].inuse = false;
 			skelobjects[i].bonematrix = NULL;
@@ -1089,21 +1100,32 @@ static skelobject_t *skel_create(world_t *world, int bonecount)
 	{
 		if (!skelobjects[skelidx].inuse && skelobjects[skelidx].numbones == bonecount && skelobjects[skelidx].world == world)
 		{
+			if (world->progs && skelobjects[skelidx].ownedmatrix)
+			{
+				BZ_Free(skelobjects[skelidx].bonematrix);
+				skelobjects[skelidx].bonematrix = (float*)PR_AddString(world->progs, "", sizeof(float)*12*bonecount, false);
+				skelobjects[skelidx].ownedmatrix = false;
+			}
 			skelobjects[skelidx].inuse = 1;
 			return &skelobjects[skelidx];
 		}
 	}
 
-	for (skelidx = 0; skelidx <= MAX_SKEL_OBJECTS; skelidx++)
+	for (skelidx = 0; skelidx < countof(skelobjects); skelidx++)
 	{
 		if (!skelobjects[skelidx].inuse &&
 			(!skelobjects[skelidx].numbones || skelobjects[skelidx].numbones == bonecount) &&
 			(!skelobjects[skelidx].world || skelobjects[skelidx].world == world))
 		{
-			if (!skelobjects[skelidx].numbones)
+			if (!skelobjects[skelidx].numbones || (world->progs && skelobjects[skelidx].ownedmatrix))
 			{
+				if (skelobjects[skelidx].ownedmatrix)
+					BZ_Free(skelobjects[skelidx].bonematrix);
 				skelobjects[skelidx].numbones = bonecount;
-				skelobjects[skelidx].bonematrix = (float*)PR_AddString(world->progs, "", sizeof(float)*12*bonecount, false);
+				skelobjects[skelidx].ownedmatrix = !world->progs;
+				skelobjects[skelidx].bonematrix = world->progs ?
+					(float*)PR_AddString(world->progs, "", sizeof(float)*12*bonecount, false) :
+					BZ_Malloc(sizeof(float)*12*bonecount);
 			}
 			skelobjects[skelidx].world = world;
 			if (numskelobjectsused <= skelidx)
@@ -1122,7 +1144,7 @@ static skelobject_t *skel_get(world_t *world, int skelidx)
 	skelidx--;
 	if ((unsigned int)skelidx >= numskelobjectsused)
 		return NULL;
-	if (skelobjects[skelidx].inuse != 1)
+	if (skelobjects[skelidx].inuse != 1 || skelobjects[skelidx].world != world)
 		return NULL;
 	return &skelobjects[skelidx];
 }
@@ -1267,11 +1289,12 @@ static qboolean rag_instanciate(skelobject_t *sko, doll_t *doll, float *emat, we
 	float *absolutes;
 	sko->numbodies = doll->numbodies;
 	sko->body = BZ_Malloc(sizeof(*sko->body) * sko->numbodies);
+	memset(sko->body, 0, sizeof(*sko->body) * sko->numbodies);
 	sko->doll = doll;
 	doll->uses++;
 	sko->numanimated = 0;
 
-	if (bones && doll->refanim)
+	if (bones && doll->refanim >= 0)
 	{
 		framestate_t fstate = {0};
 		float *relatives = alloca(sizeof(float)*12*numbones*2);
@@ -1308,7 +1331,10 @@ static qboolean rag_instanciate(skelobject_t *sko, doll_t *doll, float *emat, we
 		else
 			rag_genbodymatrix(sko, &doll->body[i], emat, bodymat);
 		if (!sko->world->rbe->RagCreateBody(sko->world, &sko->body[i].odebody, &doll->body[i], bodymat, ent))
+		{
+			rag_uninstanciate(sko);
 			return false;
+		}
 	}
 	sko->numjoints = doll->numjoints;
 	sko->joint = BZ_Malloc(sizeof(*sko->joint) * sko->numjoints);
@@ -1323,7 +1349,7 @@ static qboolean rag_instanciate(skelobject_t *sko, doll_t *doll, float *emat, we
 		bmat = sko->bonematrix + bone*12;
 
 		if (absolutes)	//we have a reference pose
-			memcpy(worldmat, absolutes+12*doll->body[i].bone, sizeof(float)*12);
+			memcpy(worldmat, absolutes+12*j->bonepivot, sizeof(float)*12);
 		else if (1)
 		{	//FIXME: j->offset isn't actually used?!?
 			Matrix3x4_Invert_Simple(bones[j->bonepivot].inverse, worldmat);
@@ -1343,6 +1369,11 @@ static qboolean rag_instanciate(skelobject_t *sko, doll_t *doll, float *emat, we
 		VectorNormalize2(j->axis2, aaa2[2]);
 
 		sko->world->rbe->RagCreateJoint(sko->world, &sko->joint[i], j, body1, body2, aaa2);
+		if (!sko->joint[i].joint)
+		{
+			rag_uninstanciate(sko);
+			return false;
+		}
 
 		sko->world->rbe->RagEnableJoint(&sko->joint[i], j->startenabled);
 	}
@@ -1352,7 +1383,11 @@ static qboolean rag_instanciate(skelobject_t *sko, doll_t *doll, float *emat, we
 	for (i = 0; i < sko->numbodies; i++)
 	{
 		rag_genbodymatrix(sko, &doll->body[i], emat, bodymat);
-		sko->world->rbe->RagMatrixToBody(&sko->body[i].odebody, bodymat);
+		if (!sko->world->rbe->RagMatrixToBody(&sko->body[i].odebody, bodymat))
+		{
+			rag_uninstanciate(sko);
+			return false;
+		}
 	}
 
 	sko->doll->numdefaultanimated = sko->numanimated;
@@ -1566,7 +1601,7 @@ void rag_lerpdeltaent(lerpents_t *le, unsigned int bonecount, short *newstate, f
 	if (le->skeletalobject)
 	{
 		sko = skel_get(&csqc_world, le->skeletalobject);
-		if (sko->numbones != bonecount)
+		if (sko && sko->numbones != bonecount)
 		{	//unusable, discard it and create a new one.
 			sko->inuse = 2;	//2 means don't reuse yet.
 			sko->modelindex = 0;
@@ -2541,7 +2576,7 @@ void QCBUILTIN PF_skel_premul_bones (pubprogfuncs_t *prinst, struct globalvars_s
 	if (!skelobj)
 		return;
 
-	if (startbone == -1)
+	if (startbone < 0)
 		startbone = 0;
 	if (endbone == -1)
 		endbone = skelobj->numbones;
@@ -2575,7 +2610,7 @@ void QCBUILTIN PF_skel_copybones (pubprogfuncs_t *prinst, struct globalvars_s *p
 	skelobjsrc = skel_get(w, skelsrc);
 	if (!skelobjdst || !skelobjsrc)
 		return;
-	if (startbone == -1)
+	if (startbone < 0)
 		startbone = 0;
 	if (endbone == -1)
 		endbone = skelobjdst->numbones;
@@ -2600,10 +2635,24 @@ void QCBUILTIN PF_skel_copybones (pubprogfuncs_t *prinst, struct globalvars_s *p
 		/*copy from relative to absolute*/
 		skel_copy_toabs(skelobjdst, skelobjsrc, startbone, endbone);
 	}
-	else
+	else if (skelobjsrc->type == SKEL_ABSOLUTE && skelobjdst->type == SKEL_RELATIVE && skelobjsrc->model)
 	{
-		/*copy from absolute to relative*/
-		//FIXME
+		/* Keep simulation poses absolute; derive a separate relative skeleton
+		 * for rendering/network export without changing the physics rig. */
+		for (; startbone < endbone; startbone++)
+		{
+			int parent = Mod_GetBoneParent(skelobjsrc->model, startbone+1)-1;
+			float *out = skelobjdst->bonematrix+12*startbone;
+			const float *in = skelobjsrc->bonematrix+12*startbone;
+			if (parent >= 0 && parent < skelobjsrc->numbones)
+			{
+				float inverse[12];
+				Matrix3x4_Invert_Simple(skelobjsrc->bonematrix+12*parent, inverse);
+				R_ConcatTransforms((const void*)inverse, (const void*)in, (void*)out);
+			}
+			else
+				memcpy(out, in, 12*sizeof(float));
+		}
 	}
 }
 

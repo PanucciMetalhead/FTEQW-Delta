@@ -77,7 +77,9 @@ typedef unsigned char boneidx_t;
 typedef boneidx_t bone_vec4_t[4];
 
 struct doll_s;
+struct world_s;
 void rag_uninstanciateall(void);
+void rag_uninstanciateworld(struct world_s *world);
 void rag_flushdolls(qboolean force);
 void rag_freedoll(struct doll_s *doll);
 struct doll_s *rag_createdollfromstring(struct model_s *mod, const char *fname, int numbones, const char *file);

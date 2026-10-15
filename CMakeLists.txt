@@ -745,14 +745,14 @@ IF(FTE_PLUG_ODE)
 			SET(FTE_LIB_DEFINES "${FTE_LIB_DEFINES};USE_INTERNAL_ODE;ODE_STATIC")
 			SET(FTE_LIBS ${FTE_LIBS} ${LIBODE_LIBRARY})
 			SET(FTESV_LIBS ${FTESV_LIBS} ${LIBODE_LIBRARY})
-			SET(FTE_INCLUDES ${FTE_INCLUDES} ${ODE_INCLUDE_DIRS})
+			SET(FTE_INCLUDES ${FTE_INCLUDES} ${LIBODE_INCLUDE_DIR})
 		ELSE()
 			ADD_LIBRARY(plug_ode MODULE
 				plugins/plugin.c
 				engine/common/com_phys_ode.c
 				engine/common/mathlib.c
 			)
-			TARGET_INCLUDE_DIRECTORIES(plug_ode PUBLIC ${ODE_INCLUDE_DIRS})
+			TARGET_INCLUDE_DIRECTORIES(plug_ode SYSTEM PUBLIC ${LIBODE_INCLUDE_DIR})
 			SET_TARGET_PROPERTIES(plug_ode PROPERTIES COMPILE_DEFINITIONS "FTEPLUGIN;ODE_STATIC")
 			TARGET_LINK_LIBRARIES(plug_ode ${SYS_LIBS} ${LIBODE_LIBRARY})
 
@@ -762,6 +762,8 @@ IF(FTE_PLUG_ODE)
 		MESSAGE(WARNING "ODE library not found, no ode plugin for you")
 	ENDIF()
 ENDIF()
+
+include(cmake/FTEJolt.cmake)
 
 IF(ANDROID)
 	#android sucks. everything is a library. so we build the engine as a shared library and completely ignore dedicated servers+tools
@@ -1569,4 +1571,39 @@ if(BUILD_TESTING)
                 --compiler $<TARGET_FILE:fteqcc> --vm $<TARGET_FILE:qcvm>
                 --out "${CMAKE_BINARY_DIR}/qcc-tests")
     endif()
+endif()
+
+# Physics adapter checks use synthetic geometry and never require game assets.
+if(BUILD_TESTING AND TARGET fte-jolt-adapter)
+    add_executable(jolt-backend-tests tools/tests/jolt_backend.cpp)
+    set_target_properties(jolt-backend-tests PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+    target_link_libraries(jolt-backend-tests PRIVATE fte-jolt-adapter)
+    if(FTE_JOLT_ODE_REFERENCE AND LIBODE_LIBRARY AND LIBODE_INCLUDE_DIR)
+        target_compile_definitions(jolt-backend-tests PRIVATE FTE_TEST_ODE)
+        target_include_directories(jolt-backend-tests PRIVATE "${LIBODE_INCLUDE_DIR}")
+        target_link_libraries(jolt-backend-tests PRIVATE "${LIBODE_LIBRARY}")
+    endif()
+    add_test(NAME jolt-backend COMMAND jolt-backend-tests)
+    set_tests_properties(jolt-backend PROPERTIES TIMEOUT 90)
+    add_executable(jolt-c-boundary tools/tests/jolt_c_boundary.c)
+    set_target_properties(jolt-c-boundary PROPERTIES LINKER_LANGUAGE CXX)
+    target_link_libraries(jolt-c-boundary PRIVATE fte-jolt-adapter)
+    add_test(NAME jolt-c-boundary COMMAND jolt-c-boundary)
+    # Build this target before CTest when requesting only selected targets.
+    set(fte_jolt_check_deps jolt-backend-tests jolt-c-boundary plug_jolt)
+    if(TARGET fteqw-sv AND TARGET fteqcc AND Python3_Interpreter_FOUND)
+        set(fte_jolt_ode_args)
+        if(FTE_JOLT_ODE_REFERENCE AND TARGET plug_ode)
+            list(APPEND fte_jolt_check_deps plug_ode)
+            list(APPEND fte_jolt_ode_args --ode-plugin $<TARGET_FILE:plug_ode>)
+        endif()
+        list(APPEND fte_jolt_check_deps fteqw-sv fteqcc)
+        add_test(NAME jolt-engine
+            COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/physics_integration.py"
+                --server $<TARGET_FILE:fteqw-sv> --qcc $<TARGET_FILE:fteqcc>
+                --jolt-plugin $<TARGET_FILE:plug_jolt> ${fte_jolt_ode_args}
+                --out "${CMAKE_BINARY_DIR}/physics-tests/$<CONFIG>")
+        set_tests_properties(jolt-engine PROPERTIES TIMEOUT 120)
+    endif()
+    add_custom_target(jolt-check-deps DEPENDS ${fte_jolt_check_deps})
 endif()

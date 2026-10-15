@@ -672,8 +672,14 @@ For a mod that manages separate animations with skeleton APIs, the existing
 `mod_md5_singleanimation 0` workflow remains available.
 
 Animation bones and weights do not define ragdoll masses, bodies or constraints.
-Those require a separate physics rig. Jolt integration and optional ragdolls
-remain future work. See [Quake Remaster content](QuakeRemaster.md) for launch
+Those require a separate physics rig. The opt-in [Jolt plugin](JoltPhysics.md)
+supports rigid props through `MOVETYPE_PHYSICS`, point/fixed/hinge/slider
+joints, and experimental `.doll` skeletal rigs through `skel_ragupdate`. Loading
+a skeletal model does not create a physics rig. For server-side rigs, copy the
+absolute simulated pose into a separate relative render skeleton with
+`skel_copybones`; set the rendered entity's `.basebone = -1` to use the existing
+bone networking. See the Jolt guide for the tested pattern and limits. See
+[Quake Remaster content](QuakeRemaster.md) for launch
 examples, tested assets, original-model fallback and compatibility limits.
 
 ### Frames, animation and the weapon viewmodel

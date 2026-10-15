@@ -100,9 +100,13 @@ limits and path security checks are unchanged.
 
 MD5 provides animation bones and weights. Ragdolls additionally need physics
 bodies, masses and constraint limits. FTE's `.doll` format describes that rig;
-the supplied base archive contains no such definitions. Jolt integration and
-optional ragdolls are subsequent milestones; this change does not alter classic
-player movement, prediction, collision rules or ordinary entity physics code.
+the supplied base archive contains no such definitions. An opt-in
+[Jolt rigid-body milestone](JoltPhysics.md) supports primitive props, static map
+collision, point/fixed/hinge/slider joints and experimental `.doll` rigs. These
+require mod-authored bodies and constraints; rerelease models alone do not
+define a rig. Universal/hinge2 joints and full ODE compatibility remain open;
+classic player movement, prediction and ordinary entity physics stay in the
+engine. Loading rerelease MD5 assets does not automatically enable physics.
 
 ## Repeatable owned-data checks
 

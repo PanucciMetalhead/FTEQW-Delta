@@ -49,6 +49,8 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     (out / 'results.json').unlink(missing_ok=True)
     cases = {
+        'skeleton': [('engine/client/pr_skelobj.c', name) for name in
+                     ('skel_reset', 'skel_dodelete', 'skel_create', 'skel_get')],
         'messages': [('engine/common/common.c', name) for name in
                      ('SZ_Clear', 'SZ_GetSpace', 'MSG_WriteRawBytes', 'MSG_WriteRawBits',
                       'MSG_WriteBits', 'MSG_ReadRawBytes', 'MSG_ReadRawBits', 'MSG_ReadBits',
@@ -100,6 +102,10 @@ def main():
         env['ASAN_OPTIONS'] = (options + ':' if options else '') + 'detect_leaks=1'
     for name, bodies in cases.items():
         template = (ROOT / f'tools/tests/parser_{name.removesuffix("_debug").removesuffix("_wide").removesuffix("_server")}.c').read_text()
+        if name == 'skeleton':
+            struct = re.search(r'typedef struct skelobject_s\s*\{.*?\} skelobject_t;',
+                               (ROOT / 'engine/client/pr_skelobj.c').read_text(), re.S)[0]
+            template = template.replace('/* ENGINE_SKEL_TYPE */', struct)
         if name == 'viewangles':
             macro = re.search(r'^#define ANGLE2SHORT[^\n]+',
                               (ROOT / 'engine/common/protocol.h').read_text(), re.M)[0]

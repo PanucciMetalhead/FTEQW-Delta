@@ -137,3 +137,11 @@ Dawn of the Machine uses `-game mg3`:
 ```sh
 ./build/fteqw -basedir "/path/to/Quake Enhanced" -quake_rerel -game mg3
 ```
+
+## Experimental Jolt rigid bodies
+
+`FTE_PLUG_JOLT=ON` and `FTE_JOLT_SOURCE_DIR=/path/to/JoltPhysics` build the
+optional `plug_jolt` module from an external source checkout. It defaults to off
+and does not require or modify an installed ODE library. Use a separate build
+directory. See [JoltPhysics.md](JoltPhysics.md) for the pinned dependency,
+`jolt-check-deps` / CTest commands, runtime opt-in and current limitations.

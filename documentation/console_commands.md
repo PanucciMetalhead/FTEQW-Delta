@@ -21,6 +21,8 @@ Quake 3 mods provide their own VMs, and Quake 1 mods can add commands through
 QuakeC; there cannot be a fixed exhaustive list for every possible mod.
 Quake 3 Arena/baseq3 and other mods may differ from the OpenArena entries
 shown here. Build options and optional plugins can also change availability.
+The experimental Jolt plugin adds the optional `physics_jolt_enabled` setting
+listed below; it is not present until `plug_load jolt`.
 The tables combine registered engine settings with on-demand gamecode
 interfaces. User-created aliases and arbitrary user-created cvars are outside
 the fixed inventory.
@@ -1794,6 +1796,7 @@ Jump to [symbols and A–C](#cvars-symbols-and-ac), [D–H](#cvars-dh),
 | `pext_predinfo` | `"1"` | Enables some extra things to support prediction over NQ protocols. |
 | `pext_replacementdeltas` | `"1"` | Enables the use of alternative nack-based entity deltas |
 | `pkg_autoupdate` | `"1"` | Controls autoupdates, can only be changed via the downloads menu.<br>0: off.<br>1: enabled (stable only).<br>2: enabled (unstable).<br>Note that autoupdate will still prompt the user to actually apply the changes. |
+| `physics_jolt_enabled` | `"0"` | **Q1 target; optional Jolt plugin.** Opt into rigid props before loading a map. Does not convert classic movement or Q3 qagame physics. Set after `plug_load jolt`; non-archived. Changing it does not stop an existing world immediately. See [JoltPhysics.md](JoltPhysics.md) for restart commands and limits. |
 | `plug_loaddefault` | `"1"` | 0: Load plugins only via explicit plug_load commands<br>1: Load built-in plugins and those selected via the package manager<br>2: Scan for misc plugins, loading all that can be found, but not built-ins.<br>3: Scan for plugins, and then load any built-ins |
 | `plug_sbar` | `"3"` | Controls whether plugins are allowed to draw the hud, rather than the engine (when allowed by csqc). This is typically used to permit the ezhud plugin without needing to bother unloading it.<br>=0: never use hud plugins.<br>&1: Use hud plugins in deathmatch.<br>&2: Use hud plugins in singleplayer/coop.<br>=3: Always use hud plugins (when loaded). |
 | `pm_airstep` (alias: `sv_jumpstep`) | `""` | Allows players to step up while jumping. This makes stairs more graceful but also increases potential jump heights. |

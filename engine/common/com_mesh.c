@@ -1195,7 +1195,7 @@ static int Alias_FindRawSkelData(galiasinfo_t *inf, const framestate_t *fstate, 
 }
 /*
 	retrieves the raw bone data for a current frame state.
-	ignores poses that don't match the desired skeltype
+	converts poses to the desired skeltype before blending
 	ignores skeletal objects.
 	return value is the lastbone argument, or less if the model simply doesn't have that many bones.
 	_always_ writes into result
@@ -1211,6 +1211,21 @@ static int Alias_BlendBoneData(galiasinfo_t *inf, const framestate_t *fstate, fl
 
 	for (lerp = lerps; numgroups--; lerp++)
 	{
+		if (lerp->skeltype != skeltype)
+		{
+			/* MD5 skin poses are absolute. QuakeC skeletons need relative
+			 * transforms; never silently leave their destination uninitialized. */
+			for (b = 0; b < lerp->lerpcount; b++)
+			{
+				float *converted = BZ_Malloc(sizeof(float)*12*inf->numbones);
+				Alias_ForceConvertBoneData(lerp->skeltype, lerp->pose[b], inf->numbones,
+					inf->ofsbones, skeltype, converted, inf->numbones);
+				BZ_Free(lerp->needsfree[b]);
+				lerp->needsfree[b] = converted;
+				lerp->pose[b] = converted;
+			}
+			lerp->skeltype = skeltype;
+		}
 		if (lerp->skeltype == skeltype)
 		{
 			bone = lerp->firstbone;
@@ -1224,12 +1239,12 @@ static int Alias_BlendBoneData(galiasinfo_t *inf, const framestate_t *fstate, fl
 				{
 					pose = result + 12*bone;
 					//set up the per-bone transform matrix
-					matrix = lerps->pose[0] + bone*12;
+					matrix = lerp->pose[0] + bone*12;
 					for (k = 0;k < 12;k++)
 						pose[k] = matrix[k] * lerp->frac[0];
 					for (b = 1;b < lerp->lerpcount;b++)
 					{
-						matrix = lerps->pose[b] + bone*12;
+						matrix = lerp->pose[b] + bone*12;
 
 						for (k = 0;k < 12;k++)
 							pose[k] += matrix[k] * lerp->frac[b];
@@ -9571,8 +9586,8 @@ static galiasinfo_t *Mod_ParseMD5MeshModel(model_t *mod, char *buffer, char *mod
 #ifdef HAVE_CLIENT
 					stcoord = ZG_Malloc(&mod->memgroup, sizeof(float)*2*numverts);
 					inf->ofs_st_array = (vec2_t*)stcoord;
-					inf->numverts = numverts;
 #endif
+					inf->numverts = numverts;
 				}
 				else if (!strcmp(token, "vert"))
 				{	//vert num ( s t ) firstweight numweights

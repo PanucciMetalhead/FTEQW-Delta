@@ -98,7 +98,7 @@ The five registered cases are:
 | Case | Coverage |
 | --- | --- |
 | `c17-endian` | Fixed-width endian helper patterns. |
-| `parser-sanitizers` | Actual message/number/string/Q3 parsers, archive scans, WAD metadata and remaster detection; MD5 replacement preflight/fallback; checksum/hash and image/audio conversion; item stats and pickup sounds; entity view angles and particle indices; model/grouped allocation and worker-GC snapshots. Bodies, relevant types and packing expressions come from current engine source. |
+| `parser-sanitizers` | Actual message/number/string/Q3 parsers, archive scans, WAD metadata and remaster detection; MD5 replacement preflight/fallback; checksum/hash and image/audio conversion; item stats and pickup sounds; entity view angles and particle indices; model/grouped allocation, skeletal lifetime and worker-GC snapshots. Bodies, relevant types and packing expressions come from current engine source. |
 | `package-signatures` | Actual package authenticity/decoding and installation-gate bodies compiled in release and debug configurations; mirror independence, provider outcomes, catalog trust, malformed metadata, and unsigned data archives. |
 | `engine-sanitizer-smoke` | Actual headless server cvar registration, filesystem initialization, command execution and shutdown; synthetic-PAK remaster autodetection and an explicit classic-profile override. |
 | `qcc-regression` | Compiler help/diagnostics, warning controls, optimization fixtures and execution in the standalone VM. |
@@ -210,3 +210,41 @@ CTest cases. Native Mac/Metal checks covered 63 compatible MD5 skeletons,
 restart, and base/MG3 client map transitions/save/load. Dedicated-server
 start-to-first-map checks also passed with fatal ASan/UBSan. This validation
 uses owned assets and is separate from data-free CI.
+
+## Optional Jolt physics checks
+
+With `FTE_PLUG_JOLT=ON`, CTest adds production adapter and C17 ABI tests. When
+the compiler and dedicated server are enabled, it also compiles original SSQC
+and a synthetic BSP to exercise opt-in, map collision, deferred touches and
+entity removal, forces, sleeping, shape rebuilds, backend restart and plugin/map
+reload. Absent/disabled/enabled modes compare ordinary Quake toss motion. ODE
+comparisons are included when the optional library/plugin is available.
+
+Build `jolt-check-deps` before running `ctest -R 'jolt-'`. The same tests run
+with `FTE_SANITIZERS=ON` and instrument the Jolt dependency as well as the
+adapter/plugin/server. Each engine run preserves separate logs and JSON results
+under the build's `physics-tests` directory. See [JoltPhysics.md](JoltPhysics.md)
+for dependency setup, validation results and coverage limits.
+
+The joint milestone adds world/body anchors, hinge/slider limits and velocity
+motors, connected-body collision exclusion, C17 joint calls and body-before-joint
+teardown tests. The real engine fixture now includes an original three-bone
+MD5 mesh and `.doll`: simulated bones, absolute-to-relative pose copying, joint
+toggling, partial construction rollback, unsupported-joint rejection, and live
+rig cleanup/recreation on backend restart and map/plugin reload. ODE supplies
+the common fixed-joint baseline as well as free-fall/collision comparisons.
+
+These checks exposed absolute MD5 poses being skipped by the QuakeC skeleton
+helper, dedicated-server MD5 meshes losing their vertex count, incorrect
+reference-pose selection/pivot indexing, and missing ragdoll cleanup on physics
+shutdown. Repairs stay in skeletal/model and backend lifetime paths; classic
+player movement and collision algorithms are unchanged.
+
+Native Metal validation also exposed a network skeleton allocation through a
+missing CSQC VM. Native poses now own heap storage when no VM is present, release
+it on client shutdown/map changes, and transition safely to VM storage on reuse.
+The data-free `skeleton` sanitizer fixture exercises the production allocation,
+lookup, deferred deletion and reset functions: table exhaustion, world isolation,
+native/VM ownership, cache reuse and both paths from native to VM storage. The
+interactive demo also checks a rendered server rig and map reconnection under
+ASan/UBSan, separately from headless CI.

@@ -3,7 +3,7 @@
 The desktop fork requires:
 
 - SDL 3.4 or newer, including its CMake package.
-- CMake 3.16 or newer and a C11/C++ compiler.
+- CMake 3.21 or newer and a C17 compiler (C++17 for optional Jolt).
 - A Vulkan-capable driver on Windows/Linux, or Metal-capable hardware on macOS.
 
 SDL 3.4 is required for selecting layers of depth render targets used by the
@@ -41,3 +41,10 @@ The Vulkan loader and GPU driver are supplied by the system/driver installation.
 
 Shader development additionally needs the Khronos glslang and SPIR-V tools:
 `glslangValidator` and `spirv-val`. Ordinary engine builds use the embedded shaders.
+
+The optional [Jolt plugin](JoltPhysics.md) requires an explicit external Jolt
+Physics source checkout (`FTE_JOLT_SOURCE_DIR`) and a C++17 compiler. The engine
+remains C17. Jolt is statically linked into its plugin and retains its MIT
+license notice. ODE headers/libraries are optional comparison dependencies;
+Homebrew supplies them with `brew install ode`. Default builds do not require
+Jolt or fetch it from the network.

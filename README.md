@@ -40,6 +40,10 @@ Owned Quake rerelease content, including Dawn of the Machine (`mg3`), MD5
 models, portable-install detection and repeatable campaign/model checks are covered in
 [QuakeRemaster.md](documentation/QuakeRemaster.md).
 
+An opt-in [Jolt rigid-body plugin](documentation/JoltPhysics.md) is available
+for QuakeC mods, including primitive props, point/fixed/hinge/slider joints and
+experimental `.doll` skeletal rigs. Classic movement stays in the engine.
+
 The [console command and cvar reference](documentation/console_commands.md) covers
 Quake 1 and Quake 3/OpenArena, including shared settings, game-specific behavior,
 and client/server availability.

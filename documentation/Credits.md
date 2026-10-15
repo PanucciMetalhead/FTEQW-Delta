@@ -28,3 +28,10 @@
 - **Theuaredead** - Extensive Win32 Bugtesting
 - **TimeServ** - Many Additions & Bugfixes
 - **[Xylemon](https://github.com/Xylemon)** - Technical support, Enthusiast
+
+### Optional physics dependency
+
+The experimental Jolt plugin uses Jolt Physics by Jorrit Rouwe and contributors
+under the MIT license. Its notice is preserved in
+[plugins/jolt/Jolt-LICENSE.txt](../plugins/jolt/Jolt-LICENSE.txt) and copied beside
+build outputs. The engine adapter remains GPL-2.0-or-later.

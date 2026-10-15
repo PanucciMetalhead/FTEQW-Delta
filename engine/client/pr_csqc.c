@@ -7675,6 +7675,10 @@ void CSQC_Shutdown(void)
 	}
 	else
 	{
+#if defined(SKELETALOBJECTS) || defined(RAGDOLL)
+		/* Network bone poses exist even when no client gamecode is loaded. */
+		skel_reset(&csqc_world);
+#endif
 		PR_Route_Shutdown (&csqc_world);
 		World_Destroy(&csqc_world);
 	}
