@@ -248,3 +248,10 @@ lookup, deferred deletion and reset functions: table exhaustion, world isolation
 native/VM ownership, cache reuse and both paths from native to VM storage. The
 interactive demo also checks a rendered server rig and map reconnection under
 ASan/UBSan, separately from headless CI.
+
+The Jolt desktop CI follow-up covers GCC's strict adapter diagnostics, a shared
+MSVC runtime across Jolt and its consumers, and Clang sanitizer module linkage.
+Physics fixtures use accumulated simulation steps and completion-driven map/plugin
+cycling, with a bounded ODE settling deadline, so initialization and host timewarps
+cannot produce premature collision checks. Release builds are checked locally
+as well as Debug and ASan/UBSan; platform CI remains the native Windows/Linux check.

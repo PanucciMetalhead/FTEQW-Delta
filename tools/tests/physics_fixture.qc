@@ -74,7 +74,7 @@ float(optional float state) physics_supported = #0:physics_supported;
 void(entity e,float state) physics_enable=#540;
 void(entity e,vector force,vector point) physics_addforce=#541;
 void(entity e,vector torque) physics_addtorque=#542;
-float epoch,phase,touches,deleted,mode,joint_enabled;
+float simulated,phase,touches,deleted,mode,joint_enabled;
 vector held;
 entity dropped,classic,masked,pushed,recycled,constrained,jointent,rig;
 vector initial_tip;
@@ -91,7 +91,7 @@ entity(vector pos,float move) prop = {
 void() contact = {touches=touches+1;};
 void() delete_contact = {deleted=deleted+1;remove(self);};
 void() worldspawn = {
-    epoch=time;mode=cvar("physics_fixture_mode");joint_enabled=1;
+    simulated=0;mode=cvar("physics_fixture_mode");joint_enabled=1;
     self.dimension_solid=1;self.dimension_hit=1;
     classic=prop('-200 0 128',6);classic.solid=2;
     check(physics_supported()==(mode!=0),"backend opt-in state");
@@ -126,6 +126,7 @@ void() worldspawn = {
     local entity doomed=prop('400 0 80',32);doomed.touch=delete_contact;
 };
 void() StartFrame = {
+    simulated=simulated+frametime;
     if (mode==1 && rig!=world && physics_supported()) {
         check(skel_ragupdate(rig,"",0)==1,"derive simulated skeleton");
         skel_copybones(render_skeleton,rig.skeletonindex,0,0);
@@ -141,7 +142,10 @@ void() StartFrame = {
         }
         return;
     }
-    if (!phase && time-epoch>1.5) {
+    if (!phase && simulated>1.5) {
+        // ODE's default per-substep damping settles more slowly than Jolt.
+        // Test collision, not identical solver response; retain a bounded deadline.
+        if (mode==2 && dropped.origin_z>17 && simulated<5) return;
         check(classic.origin_z>15 && classic.origin_z<17,"classic toss floor collision");
         dprint("PHYSICS_CLASSIC_Z ");dprint(ftos(classic.origin_z));dprint("\n");
         if (mode) {
@@ -167,14 +171,14 @@ void() StartFrame = {
         }
         phase=3;
     }
-    if (phase==1 && time-epoch>1.8) {
+    if (phase==1 && simulated>1.8) {
         check(pushed.origin==held,"explicit sleep persists across frames");
         physics_enable(pushed,1);
         setsize(pushed,'-20 -20 -20','20 20 20');
         physics_addforce(pushed,'480 0 0',pushed.origin);
         phase=2;return;
     }
-    if (phase==2 && time-epoch>2.0) {
+    if (phase==2 && simulated>2.0) {
         check(pushed.velocity_x>0,"shape rebuild retains pending force");
         check(skel_ragupdate(rig,"doll progs/physics-rig-invalid.doll",0)==0,"invalid rig rolls back partial bodies");
         check(skel_ragupdate(rig,"doll progs/physics-rig.doll",0)==1,"valid rig recovers after rejected rig");
@@ -185,7 +189,7 @@ void() StartFrame = {
         check(skel_ragupdate(rig,"doll progs/physics-rig.doll",0)==1,"ragdoll can be reinstantiated after backend restart");
         phase=3;
     }
-    if (phase==3) {dprint("PHYSICS_ENGINE_OK\n");phase=4;}
+    if (phase==3) {dprint("PHYSICS_ENGINE_OK\n");phase=4;localcmd("physics_fixture_next\n");}
 };
 void() info_player_start={};
 void() main={};

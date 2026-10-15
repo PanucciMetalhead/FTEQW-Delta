@@ -275,7 +275,9 @@ add_compile_definitions(
 find_package(Python3 COMPONENTS Interpreter QUIET)
 FUNCTION(EMBED_PLUGIN_META PLUGNAME PLUGTITLE PLUGDESC)
     SET_TARGET_PROPERTIES(plug_${PLUGNAME} PROPERTIES OUTPUT_NAME "${PLUGNAME}" PREFIX "fteplug_")
-    if(NOT APPLE AND NOT MSVC)
+    # Clang's instrumented modules resolve sanitizer entry points in the host.
+    # Keep strict symbol resolution for ordinary builds and GCC sanitizers.
+    if(NOT APPLE AND NOT MSVC AND NOT (FTE_SANITIZERS AND CMAKE_C_COMPILER_ID MATCHES "Clang"))
         target_link_options(plug_${PLUGNAME} PRIVATE "-Wl,--no-undefined")
     endif()
     SET(INSTALLTARGS ${INSTALLTARGS} "plug_${PLUGNAME}" PARENT_SCOPE)

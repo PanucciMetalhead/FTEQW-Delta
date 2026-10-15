@@ -121,12 +121,11 @@ plug_loaddefault 0
 {load}
 set physics_jolt_enabled {int(mode==1)}
 set physics_fixture_mode {max(mode,0)}
+alias physics_fixture_done "quit force"
+alias physics_fixture_cycle2 "alias physics_fixture_next physics_fixture_done; {close}; {load}; map physics"
+alias physics_fixture_cycle1 "alias physics_fixture_next physics_fixture_cycle2; map physics"
+alias physics_fixture_next physics_fixture_cycle1
 map physics
-defer 3 map physics
-defer 6 {close}
-defer 6.1 {load}
-defer 6.2 map physics
-defer 9 quit force
 '''
         (game/'physics.cfg').write_text(cfg)
         logpath=out/f'{name}.log'
@@ -138,6 +137,8 @@ defer 9 quit force
         if proc.returncode or text.count('PHYSICS_ENGINE_OK')!=3 or re.search(
                 r'PHYSICS_FAIL|AddressSanitizer|UndefinedBehaviorSanitizer|runtime error:|Jolt entity .* rejected|Jolt simulation stopped',text):
             raise AssertionError(f'{name}: engine checks failed; inspect {logpath}\n{text[-7000:]}')
+        if mode==1 and text.count('PHYSICS_RAGDOLL_OK')!=3:
+            raise AssertionError(f'Missing ragdoll checks: {logpath}')
         heights=[float(x) for x in re.findall(r'PHYSICS_CLASSIC_Z ([\d.-]+)',text)]
         results[name]={'map_runs':3,'classic_z':heights,
                        'drop_z':[float(x) for x in re.findall(r'PHYSICS_DROP_Z ([\d.-]+)',text)]}

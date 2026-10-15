@@ -163,7 +163,11 @@ engine test invocation creates a new child of `build/jolt/physics-tests/` and
 keeps its logs and `results.json`. Engine startup may report absent optional
 configs/native game libraries because the fixture deliberately has no game
 installation. The script requires explicit success markers and rejects physics
-failures and sanitizer diagnostics.
+failures and sanitizer diagnostics. Fixture deadlines accumulate actual physics
+`frametime`, and map/plugin cycling waits for completed checks. Engine startup
+and server catch-up timewarps therefore cannot advance a test's physics clock.
+The ODE collision baseline has a separate bounded settling deadline because
+its default damping differs from Jolt's; collision bounds remain identical.
 
 For ASan/UBSan, configure another single-configuration Debug build with
 `-DFTE_SANITIZERS=ON`, then build `jolt-check-deps` and run the same tests.
@@ -172,8 +176,8 @@ engine startup tests disable leak detection for process-lifetime engine caches;
 invalid access and undefined-behavior checks still fail the run. This is not a
 complete engine shutdown leak audit or a third-party ODE library audit.
 
-Local validation on Apple Silicon/macOS passes native Debug and ASan/UBSan
-adapter, ABI and engine checks against the supplied Jolt checkout and Homebrew
+Local validation on Apple Silicon/macOS passes native Debug, Release and
+ASan/UBSan adapter, ABI and engine checks against the supplied Jolt checkout and Homebrew
 ODE. The complete native build passed 5/5 CTest checks; the instrumented build
 passed 8/8, including 31 standalone source-based sanitizer fixtures. The native
 Metal demo also passed client connection, joint release and map-reload checks;
@@ -181,8 +185,11 @@ its captured poses were visually inspected. Skeleton allocation without CSQC,
 world isolation, cache reuse and native/VM ownership have dedicated sanitizer
 coverage in `parser-sanitizers`.
 
-Windows/Linux jobs are configured in desktop CI, but their execution is pending
-publication of this branch. Further work includes universal/hinge2 joints,
+Desktop CI runs Release checks on Windows, Linux (GCC/Clang) and macOS,
+plus Debug sanitizer checks on Linux/macOS. Jolt inherits the engine's selected
+MSVC runtime. Clang-instrumented plugins resolve sanitizer symbols through the
+instrumented host; ordinary plugin builds retain strict symbol resolution.
+Further work includes universal/hinge2 joints,
 real-mod rig compatibility, CSQC validation, animated/kinematic behavior,
 save/load and performance checks.
 
