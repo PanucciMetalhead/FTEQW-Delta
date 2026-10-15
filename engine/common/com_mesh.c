@@ -1,4 +1,5 @@
 #include "quakedef.h"
+#include <stddef.h>
 
 #include "com_bih.h"
 #include "com_mesh.h"
@@ -4175,7 +4176,7 @@ static qboolean QDECL Mod_LoadQ1Model (model_t *mod, void *buffer, size_t fsize)
 	version = LittleLong(pq1inmodel->version);
 	if (version == QTESTALIAS_VERSION && !sixteenbit)
 	{
-		hdrsize = (size_t)&((dmdl_t*)NULL)->flags;
+		hdrsize = (unsigned int)offsetof(dmdl_t, flags);
 		qtest = true;
 	}
 #ifdef HEXEN2

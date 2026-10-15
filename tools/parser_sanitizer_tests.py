@@ -49,6 +49,7 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     (out / 'results.json').unlink(missing_ok=True)
     cases = {
+        'modelreset': [],
         'concat': [('engine/common/zone.c', name) for name in ('Z_StrCatLen', 'Z_StrCat')],
         'skeleton': [('engine/client/pr_skelobj.c', name) for name in
                      ('skel_reset', 'skel_dodelete', 'skel_create', 'skel_get')],
@@ -103,6 +104,11 @@ def main():
         env['ASAN_OPTIONS'] = (options + ':' if options else '') + 'detect_leaks=1'
     for name, bodies in cases.items():
         template = (ROOT / f'tools/tests/parser_{name.removesuffix("_debug").removesuffix("_wide").removesuffix("_server")}.c').read_text()
+        if name == 'modelreset':
+            source = function('engine/gl/gl_model.c', 'Mod_LoadModelWorker')
+            start = source.index('//clear out any old state.')
+            end = source.index('if (!*mod->publicname)', start)
+            template = template.replace('/* ENGINE_MODEL_RESET */', source[start:end])
         if name == 'skeleton':
             struct = re.search(r'typedef struct skelobject_s\s*\{.*?\} skelobject_t;',
                                (ROOT / 'engine/client/pr_skelobj.c').read_text(), re.S)[0]

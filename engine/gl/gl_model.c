@@ -23,6 +23,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // on the same machine.
 
 #include "quakedef.h"
+#include <stddef.h>
 #include "fs.h"
 #include "com_bih.h"
 #if 1//ndef SERVERONLY	//FIXME
@@ -1098,7 +1099,8 @@ static void Mod_LoadModelWorker (void *ctx, void *data, size_t a, size_t b)
 	int basedepth;
 
 	//clear out any old state.
-	memset(&mod->loadstate+1, 0, sizeof(*mod) - (qintptr_t)(&((model_t*)NULL)->loadstate+1));
+	const size_t state_end = offsetof(model_t, loadstate) + sizeof(mod->loadstate);
+	memset((char *)mod + state_end, 0, sizeof(*mod) - state_end);
 
 	if (!*mod->publicname)
 	{

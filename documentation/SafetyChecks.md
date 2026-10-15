@@ -266,3 +266,10 @@ Plugin discovery on Linux exposed a zero-length `memcpy` with a null source in
 `concat` fixture extracts the actual helpers and checks initial/empty, bounded
 and self/substring appends, plus allocation cleanup. Its checked-copy host also
 enforces glibc's nonnull contract on platforms whose libc headers lack it.
+
+Model loading now uses standard `offsetof` instead of forming member addresses
+through a null base, including the QTest MDL header-size calculation. The `modelreset`
+fixture executes the production worker-reset statements against a synthetic model
+layout, checking preserved header/name/cache/load state and cleared stale bounds
+and payload. This covers the Linux Clang null-member diagnostic without changing
+model layout or loader behavior.
