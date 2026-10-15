@@ -76,6 +76,8 @@ def main():
         'extents': [('engine/common/gl_q2bsp.c', 'CalcSurfaceExtents')],
         'audio': [('engine/client/snd_mem.c', 'SND_ResampleStream')],
         'palette': [('engine/client/renderer.c', 'R_GenPaletteLookup')],
+        'md4': [('engine/common/sha1.c', name) for name in
+                ('hashfunc_terminate_uint', 'CalcHashInt', 'CalcHash')],
         'sha1': [('engine/common/sha1.c', name) for name in
                  ('SHA1Transform', 'SHA1Init', 'SHA1Update', 'SHA1Final', 'CalcHash', 'memxor', 'CalcHMAC')],
     }
@@ -147,6 +149,13 @@ def main():
             start = source.index('#define LINEARUPSCALE(')
             end = source.index('// SND_ResampleStream:', start)
             template = template.replace('/* ENGINE_AUDIO_MACROS */', source[start:end])
+        if name == 'md4':
+            source = (ROOT / 'engine/common/common.h').read_text()
+            end = source.index('} hashfunc_t;') + len('} hashfunc_t;')
+            start = source.rfind('typedef struct', 0, end)
+            template = template.replace('/* ENGINE_HASH_TYPES */', source[start:end])
+            source = (ROOT / 'engine/common/md4.c').read_text().replace('#include "quakedef.h"', '')
+            template = template.replace('/* ENGINE_MD4_SOURCE */', source)
         if name == 'sha1':
             source = (ROOT / 'engine/common/sha1.c').read_text()
             start = source.index('/* #define SHA1HANDSOFF')

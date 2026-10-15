@@ -47,6 +47,10 @@ The new tests exposed and now guard against:
 - The top inventory bit using a signed shift; pickup flash timing is preserved.
 - Remote pickup sounds indexing player views with seat `-1`; remote/spectator
   sounds retain their intended attribution without accessing a local view.
+- MD4 hash callbacks cast to incompatible function-pointer types. Ubuntu/Clang's
+  function sanitizer caught this during synthetic remaster PAK mounting;
+  correctly typed adapters now call the original MD4 functions. The checksum
+  algorithm and protocol values are unchanged.
 - Long HMAC keys retaining their original length after hashing, overrunning
   the reduced key buffer; they now use the resulting digest length.
 - Empty archive scans passing a null array to `qsort` during server startup.
@@ -90,7 +94,8 @@ The standalone fixtures cover 12,600 packet round trips, 10,000 unaligned fields
 10,000 long/double byte fields, truncated inputs, output capacities 0–19, all
 escape bytes, 300,000 number conversions and archive ordering/cleanup. Resource
 checks include malformed remaster PAKs, 16,000 checksums, 100,000 ZIP/GZIP words,
-SHA-1/HMAC reference vectors, palette/normal-map alpha, full-range signed PCM,
+MD4 callback-table/streaming/checksum vectors, SHA-1/HMAC references,
+palette/normal-map alpha, full-range signed PCM,
 300 resampling cases and 5,409 lightmap bounds. They check every signed solid-box
 height, reliable header flags, connection cookies, native byte swaps, item flash
 masks and pickup attribution. Storage checks exercise release/debug grouped

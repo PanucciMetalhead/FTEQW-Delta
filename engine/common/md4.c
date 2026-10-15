@@ -277,12 +277,26 @@ for (i = 0, j = 0; j < len; i++, j += 4)
 
 //===================================================================
 #include "quakedef.h"
+// Match hashfunc_t exactly; function-pointer casts do not adapt callback types.
+static void md4_init(void *context)
+{
+	MD4Init(context);
+}
+static void md4_update(void *context, const void *input, size_t length)
+{
+	MD4Update(context, input, length);
+}
+static void md4_final(unsigned char *digest, void *context)
+{
+	MD4Final(digest, context);
+}
+
 hashfunc_t hash_md4 =
 {
 	16,	//digest size
 	sizeof(MD4_CTX),
-	(void(*)(void*ctx))MD4Init,
-	(void(*)(void*ctx,const void*in,size_t))MD4Update,
-	(void(*)(qbyte*out,void*ctx))MD4Final,
+	md4_init,
+	md4_update,
+	md4_final,
 };
 
