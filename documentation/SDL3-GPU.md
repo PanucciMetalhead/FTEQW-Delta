@@ -587,3 +587,9 @@ indexed skins. The owned-data harness checks every base-game skeleton/animation 
 representative textured poses, lighting, original-model fallback, video
 restart, and campaign save/load. See [QuakeRemaster.md](QuakeRemaster.md) for
 commands, the Mac/Metal validation record, and remaining optional builtins.
+
+MG3 model checks can be prepared with `tools/gpu_remaster.py prepare` and
+`--model-game mg3`. They include the supplied animated MDL fallback for the
+incompatible rocket-ogre MD5 pair, alongside compatible MD5 monsters/weapons.
+See [QuakeRemaster.md](QuakeRemaster.md#mg3-rocket-ogre-asset-fallback) for the
+asset limitation and reproduction steps.

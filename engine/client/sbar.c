@@ -2064,7 +2064,7 @@ void Sbar_DrawInventory (playerview_t *pv)
 	// sigils
 		for (i=0 ; i<4 ; i++)
 		{
-			if (pv->stats[STAT_ITEMS] & (1<<(28+i)))
+			if (pv->stats[STAT_ITEMS] & (1u<<(28+i)))
 			{
 				time = pv->item_gettime[28+i];
 				if (time &&	time > cl.time - 2 && flashon )

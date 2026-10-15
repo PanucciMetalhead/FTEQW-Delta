@@ -4538,7 +4538,7 @@ char *COM_ParseStringSet (const char *data, char *out, size_t outsize)
 char *COM_ParseType (const char *data, char *out, size_t outlen, com_tokentype_t *toktype)
 {
 	int		c;
-	int		len;
+	size_t	len;
 
 	if (out == com_token)
 		COM_AssertMainThread("COM_ParseOut: com_token");

@@ -18,16 +18,17 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def function(path, name):
+def function(path, name, occurrence=0):
     source = (ROOT / path).read_text()
     # Ignore comments and quoted literals when finding a function's closing brace.
     pattern = r'/\*.*?\*/|//[^\n]*|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\''
     masked = re.sub(pattern, lambda m: ''.join('\n' if c == '\n' else ' ' for c in m[0]), source, flags=re.S)
     # A declaration prefix contains type/qualifier names and pointer stars,
     # never the parentheses of an if/call expression with the same name.
-    match = re.search(r'^[ \t]*[A-Za-z_][\w \t*]*\b' + re.escape(name) + r'\s*\([^;{}]*\)\s*\{', masked, re.M)
-    if not match:
+    matches = list(re.finditer(r'^[ \t]*[A-Za-z_][\w \t*]*\b' + re.escape(name) + r'\s*\([^;{}]*\)\s*\{', masked, re.M))
+    if not matches:
         raise ValueError(f'Cannot find {name} in {path}')
+    match = matches[occurrence]
     start = match.start()
     end = masked.index('{', start) + 1
     depth = 1
@@ -57,6 +58,12 @@ def main():
         'numbers': [('engine/common/common.c', 'Q_atoi')],
         'archives': [('engine/common/fs.c', name) for name in
                      ('FS_FindWildDataFiles', 'FS_SortWildDataFiles', 'FS_LoadWildDataFiles')],
+        'viewangles': [('engine/client/cl_ents.c', 'CLFTE_EncodeViewAngle')],
+        'particle_types': [],
+        'md5': [('engine/common/common.c', 'COM_ParseType')] + [('engine/common/com_mesh.c', name) for name in
+                ('Mod_MD5JointCount', 'Mod_LoadMD5MeshModel')],
+        # Select the real PACKAGE_TEXWAD implementation, after its disabled stub.
+        'wads': [('engine/client/wad.c', 'Wad_NextDownload', -1)],
         'remaster': [('engine/common/fs.c', 'FS_QuakeRereleasePak')],
         'hashes': [('engine/common/sha1.c', 'hashfunc_terminate_uint')],
         'pickups': [('engine/client/zqtp.c', 'TP_CheckPickupSound')],
@@ -93,6 +100,20 @@ def main():
         env['ASAN_OPTIONS'] = (options + ':' if options else '') + 'detect_leaks=1'
     for name, bodies in cases.items():
         template = (ROOT / f'tools/tests/parser_{name.removesuffix("_debug").removesuffix("_wide").removesuffix("_server")}.c').read_text()
+        if name == 'viewangles':
+            macro = re.search(r'^#define ANGLE2SHORT[^\n]+',
+                              (ROOT / 'engine/common/protocol.h').read_text(), re.M)[0]
+            template = template.replace('/* ENGINE_ANGLE_SCALE */', macro)
+        if name == 'particle_types':
+            for func, start_token, end_token, marker in (
+                ('PScript_RunParticleEffectState', 'if (typenum >= FALLBACKBIAS', 'if (!ptype->loaded)', 'PARTICLE'),
+                ('PScript_ParticleTrail', 'if (type >= FALLBACKBIAS', 'if (!ptype->loaded)', 'TRAIL'),
+                ('PScript_Query', 'if (typenum < 0', 'if (body == 0)', 'QUERY')):
+                source = function('engine/client/p_script.c', func)
+                declaration = re.search(r'part_type_t \*ptype[^;]*;', source)[0]
+                start = source.index(start_token)
+                end = source.index(end_token)
+                template = template.replace(f'/* ENGINE_{marker}_LOOKUP */', declaration + '\n' + source[start:end])
         if name == 'hashes':
             # Check the actual ZIP byte-order macro too, rather than duplicating
             # a corrected decoder in the fixture.

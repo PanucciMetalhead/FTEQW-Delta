@@ -77,6 +77,27 @@ already cached models are replaced. MDL/MD3 support is retained; explicit MD5
 model loads still work when automatic replacements are disabled. The remaster's
 indexed `.lmp` skins and any original models remain in the supplied PAKs.
 
+### MG3 rocket-ogre asset fallback
+
+The tested `mg3/pak0.pak` contains an incompatible rocket-ogre MD5 pair:
+`progs/ogre_rocket.md5mesh` has 55 joints (including a final armature parent),
+but its `.md5anim` has 39. Their bind poses also differ. Accepting the parent
+index alone would not produce a correctly animated model.
+
+Automatic replacement checks the mesh/animation joint counts before loading
+that pair and falls back to the supplied `progs/ogre_rocket.mdl`. Its normal
+animation and gameplay remain available; other compatible MD5 replacements
+stay enabled. With `developer 1`, a diagnostic explains the fallback. Explicit
+MD5 loads retain their normal validation; the engine does not rewrite owned
+assets or guess how to repair an incompatible skeleton.
+
+Some MG3 maps also carry corrupted, overlong WAD basenames in worldspawn's
+compiler metadata. Unusable entries are skipped before filesystem lookup;
+embedded map textures and valid external WAD entries remain usable. Filename
+limits and path security checks are unchanged.
+
+### Skeletal physics
+
 MD5 provides animation bones and weights. Ragdolls additionally need physics
 bodies, masses and constraint limits. FTE's `.doll` format describes that rig;
 the supplied base archive contains no such definitions. Jolt integration and
@@ -109,10 +130,23 @@ to `prepare`, and `--engine build/all/Release/fteqw.exe` plus
 `--profile models` runs model comparisons; `--profile campaigns` runs the
 single-player campaign checks. Installed `id1`, `hipnotic`, `rogue`, `dopa`,
 `mg1` and `mg3` campaigns are included automatically. The default is `all`.
-`check` re-evaluates saved
-outputs without starting the engine. The model capture sequence starts after
+`check` re-evaluates saved outputs without starting the engine. The model capture sequence starts after
 client initialization and uses a fixed camera, so connection time and physical
 mouse input cannot change the comparison pose.
+
+To include MG3's extra model assets, prepare a separate output with
+`--model-game mg3`, then use the same `run` command against that output. This
+inspects base and MG3 models together and renders the explosive dog, rocket
+ogre and blood shambler. Incompatible MD5 pairs must load their original MDL
+with zero skeleton bones; compatible pairs must expose their expected bones
+and final animation frame. Model or filename parser errors fail the check.
+
+```sh
+python3 tools/gpu_remaster.py prepare "/path/to/Quake Enhanced" \
+  --model-game mg3 --qcc build/all/fteqcc --out build/remaster-mg3-tests
+python3 tools/gpu_remaster.py run --out build/remaster-mg3-tests \
+  --engine build/all/fteqw --server build/all/fteqw-sv
+```
 
 On the tested macOS/Metal installation, release checks passed for:
 
@@ -131,6 +165,14 @@ to `map1`, saving/loading the start map, restored client rendering and dedicated
 server startup. Its full hub/rune progression and every new weapon, monster or
 map have not been exhaustively tested. The 59-model/58-animation inventory above
 covers `id1`; it does not count the five extra MD5 model/animation pairs in `mg3`.
+
+The separate `--model-game mg3` check covers 64 model entries: 63 compatible
+MD5 skeletons (62 companion animations) and the original rocket-ogre MDL
+fallback. Enhanced/classic rendering, changed animation poses and lighting,
+video restart, and base/MG3 start-to-first-map/save/load checks passed on
+macOS/Metal, in release and with fatal ASan/UBSan checks. Dedicated base/MG3
+start-to-first-map checks also passed under sanitizers. Full campaign progression
+remains outside this smoke test.
 
 The enhanced/classic model comparisons also passed in the full ASan/UBSan
 client with undefined behavior fatal, including all model/animation inspections,

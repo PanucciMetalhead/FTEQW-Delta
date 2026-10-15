@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Prepare/run/check isolated remaster content tests with an owned installation.
 
-Original game data is read only. Model tests inspect every MD5 skeleton and
-animation, compare replacement/fallback rendering, and check lighting/restart.
+Original game data is read only. Model tests inspect compatible MD5 skeletons
+and animations, verify original-model fallback for mismatched pairs, compare
+replacement/fallback rendering, and check lighting/restart.
 Campaign tests exercise the supplied gamecode, map changes and save/load.
 Requires Python/Pillow; preparation also requires fteqcc.
 """
@@ -77,7 +78,7 @@ def link(source, target):
             shutil.copyfile(source, target)
 
 
-def prepare(game, out, qcc):
+def prepare(game, out, qcc, model_game='id1'):
     game = game.resolve()
     if game == out or game in out.parents or out in game.parents:
         raise ValueError('Output must be separate from the owned installation')
@@ -86,32 +87,51 @@ def prepare(game, out, qcc):
     out.mkdir(parents=True, exist_ok=True)
     base = Pak(game / 'id1/pak0.pak')
     models = {}
-    for name in sorted(base.entries):
+    model_files = {name: base for name in base.entries}
+    if model_game != 'id1':
+        extra = Pak(game / model_game / 'pak0.pak')
+        model_files.update({name: extra for name in extra.entries})
+    for name in sorted(model_files):
         if not name.endswith('.md5mesh'):
             continue
-        text = base.read(name).decode()
+        pak = model_files[name]
+        text = pak.read(name).decode()
         bones = int(re.search(r'\bnumJoints\s+(\d+)', text)[1])
         anim = name.removesuffix('.md5mesh') + '.md5anim'
         frames = 0
-        if anim in base.entries:
-            frames = int(re.search(r'\bnumFrames\s+(\d+)', base.read(anim).decode())[1])
-        models[name] = {'bones': bones, 'frames': frames}
+        if anim in model_files:
+            animation = model_files[anim].read(anim).decode()
+            frames = int(re.search(r'\bnumFrames\s+(\d+)', animation)[1])
+            animbones = int(re.search(r'\bnumJoints\s+(\d+)', animation)[1])
+        compatible = anim not in model_files or bones == animbones
+        models[name] = {'bones': bones, 'frames': frames, 'compatible': compatible}
     if not models:
         raise ValueError('No MD5 models found in the supplied base PAK')
     campaigns = [name for name in CAMPAIGNS if (game / name / 'pak0.pak').is_file()]
-    manifest = {'source': str(game), 'models': models, 'campaigns': campaigns}
+    actors = ('ogre_rocket', 'shambler_blood', 'dog_explosive') if model_game == 'mg3' else ('player', 'soldier', 'dog')
+    manifest = {'source': str(game), 'models': models, 'campaigns': campaigns,
+                'model_game': model_game, 'replacement_model': f'progs/{actors[0]}.md5mesh'}
     (out / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
     generated = out / 'generated'
     generated.mkdir()
     lines = ['void() inspect_all_models = {']
     for name, info in models.items():
         anim = name.removesuffix('.md5mesh') + '.md5anim'
+        if not info['compatible']:
+            lines.append(f'inspect_model("{name.removesuffix(".md5mesh")}.mdl", "", "");')
+            continue
         last = f'{anim}_{info["frames"]-1}' if info['frames'] else ''
         beyond = f'{anim}_{info["frames"]}' if info['frames'] else ''
         lines.append(f'inspect_model("{name}", "{last}", "{beyond}");')
     lines.append('};')
     (generated / 'remaster-model-list.qh').write_text('\n'.join(lines) + '\n')
-    shutil.copyfile(ROOT / 'tools/tests/gpu_remaster.qc', generated / 'gpu_remaster.qc')
+    fixture = (ROOT / 'tools/tests/gpu_remaster.qc').read_text()
+    for original, actor in zip(('player', 'soldier', 'dog'), actors):
+        fixture = fixture.replace(f'progs/{original}.', f'progs/{actor}.')
+    for name, info in models.items():
+        if not info['compatible']:
+            fixture = fixture.replace(name, name.removesuffix('.md5mesh') + '.mdl')
+    (generated / 'gpu_remaster.qc').write_text(fixture)
     with (out / 'qcc.log').open('w') as log:
         subprocess.run([str(qcc.resolve()), '-srcfile', str(generated / 'gpu_remaster.qc'),
                         '-o', str(generated / 'remaster-test.dat')], cwd=generated,
@@ -129,7 +149,7 @@ def prepare(game, out, qcc):
 
     for mode, replacement in (('modern', 'md5mesh'), ('classic', '')):
         case = out / mode
-        assets(case)
+        assets(case, model_game)
         (case / 'id1/scripts').mkdir()
         shutil.copyfile(ROOT / 'tools/tests/gpu_sprite.shader', case / 'id1/scripts/gpu_sprite.shader')
         shutil.copyfile(generated / 'remaster-test.dat', case / 'id1/remaster-test.dat')
@@ -148,7 +168,7 @@ r_dynamic 0
 sv_csqc_progname remaster-test.dat
 set gpu_remaster_models 0
 set gpu_remaster_frame 0
-map e1m1
+map {CAMPAIGNS[model_game]}
 ''')
     for name in campaigns:
         case = out / 'campaigns' / name
@@ -182,7 +202,8 @@ def inspect_log(case, filename, graphical=True):
     text = (case / filename).read_text(errors='replace')
     assert not re.search(r'Host_Error|Sys_Error|Bad builtin|runaway loop|invalid string offset|'
                          r'AddressSanitizer|UndefinedBehaviorSanitizer|runtime error:|'
-                         r'GPU.*Validation Error|SDL3 GPU error', text, re.I), case
+                         r'GPU.*Validation Error|SDL3 GPU error|(?<!\.)MD5(?:MESH|ANIM):|'
+                         r'Error: filename too long', text, re.I), case
     unknown = set(re.findall(r'Unknown ssqc builtin: (\S+)', text))
     assert unknown <= OPTIONAL_BUILTINS, (case, unknown - OPTIONAL_BUILTINS)
     assert 'Server ended' in text, case
@@ -213,13 +234,20 @@ def check(out, profile):
             text, optional = inspect_log(case, 'models.log')
             assert 'Quake Re-Release Initialized' in text, 'Portable installation was not auto-detected'
             actual = {name: int(bones) for name, bones in re.findall(r'REMASTER_MODEL (\S+) bones=(\d+)', text)}
-            expected = {name: info['bones'] for name, info in manifest['models'].items()}
+            expected = {(name if info.get('compatible', True) else name.removesuffix('.md5mesh') + '.mdl'):
+                        (info['bones'] if info.get('compatible', True) else 0)
+                        for name, info in manifest['models'].items()}
             assert actual == expected, (mode, actual, expected)
             animations = {name: (int(last), int(beyond)) for name, last, beyond in
                           re.findall(r'REMASTER_ANIM (\S+) last=(-?\d+) beyond=(-?\d+)', text)}
-            expected_animations = {name: (info['frames']-1, -1) for name, info in manifest['models'].items() if info['frames']}
+            expected_animations = {name: (info['frames']-1, -1) for name, info in manifest['models'].items() if info['frames'] and info.get('compatible', True)}
             assert animations == expected_animations, (mode, animations, expected_animations)
-            replacement_bones = manifest['models']['progs/player.md5mesh']['bones'] if mode == 'modern' else 0
+            replacement = manifest['models'][manifest.get('replacement_model', 'progs/player.md5mesh')]
+            replacement_bones = replacement['bones'] if mode == 'modern' and replacement.get('compatible', True) else 0
+            if mode == 'modern':
+                for name, info in manifest['models'].items():
+                    if not info.get('compatible', True):
+                        assert f'Skipping MD5 replacement {name}: incompatible mesh/animation joint counts' in text, name
             assert f'REMASTER_REPLACEMENT player bones={replacement_bones}' in text
             assert re.search(r'REMASTER_MODE\s+1\s+0\.016', text), 'Remaster defaults not applied'
             assert text.count('renderer initialized') >= 2, 'Video restart missing'
@@ -232,7 +260,10 @@ def check(out, profile):
             difference = delta(frames['md5'], frames['replacement'])
             assert difference < .1 if mode == 'modern' else difference > .2, (mode, difference)
             pictures[mode] = frames
-            results[mode] = {'bones': len(actual), 'animations': len(animations),
+            results[mode] = {'models': len(actual), 'animations': len(animations),
+                             'mdl_fallbacks': [name.removesuffix('.md5mesh') + '.mdl'
+                                               for name, info in manifest['models'].items()
+                                               if not info.get('compatible', True)],
                              'rendering_lighting_restart': 'passed', 'optional_unimplemented_builtins': optional}
         assert delta(pictures['modern']['md5'], pictures['classic']['md5']) < .1, 'Direct MD5 rendering depends on replacement preference'
     if profile in ('campaigns', 'all'):
@@ -259,7 +290,9 @@ def run(out, engine, profile, server=None):
     (out / f'{profile}-results.json').unlink(missing_ok=True)
     tasks = []
     if profile in ('models', 'all'):
-        tasks += [(out / mode, 'models.log', []) for mode in ('modern', 'classic')]
+        model_game = manifest.get('model_game', 'id1')
+        modeargs = ['-quake_rerel', '-game', model_game] if model_game != 'id1' else []
+        tasks += [(out / mode, 'models.log', modeargs) for mode in ('modern', 'classic')]
     if profile in ('campaigns', 'all'):
         tasks += [(out / 'campaigns' / name, 'campaign.log', ['-quake_rerel'] +
                    (['-game', name] if name != 'id1' else [])) for name in manifest['campaigns']]
@@ -294,6 +327,8 @@ def main():
     parser.add_argument('action', choices=('prepare', 'run', 'check'))
     parser.add_argument('game', nargs='?', type=Path)
     parser.add_argument('--out', type=Path, required=True)
+    parser.add_argument('--model-game', choices=tuple(CAMPAIGNS), default='id1',
+                        help='Include this campaign’s MD5 assets in model checks (mg3 also renders its new monsters)')
     parser.add_argument('--qcc', type=Path, default=ROOT / 'build/all/fteqcc')
     parser.add_argument('--engine', type=Path, default=ROOT / 'build/fteqw')
     parser.add_argument('--server', type=Path)
@@ -303,7 +338,7 @@ def main():
     if args.action == 'prepare':
         if not args.game:
             parser.error('prepare requires the owned installation directory')
-        prepare(args.game, out, args.qcc)
+        prepare(args.game, out, args.qcc, args.model_game)
     elif args.action == 'run':
         run(out, args.engine, args.profile, args.server)
     else:

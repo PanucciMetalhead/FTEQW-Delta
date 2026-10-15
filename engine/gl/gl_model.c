@@ -4749,8 +4749,9 @@ static qboolean Mod_LoadLeafs (model_t *loadmodel, qbyte *mod_base, lump_t *l, s
 			p = LittleLong(in->contents);
 			out->contents = p;
 
-			out->firstmarksurface = loadmodel->marksurfaces +
-				LittleLong(in->firstmarksurface);
+			// Dedicated servers omit render-only marksurface storage.
+			out->firstmarksurface = loadmodel->marksurfaces ? loadmodel->marksurfaces +
+				LittleLong(in->firstmarksurface) : NULL;
 			out->nummarksurfaces = LittleLong(in->nummarksurfaces);
 			
 			p = LittleLong(in->visofs);
@@ -4808,8 +4809,9 @@ static qboolean Mod_LoadLeafs (model_t *loadmodel, qbyte *mod_base, lump_t *l, s
 			p = LittleLong(in->contents);
 			out->contents = p;
 
-			out->firstmarksurface = loadmodel->marksurfaces +
-				LittleLong(in->firstmarksurface);
+			// Dedicated servers omit render-only marksurface storage.
+			out->firstmarksurface = loadmodel->marksurfaces ? loadmodel->marksurfaces +
+				LittleLong(in->firstmarksurface) : NULL;
 			out->nummarksurfaces = LittleLong(in->nummarksurfaces);
 			
 			p = LittleLong(in->visofs);
@@ -4867,7 +4869,9 @@ static qboolean Mod_LoadLeafs (model_t *loadmodel, qbyte *mod_base, lump_t *l, s
 			p = LittleLong(in->contents);
 			out->contents = p;
 
-			out->firstmarksurface = loadmodel->marksurfaces + (unsigned short)LittleShort(in->firstmarksurface);
+			// Dedicated servers omit render-only marksurface storage.
+			out->firstmarksurface = loadmodel->marksurfaces ? loadmodel->marksurfaces +
+				(unsigned short)LittleShort(in->firstmarksurface) : NULL;
 			out->nummarksurfaces = (unsigned short)LittleShort(in->nummarksurfaces);
 			
 			p = LittleLong(in->visofs);

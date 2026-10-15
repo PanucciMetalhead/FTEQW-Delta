@@ -615,6 +615,20 @@ void FlushEntityPacket (void)
 	}
 }
 
+// Quantize first, then wrap the integer bits before narrowing. A direct
+// double-to-short conversion is undefined for ordinary angles such as 180.
+static short CLFTE_EncodeViewAngle(float angle)
+{
+	double scaled = ANGLE2SHORT(angle);
+	unsigned int bits;
+	if (!isfinite(scaled))
+		return 0;
+	if (scaled < -2147483648.0 || scaled > 2147483647.0)
+		scaled = fmod(scaled, 65536.0);
+	bits = (unsigned int)(int)scaled & 65535u;
+	return (short)(bits < 32768u ? (int)bits : (int)bits-65536);
+}
+
 void CLFTE_ReadDelta(unsigned int entnum, entity_state_t *news, entity_state_t *olds, entity_state_t *baseline, packet_entities_t *newp, packet_entities_t *oldp)
 {
 	unsigned int predbits = 0;
@@ -799,11 +813,11 @@ void CLFTE_ReadDelta(unsigned int entnum, entity_state_t *news, entity_state_t *
 	if (!(predbits & UFP_VIEWANGLE) || !(cls.fteprotocolextensions2 & PEXT2_PREDINFO))
 	{
 		if (bits & UF_ANGLESXZ)
-			news->u.q1.vangle[0] = ANGLE2SHORT(news->angles[0] * ((bits & UF_PREDINFO)?-3:-1));
+			news->u.q1.vangle[0] = CLFTE_EncodeViewAngle(news->angles[0] * ((bits & UF_PREDINFO)?-3:-1));
 		if (bits & UF_ANGLESY)
-			news->u.q1.vangle[1] = ANGLE2SHORT(news->angles[1]);
+			news->u.q1.vangle[1] = CLFTE_EncodeViewAngle(news->angles[1]);
 		if (bits & UF_ANGLESXZ)
-			news->u.q1.vangle[2] = ANGLE2SHORT(news->angles[2]);
+			news->u.q1.vangle[2] = CLFTE_EncodeViewAngle(news->angles[2]);
 	}
 
 	if (bits & UF_MODEL)

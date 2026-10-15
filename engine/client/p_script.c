@@ -2318,9 +2318,11 @@ qboolean PScript_Query(int typenum, int body, char *outstr, int outstrlen)
 {
 #ifndef QUAKETC
 	int i;
-	part_type_t *ptype = &part_type[typenum];
+	part_type_t *ptype;
 	if (typenum < 0 || typenum >= numparticletypes)
 		return false;
+
+	ptype = &part_type[typenum];
 
 	if (body == 0)
 	{
@@ -4652,7 +4654,7 @@ static void PScript_AddDecals(void *vctx, vec3_t *fte_restrict points, size_t nu
 
 static int PScript_RunParticleEffectState (vec3_t org, vec3_t dir, float count, int typenum, trailkey_t *tk)
 {
-	part_type_t *ptype = &part_type[typenum];
+	part_type_t *ptype;
 	int i, j, k, l, spawnspc;
 	float m, pcount;//, orgadd, veladd;
 	vec3_t axis[3]={{1,0,0},{0,1,0},{0,0,-1}};
@@ -4668,6 +4670,8 @@ static int PScript_RunParticleEffectState (vec3_t org, vec3_t dir, float count, 
 
 	if (typenum < 0 || typenum >= numparticletypes)
 		return 1;
+
+	ptype = &part_type[typenum];
 
 	if (!ptype->loaded)
 		return 1;
@@ -6115,7 +6119,7 @@ static void P_ParticleTrailSpawn (vec3_t startpos, vec3_t end, part_type_t *ptyp
 
 static int PScript_ParticleTrail (vec3_t startpos, vec3_t end, int type, float timeinterval, int dlkey, vec3_t axis[3], trailkey_t *tk)
 {
-	part_type_t *ptype = &part_type[type];
+	part_type_t *ptype;
 
 	if (type >= FALLBACKBIAS && fallback)
 	{
@@ -6131,6 +6135,8 @@ static int PScript_ParticleTrail (vec3_t startpos, vec3_t end, int type, float t
 
 	if (type < 0 || type >= numparticletypes)
 		return 1;	//bad value
+
+	ptype = &part_type[type];
 
 	if (!ptype->loaded)
 		return 1;

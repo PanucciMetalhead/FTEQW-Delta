@@ -57,6 +57,19 @@ The new tests exposed and now guard against:
   Linux sanitizer CI exposed this after macOS checks passed; scans now sort
   only when there are at least two files, preserving archive order.
 
+MG3 rendering also exposed two client-side edge cases: particle effect/trail
+and query entry points formed indexed pointers before rejecting invalid effect
+indices; entity view angles narrowed floats directly to signed shorts, which
+is undefined at ordinary half-turns. Index checks now precede pointer formation,
+and received view angles quantize/wrap before narrowing, preserving 16-bit
+packet values. Their extracted sanitizer fixtures cover fallback delegation,
+absent particle tables, all angle bit patterns and fractional wrap boundaries.
+The fourth sigil HUD mask also uses an unsigned shift, preserving its top
+inventory bit without signed-shift overflow. Movement, physics and collision
+sources remain unchanged. Dedicated BSP loading also leaves render-only
+marksurface pointers null when the server omitted their storage, rather than
+performing offset arithmetic on null; leaf contents and bounds are unchanged.
+
 Cvar integer parsing now uses unsigned arithmetic with the same engine-width
 bit patterns, including full-width masks and negative values. It preserves the
 existing whitespace, character-literal and trailing-text conventions.
@@ -85,7 +98,7 @@ The five registered cases are:
 | Case | Coverage |
 | --- | --- |
 | `c17-endian` | Fixed-width endian helper patterns. |
-| `parser-sanitizers` | Actual message/number/string/Q3 parsers, archive scans and remaster detection; checksum/hash and image/audio conversion; item stats and pickup sounds; model/grouped allocation and worker-GC snapshots. Bodies, relevant types and packing expressions come from current engine source. |
+| `parser-sanitizers` | Actual message/number/string/Q3 parsers, archive scans, WAD metadata and remaster detection; MD5 replacement preflight/fallback; checksum/hash and image/audio conversion; item stats and pickup sounds; entity view angles and particle indices; model/grouped allocation and worker-GC snapshots. Bodies, relevant types and packing expressions come from current engine source. |
 | `package-signatures` | Actual package authenticity/decoding and installation-gate bodies compiled in release and debug configurations; mirror independence, provider outcomes, catalog trust, malformed metadata, and unsigned data archives. |
 | `engine-sanitizer-smoke` | Actual headless server cvar registration, filesystem initialization, command execution and shutdown; synthetic-PAK remaster autodetection and an explicit classic-profile override. |
 | `qcc-regression` | Compiler help/diagnostics, warning controls, optimization fixtures and execution in the standalone VM. |
@@ -101,6 +114,11 @@ height, reliable header flags, connection cookies, native byte swaps, item flash
 masks and pickup attribution. Storage checks exercise release/debug grouped
 allocation/free, 16/32-bit brush indexes, client/server MDL pose groups and
 worker-GC snapshot alignment/content.
+
+MD5 checks exercise incompatible/malformed companion headers, fallback before
+mesh parsing, unchanged compatible/explicit/static model paths and allocation
+cleanup. WAD tests cover overlong build basenames, valid subsequent entries,
+maximum-length root names, prefixed-path limits and Half-Life/heightmap downloads.
 
 Undefined behavior is fatal in sanitizer builds and the standalone sanitizer
 fixtures, even without an environment override. The parser fixtures compile
@@ -185,3 +203,10 @@ They remain separate from data-free CI and use isolated output directories.
 Enhanced/classic model scenes, 59 skeletal files, 58 animation boundaries,
 lighting changes and video restart also passed in the instrumented Mac/Metal
 client. This does not extend that result to every campaign map or game path.
+
+The MG3 follow-up passed 30 standalone sanitizer configurations and all five
+CTest cases. Native Mac/Metal checks covered 63 compatible MD5 skeletons,
+62 companion animations, animated rocket-ogre MDL fallback, lighting/video
+restart, and base/MG3 client map transitions/save/load. Dedicated-server
+start-to-first-map checks also passed with fatal ASan/UBSan. This validation
+uses owned assets and is separate from data-free CI.

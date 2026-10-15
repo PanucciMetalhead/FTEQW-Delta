@@ -292,7 +292,7 @@ void W_LoadTextureWadFile (char *filename, int complain)
 	}
 
 	file = FS_OpenVFS(filename, "rb", FS_GAME);
-	if (!file)
+	if (!file && strlen(filename) + sizeof("textures/halflife/") <= MAX_QPATH)
 		file = FS_OpenVFS(va("textures/halflife/%s", filename), "rb", FS_GAME);
 	if (!file)
 	{
@@ -789,9 +789,11 @@ qboolean Wad_NextDownload (void)
 					k = wads[i];
 					wads[i] = 0;
 					strcpy(wadname+9, &wads[j]);
-					if (wadname[9])
+					// Map compiler WAD paths are advisory; skip unusable basenames
+					// before querying the filesystem. Check prefixed paths separately.
+					if (wadname[9] && strlen(wadname+9) < MAX_QPATH)
 					{
-						if (!COM_FCheckExists(wadname+9))	//wad is in root dir, so we don't need to try textures.
+						if (!COM_FCheckExists(wadname+9) && strlen(wadname) < MAX_QPATH)	//try textures only if it fits.
 							CL_CheckOrEnqueDownloadFile(wadname, wadname, DLLF_REQUIRED);	//don't skip this one, or the world is white.
 					}
 					wads[i] = k;
@@ -824,11 +826,13 @@ qboolean Wad_NextDownload (void)
 					k = wads[i];
 					wads[i] = 0;
 					Q_strncpyz(wadname+9, &wads[j], sizeof(wadname)-9);
-					if (wadname[9])
+					// Map compiler WAD paths are advisory; skip unusable basenames
+					// before querying the filesystem. Check prefixed paths separately.
+					if (wadname[9] && strlen(wadname+9) < MAX_QPATH)
 					{
 						if (COM_FCheckExists(wadname+9))
 							W_LoadTextureWadFile (wadname+9, false);
-						else
+						else if (strlen(wadname) < MAX_QPATH)
 							W_LoadTextureWadFile (wadname, false);
 					}
 					j = i+1;

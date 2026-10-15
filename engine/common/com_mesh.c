@@ -9721,23 +9721,71 @@ static galiasinfo_t *Mod_ParseMD5MeshModel(model_t *mod, char *buffer, char *mod
 #undef EXPECT
 }
 
+// A replacement must have a compatible animation skeleton. Check the headers
+// before parsing/allocating the mesh so the model loader can try the original
+// asset when an optional replacement pair comes from incompatible exports.
+static int Mod_MD5JointCount(const char *buffer)
+{
+	char token[1024], *end;
+	long count;
+	buffer = COM_ParseOut(buffer, token, sizeof(token));
+	if (strcmp(token, "MD5Version"))
+		return 0;
+	buffer = COM_ParseOut(buffer, token, sizeof(token));
+	if (strcmp(token, "10"))
+		return 0;
+	while ((buffer = COM_ParseOut(buffer, token, sizeof(token))))
+	{
+		if (!strcmp(token, "numJoints"))
+		{
+			COM_ParseOut(buffer, token, sizeof(token));
+			count = strtol(token, &end, 10);
+			return *token && !*end && count > 0 && count <= MAX_BONES ? count : 0;
+		}
+		if (!strcmp(token, "{"))
+			break;
+		if (!strcmp(token, "commandline"))
+			buffer = COM_ParseOut(buffer, token, sizeof(token));
+	}
+	return 0;
+}
+
 static qboolean QDECL Mod_LoadMD5MeshModel(model_t *mod, void *buffer, size_t fsize)
 {
 	galiasinfo_t *root;
 	char animname[MAX_QPATH];
-	void *animfile;
+	void *animfile = NULL;
+	int meshjoints, animjoints;
+	(void)fsize;
+
+	if (mod_md5_singleanimation.ival)
+	{
+		COM_StripAllExtensions(mod->name, animname, sizeof(animname));
+		Q_strncatz(animname, ".md5anim", sizeof(animname));
+		animfile = FS_LoadMallocFile(animname, NULL);
+		if (animfile && strcmp(mod->publicname, mod->name))
+		{
+			meshjoints = Mod_MD5JointCount(buffer);
+			animjoints = Mod_MD5JointCount(animfile);
+			if (!meshjoints || !animjoints || meshjoints != animjoints)
+			{
+				Con_DPrintf("Skipping MD5 replacement %s: incompatible mesh/animation joint counts (%i/%i); trying %s.\n",
+					mod->name, meshjoints, animjoints, mod->publicname);
+				FS_FreeFile(animfile);
+				return false;
+			}
+		}
+	}
 
 	root = Mod_ParseMD5MeshModel(mod, buffer, mod->name);
 	if (root == NULL)
 	{
+		FS_FreeFile(animfile);
 		return false;
 	}
 
 	if (mod_md5_singleanimation.ival && root->numanimations==1 && root->ofsanimations[0].skeltype==SKEL_ABSOLUTE)	//make sure there's only the base pose...
 	{
-		COM_StripAllExtensions(mod->name, animname, sizeof(animname));
-		Q_strncatz(animname, ".md5anim", sizeof(animname));
-		animfile = FS_LoadMallocFile(animname, NULL);
 		if (animfile)	//FIXME: make non fatal somehow..
 		{
 			galiasinfo_t *surf;
@@ -9768,10 +9816,10 @@ static qboolean QDECL Mod_LoadMD5MeshModel(model_t *mod, void *buffer, size_t fs
 					surf->numanimations = root->numanimations;
 				}
 			}
-
-			Z_Free(animfile);
 		}
 	}
+
+	FS_FreeFile(animfile);
 
 	mod->flags = Mod_ReadFlagsFromMD1(mod->name, 0);	//file replacement - inherit flags from any defunc mdl files.
 
