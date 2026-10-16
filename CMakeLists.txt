@@ -1545,6 +1545,18 @@ IF(FTE_CSADDON AND TARGET fteqcc AND Python3_Interpreter_FOUND)
 		DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/games/quake/id1/")
 ENDIF()
 
+# A C-only link omits Clang's C++ UBSan runtime (vptr cache/handlers), which
+# instrumented Jolt modules need at dlopen time. Source files remain C17; only
+# sanitizer-enabled plugin hosts use the C++ linker driver for complete runtimes.
+if(FTE_SANITIZERS AND TARGET fte-jolt-adapter)
+    foreach(fte_jolt_host IN ITEMS fteqw fteqw-sv fteqw-cl)
+        if(TARGET ${fte_jolt_host})
+            set_property(TARGET ${fte_jolt_host} PROPERTY LINKER_LANGUAGE CXX)
+        endif()
+    endforeach()
+    unset(fte_jolt_host)
+endif()
+
 # Data-free checks also run in desktop CI; game-data tests remain opt-in.
 include(CTest)
 if(BUILD_TESTING)

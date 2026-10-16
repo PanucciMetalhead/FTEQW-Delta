@@ -192,7 +192,9 @@ plus Debug sanitizer checks on Linux/macOS. Jolt inherits the engine's selected
 MSVC runtime. Jolt and its adapter both enable C++ RTTI so UBSan's virtual-call
 checks can resolve their type information. The integration fixture selects plain
 console output for redirected Windows logs. Clang-instrumented plugins resolve sanitizer symbols through the
-instrumented host; ordinary plugin builds retain strict symbol resolution.
+instrumented host. Sanitizer-enabled Jolt hosts use the C++ linker driver so
+Clang also supplies its C++ UBSan runtime (vptr cache/handlers); engine sources
+still compile as C17. Ordinary plugin builds retain strict symbol resolution.
 Further work includes universal/hinge2 joints,
 real-mod rig compatibility, CSQC validation, animated/kinematic behavior,
 save/load and performance checks.

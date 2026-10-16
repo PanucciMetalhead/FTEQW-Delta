@@ -281,3 +281,9 @@ registered offset/type/name against real allocated structures in combined and
 split VM layouts. Runtime physics assertions are unchanged; CI server watchdogs
 allow 60 seconds per mode (300 for the whole case) so a slow shared runner can
 finish its simulation steps. Timeouts retain the mode name and partial log.
+
+Sanitizer-enabled Jolt hosts link through the C++ driver to include Clang's
+C++ UBSan runtime, which provides the vptr cache/handlers needed when loading
+the instrumented plugin into an otherwise C engine. Engine translation units
+remain C17; the real `jolt-engine` test verifies dynamic loading, not just the
+adapter linked directly into a test executable.
