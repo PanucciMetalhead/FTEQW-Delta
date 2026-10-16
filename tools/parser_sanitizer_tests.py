@@ -49,6 +49,8 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     (out / 'results.json').unlink(missing_ok=True)
     cases = {
+        'qcfields': [],
+        'qcfields_split': [],
         'modelreset': [],
         'concat': [('engine/common/zone.c', name) for name in ('Z_StrCatLen', 'Z_StrCat')],
         'skeleton': [('engine/client/pr_skelobj.c', name) for name in
@@ -103,7 +105,23 @@ def main():
         options = env.get('ASAN_OPTIONS', '')
         env['ASAN_OPTIONS'] = (options + ':' if options else '') + 'detect_leaks=1'
     for name, bodies in cases.items():
-        template = (ROOT / f'tools/tests/parser_{name.removesuffix("_debug").removesuffix("_wide").removesuffix("_server")}.c').read_text()
+        template = (ROOT / f'tools/tests/parser_{name.removesuffix("_debug").removesuffix("_wide").removesuffix("_server").removesuffix("_split")}.c').read_text()
+        if name in ('qcfields', 'qcfields_split'):
+            template = template.replace('/* ENGINE_ENTITY_TYPES */',
+                                        (ROOT / 'engine/server/progdefs.h').read_text())
+            source = (ROOT / 'engine/common/pr_common.h').read_text()
+            start = source.index('typedef struct {', source.index('//note: doesn\'t even have to match'))
+            end = source.index('typedef struct csqcedict_s', start)
+            template = template.replace('/* ENGINE_CSQC_TYPES */', source[start:end])
+            source = function('engine/server/pr_cmds.c', 'PR_RegisterFields')
+            source = source[source.index('#define comfieldfloat'):source.index('//Tell the qc library')]
+            template = template.replace('/* ENGINE_SSQC_REGISTRATION */', source)
+            source = function('engine/client/pr_csqc.c', 'CSQC_InitFields')
+            source = source[source.index('#define comfieldfloat'):source.index('PR_RegisterFieldVar(csqcprogs, ev_void')]
+            template = template.replace('/* ENGINE_CSQC_REGISTRATION */', source)
+            macro = re.search(r'^#define\s+STRUCT_FROM_LINK[^\n]+',
+                              (ROOT / 'engine/common/common.h').read_text(), re.M)[0]
+            template = template.replace('/* ENGINE_CONTAINER_MACRO */', macro)
         if name == 'modelreset':
             source = function('engine/gl/gl_model.c', 'Mod_LoadModelWorker')
             start = source.index('//clear out any old state.')
@@ -221,6 +239,8 @@ def main():
         compile_cmd = [args.cc, '-std=c17', '-g', '-O1', '-Wall', '-Wextra', '-Werror',
                        '-fsanitize=address,undefined', '-fno-sanitize-recover=all',
                        '-fno-omit-frame-pointer', str(generated), '-o', str(exe), '-lm']
+        if name == 'qcfields_split':
+            compile_cmd.append('-DVM_Q1')
         if name == 'poses_server':
             compile_cmd.append('-DSERVERONLY')
         if name == 'mesh_wide':

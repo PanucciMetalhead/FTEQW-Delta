@@ -20,6 +20,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // comndef.h  -- general definitions
 
 #include <stdio.h>
+#include <stddef.h>
 
 //make shared
 #ifndef QDECL
@@ -241,7 +242,7 @@ void InsertLinkAfter (link_t *l, link_t *after);
 // (type *)STRUCT_FROM_LINK(link_t *link, type, member)
 // ent = STRUCT_FROM_LINK(link,entity_t,order)
 // FIXME: remove this mess!
-#define	STRUCT_FROM_LINK(l,t,m) ((t *)((qbyte *)l - (qbyte*)&(((t *)0)->m)))
+#define	STRUCT_FROM_LINK(l,t,m) ((t *)((qbyte *)(l) - offsetof(t, m)))
 
 #define FOR_EACH_LINK(l,node) for (l = node.next ; l != &node ; l = l->next)
 //============================================================================

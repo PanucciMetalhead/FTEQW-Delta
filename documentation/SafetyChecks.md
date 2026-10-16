@@ -273,3 +273,11 @@ fixture executes the production worker-reset statements against a synthetic mode
 layout, checking preserved header/name/cache/load state and cleared stale bounds
 and payload. This covers the Linux Clang null-member diagnostic without changing
 model layout or loader behavior.
+
+QuakeC server/client field registration and the shared link-container macro now
+use standard `offsetof` too. The `qcfields` and `qcfields_split` fixtures compile
+the production entity declarations and registration macros, checking every
+registered offset/type/name against real allocated structures in combined and
+split VM layouts. Runtime physics assertions are unchanged; CI server watchdogs
+allow 60 seconds per mode (300 for the whole case) so a slow shared runner can
+finish its simulation steps. Timeouts retain the mode name and partial log.

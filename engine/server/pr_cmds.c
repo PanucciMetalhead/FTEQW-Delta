@@ -19,6 +19,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 */
 
 #include "quakedef.h"
+#include <stddef.h>
 
 #ifdef SQL
 #include "sv_sql.h"
@@ -12714,12 +12715,12 @@ int pr_numbuiltins = sizeof(pr_builtin)/sizeof(pr_builtin[0]);
 
 void PR_RegisterFields(void)	//it's just easier to do it this way.
 {
-#define comfieldfloat(name,desc) PR_RegisterFieldVar(svprogfuncs, ev_float, #name, (size_t)&((stdentvars_t*)0)->name, -1);
-#define comfieldint(name,desc) PR_RegisterFieldVar(svprogfuncs, ev_integer, #name, (size_t)&((stdentvars_t*)0)->name, -1);
-#define comfieldvector(name,desc) PR_RegisterFieldVar(svprogfuncs, ev_vector, #name, (size_t)&((stdentvars_t*)0)->name, -1);
-#define comfieldentity(name,desc) PR_RegisterFieldVar(svprogfuncs, ev_entity, #name, (size_t)&((stdentvars_t*)0)->name, -1);
-#define comfieldstring(name,desc) PR_RegisterFieldVar(svprogfuncs, ev_string, (((size_t)&((stdentvars_t*)0)->name==(size_t)&((stdentvars_t*)0)->message)?"_"#name:#name), (size_t)&((stdentvars_t*)0)->name, -1);
-#define comfieldfunction(name, typestr,desc) PR_RegisterFieldVar(svprogfuncs, ev_function, #name, (size_t)&((stdentvars_t*)0)->name, -1);
+#define comfieldfloat(name,desc) PR_RegisterFieldVar(svprogfuncs, ev_float, #name, offsetof(stdentvars_t, name), -1);
+#define comfieldint(name,desc) PR_RegisterFieldVar(svprogfuncs, ev_integer, #name, offsetof(stdentvars_t, name), -1);
+#define comfieldvector(name,desc) PR_RegisterFieldVar(svprogfuncs, ev_vector, #name, offsetof(stdentvars_t, name), -1);
+#define comfieldentity(name,desc) PR_RegisterFieldVar(svprogfuncs, ev_entity, #name, offsetof(stdentvars_t, name), -1);
+#define comfieldstring(name,desc) PR_RegisterFieldVar(svprogfuncs, ev_string, ((offsetof(stdentvars_t, name)==offsetof(stdentvars_t, message))?"_"#name:#name), offsetof(stdentvars_t, name), -1);
+#define comfieldfunction(name, typestr,desc) PR_RegisterFieldVar(svprogfuncs, ev_function, #name, offsetof(stdentvars_t, name), -1);
 comqcfields
 #undef comfieldfloat
 #undef comfieldint
@@ -12728,19 +12729,19 @@ comqcfields
 #undef comfieldstring
 #undef comfieldfunction
 #ifdef VM_Q1
-#define comfieldfloat(name,desc) PR_RegisterFieldVar(svprogfuncs, ev_float, #name, sizeof(stdentvars_t) + (size_t)&((extentvars_t*)0)->name, -1);
-#define comfieldint(name,desc) PR_RegisterFieldVar(svprogfuncs, ev_integer, #name, sizeof(stdentvars_t) + (size_t)&((extentvars_t*)0)->name, -1);
-#define comfieldvector(name,desc) PR_RegisterFieldVar(svprogfuncs, ev_vector, #name, sizeof(stdentvars_t) + (size_t)&((extentvars_t*)0)->name, -1);
-#define comfieldentity(name,desc) PR_RegisterFieldVar(svprogfuncs, ev_entity, #name, sizeof(stdentvars_t) + (size_t)&((extentvars_t*)0)->name, -1);
-#define comfieldstring(name,desc) PR_RegisterFieldVar(svprogfuncs, ev_string, #name, sizeof(stdentvars_t) + (size_t)&((extentvars_t*)0)->name, -1);
-#define comfieldfunction(name, typestr,desc) PR_RegisterFieldVar(svprogfuncs, ev_function, #name, sizeof(stdentvars_t) + (size_t)&((extentvars_t*)0)->name, -1);
+#define comfieldfloat(name,desc) PR_RegisterFieldVar(svprogfuncs, ev_float, #name, sizeof(stdentvars_t) + offsetof(extentvars_t, name), -1);
+#define comfieldint(name,desc) PR_RegisterFieldVar(svprogfuncs, ev_integer, #name, sizeof(stdentvars_t) + offsetof(extentvars_t, name), -1);
+#define comfieldvector(name,desc) PR_RegisterFieldVar(svprogfuncs, ev_vector, #name, sizeof(stdentvars_t) + offsetof(extentvars_t, name), -1);
+#define comfieldentity(name,desc) PR_RegisterFieldVar(svprogfuncs, ev_entity, #name, sizeof(stdentvars_t) + offsetof(extentvars_t, name), -1);
+#define comfieldstring(name,desc) PR_RegisterFieldVar(svprogfuncs, ev_string, #name, sizeof(stdentvars_t) + offsetof(extentvars_t, name), -1);
+#define comfieldfunction(name, typestr,desc) PR_RegisterFieldVar(svprogfuncs, ev_function, #name, sizeof(stdentvars_t) + offsetof(extentvars_t, name), -1);
 #else
-#define comfieldfloat(ssqcname,desc) PR_RegisterFieldVar(svprogfuncs, ev_float, #ssqcname, (size_t)&((stdentvars_t*)0)->ssqcname, -1);
-#define comfieldint(ssqcname,desc) PR_RegisterFieldVar(svprogfuncs, ev_integer, #ssqcname, (size_t)&((stdentvars_t*)0)->ssqcname, -1);
-#define comfieldvector(ssqcname,desc) PR_RegisterFieldVar(svprogfuncs, ev_vector, #ssqcname, (size_t)&((stdentvars_t*)0)->ssqcname, -1);
-#define comfieldentity(ssqcname,desc) PR_RegisterFieldVar(svprogfuncs, ev_entity, #ssqcname, (size_t)&((stdentvars_t*)0)->ssqcname, -1);
-#define comfieldstring(ssqcname,desc) PR_RegisterFieldVar(svprogfuncs, ev_string, #ssqcname, (size_t)&((stdentvars_t*)0)->ssqcname, -1);
-#define comfieldfunction(ssqcname, typestr,desc) PR_RegisterFieldVar(svprogfuncs, ev_function, #ssqcname, (size_t)&((stdentvars_t*)0)->ssqcname, -1);
+#define comfieldfloat(ssqcname,desc) PR_RegisterFieldVar(svprogfuncs, ev_float, #ssqcname, offsetof(stdentvars_t, ssqcname), -1);
+#define comfieldint(ssqcname,desc) PR_RegisterFieldVar(svprogfuncs, ev_integer, #ssqcname, offsetof(stdentvars_t, ssqcname), -1);
+#define comfieldvector(ssqcname,desc) PR_RegisterFieldVar(svprogfuncs, ev_vector, #ssqcname, offsetof(stdentvars_t, ssqcname), -1);
+#define comfieldentity(ssqcname,desc) PR_RegisterFieldVar(svprogfuncs, ev_entity, #ssqcname, offsetof(stdentvars_t, ssqcname), -1);
+#define comfieldstring(ssqcname,desc) PR_RegisterFieldVar(svprogfuncs, ev_string, #ssqcname, offsetof(stdentvars_t, ssqcname), -1);
+#define comfieldfunction(ssqcname, typestr,desc) PR_RegisterFieldVar(svprogfuncs, ev_function, #ssqcname, offsetof(stdentvars_t, ssqcname), -1);
 #endif
 
 comextqcfields

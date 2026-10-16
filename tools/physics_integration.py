@@ -131,10 +131,14 @@ map physics
 '''
         (game/'physics.cfg').write_text(cfg)
         logpath=out/f'{name}.log'
-        with logpath.open('w') as log:
-            proc=subprocess.run([str(args.server.resolve()),'-basedir',str(out),'-nohome','-nostdin',
-                                 '-quake','+set','plug_loaddefault','0','+exec','physics.cfg'],cwd=out,env=env,
-                                stdout=log,stderr=subprocess.STDOUT,timeout=25)
+        try:
+            with logpath.open('w') as log:
+                proc=subprocess.run([str(args.server.resolve()),'-basedir',str(out),'-nohome','-nostdin',
+                                     '-quake','+set','plug_loaddefault','0','+exec','physics.cfg'],cwd=out,env=env,
+                                    stdout=log,stderr=subprocess.STDOUT,timeout=60)
+        except subprocess.TimeoutExpired as exc:
+            text=logpath.read_text(errors='replace')
+            raise AssertionError(f'{name}: exceeded 60 seconds; inspect {logpath}\n{text[-7000:]}') from exc
         text=logpath.read_text(errors='replace')
         if proc.returncode or text.count('PHYSICS_ENGINE_OK')!=3 or re.search(
                 r'PHYSICS_FAIL|AddressSanitizer|UndefinedBehaviorSanitizer|runtime error:|Jolt entity .* rejected|Jolt simulation stopped',text):

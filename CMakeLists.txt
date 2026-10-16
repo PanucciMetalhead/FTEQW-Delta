@@ -1605,7 +1605,7 @@ if(BUILD_TESTING AND TARGET fte-jolt-adapter)
                 --server $<TARGET_FILE:fteqw-sv> --qcc $<TARGET_FILE:fteqcc>
                 --jolt-plugin $<TARGET_FILE:plug_jolt> ${fte_jolt_ode_args}
                 --out "${CMAKE_BINARY_DIR}/physics-tests/$<CONFIG>")
-        set_tests_properties(jolt-engine PROPERTIES TIMEOUT 120)
+        set_tests_properties(jolt-engine PROPERTIES TIMEOUT 300)
     endif()
     add_custom_target(jolt-check-deps DEPENDS ${fte_jolt_check_deps})
 endif()

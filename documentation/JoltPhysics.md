@@ -168,6 +168,8 @@ failures and sanitizer diagnostics. Fixture deadlines accumulate actual physics
 and server catch-up timewarps therefore cannot advance a test's physics clock.
 The ODE collision baseline has a separate bounded settling deadline because
 its default damping differs from Jolt's; collision bounds remain identical.
+Each server process has a separate 60-second wall-clock watchdog; the complete
+CTest case allows 300 seconds for all modes on slower/shared runners.
 
 For ASan/UBSan, configure another single-configuration Debug build with
 `-DFTE_SANITIZERS=ON`, then build `jolt-check-deps` and run the same tests.
@@ -179,7 +181,7 @@ complete engine shutdown leak audit or a third-party ODE library audit.
 Local validation on Apple Silicon/macOS passes native Debug, Release and
 ASan/UBSan adapter, ABI and engine checks against the supplied Jolt checkout and Homebrew
 ODE. The complete native build passed 5/5 CTest checks; the instrumented build
-passed 8/8, including 33 standalone source-based sanitizer fixtures. The native
+passed 8/8, including 35 standalone source-based sanitizer fixtures. The native
 Metal demo also passed client connection, joint release and map-reload checks;
 its captured poses were visually inspected. Skeleton allocation without CSQC,
 world isolation, cache reuse and native/VM ownership have dedicated sanitizer
