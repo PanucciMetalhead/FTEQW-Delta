@@ -53,6 +53,7 @@ void end_sys_globals;
 .string noise,noise1,noise2,noise3;
 void end_sys_fields;
 .float mass,geomtype,gravity,dimension_solid,dimension_hit,jointtype,skeletonindex,basebone;
+.float joint_suspension_stiffness,joint_suspension_damping;
 void(entity e,vector p) setorigin=#2;
 void(entity e,string modelname) setmodel=#3;
 string(string modelname) precache_model=#20;
@@ -79,7 +80,8 @@ vector held;
 entity dropped,classic,masked,pushed,recycled,constrained,jointent,rig;
 vector initial_tip;
 float render_skeleton;
-entity visible_rig;
+entity visible_rig,offsetrig,universal_body,hinge2_body,springbody,springent,springrig;
+float springphase;
 void(float ok,string what) check = {
     if (!ok) {dprint("PHYSICS_FAIL: ");dprint(what);dprint("\n");localcmd("quit force\n");error(what);}
 };
@@ -123,6 +125,29 @@ void() worldspawn = {
         setorigin(visible_rig,rig.origin);visible_rig.skeletonindex=render_skeleton;visible_rig.basebone=-1;
         rig.modelindex=0;
     }
+    offsetrig=spawn();setmodel(offsetrig,"progs/physics-rig.md5mesh");
+    setorigin(offsetrig,'500 250 256');offsetrig.angles='20 70 -15';
+    offsetrig.skeletonindex=skel_create(offsetrig.modelindex);
+    skel_build(offsetrig.skeletonindex,offsetrig,offsetrig.modelindex,0,0,0);
+    local vector original=skel_get_boneabs(offsetrig.skeletonindex,2);
+    local vector forward=v_forward,right=v_right,up=v_up;
+    check(skel_ragupdate(offsetrig,"doll progs/physics-rig-offset.doll",0)==1,"offset/rotation/orient rig builds");
+    check(vlen(skel_get_boneabs(offsetrig.skeletonindex,2)-original)<.01,"offset body round-trip preserves bone origin");
+    check(vlen(v_forward-forward)<.01 && vlen(v_right-right)<.01 && vlen(v_up-up)<.01,"offset body round-trip preserves basis");
+    universal_body=prop('-650 0 128',32);hinge2_body=prop('-750 0 128',32);
+    local entity universal_joint=spawn();universal_joint.jointtype=4;universal_joint.aiment=universal_body;
+    setorigin(universal_joint,universal_body.origin);universal_joint.movedir='1 -100000 .4';
+    local entity hinge2_joint=spawn();hinge2_joint.jointtype=5;hinge2_joint.aiment=hinge2_body;
+    setorigin(hinge2_joint,hinge2_body.origin);hinge2_joint.velocity='0 1 0';hinge2_joint.movedir='1 -100000 .4';
+    springbody=prop('650 0 128',32);
+    springent=spawn();springent.jointtype=5;springent.aiment=springbody;
+    springent.angles='-90 0 0';springent.velocity='1 0 0';setorigin(springent,springbody.origin);
+    springent.joint_suspension_stiffness=2000;springent.joint_suspension_damping=150;
+    springrig=spawn();setmodel(springrig,"progs/physics-rig.md5mesh");
+    setorigin(springrig,'-300 600 256');springrig.angles='0 37 0';
+    springrig.skeletonindex=skel_create(springrig.modelindex);
+    skel_build(springrig.skeletonindex,springrig,springrig.modelindex,0,0,0);
+    check(skel_ragupdate(springrig,"doll progs/physics-rig-suspension.doll",0)==1,"create world-anchored suspension rig");
     local entity doomed=prop('400 0 80',32);doomed.touch=delete_contact;
 };
 void() StartFrame = {
@@ -141,6 +166,30 @@ void() StartFrame = {
             joint_enabled=enabled;
         }
         return;
+    }
+    if (mode==1) {
+        if (!springphase && simulated>1.5) {
+            check(springbody.origin_z>127.1 && springbody.origin_z<127.3,"QC suspension supports expected static load");
+            check(skel_ragupdate(springrig,"",0)==1,"derive world-anchored suspension rig");
+            local vector p=skel_get_boneabs(springrig.skeletonindex,1);
+            check(vlen(p-'0 0 62.8')<.15,"ragdoll world anchor includes translated/rotated entity and total rig mass");
+            springent.joint_suspension_stiffness=4000;springphase=1;
+        }
+        if (springphase==1 && simulated>1.9) {
+            check(springbody.origin_z>127.5 && springbody.origin_z<127.7,"QC stiffness edit preserves rest position");
+            springent.joint_suspension_damping=60;springphase=2;
+        }
+        if (springphase==2 && simulated>2.1) {
+            check(springbody.origin_z>127.5 && springbody.origin_z<127.7,"QC damping edit preserves equilibrium");
+            springent.joint_suspension_stiffness=-1;springphase=3;
+        }
+        if (springphase==3 && simulated>2.3) {
+            check(springbody.origin_z>127.5 && springbody.origin_z<127.7,"invalid live spring edit retains valid constraint");
+            springent.joint_suspension_stiffness=0;springent.joint_suspension_damping=0;springphase=4;
+        }
+        if (springphase==4 && simulated>2.7) {
+            check(springbody.origin_z>127.99 && springbody.origin_z<128.01,"zero spring settings restore rigid pivot");springphase=5;
+        }
     }
     if (!phase && simulated>1.5) {
         // ODE's default per-substep damping settles more slowly than Jolt.
@@ -162,6 +211,12 @@ void() StartFrame = {
             check(vlen(delta)>28 && vlen(delta)<36,"ragdoll keeps adjacent bone anchor separation");
             check(skel_ragupdate(rig,"enablejoint link0 0",0)==1,"disable named skeletal joint");
             check(skel_ragupdate(rig,"enablejoint link0 1",0)==1,"enable named skeletal joint");
+            check(skel_ragupdate(offsetrig,"",0)==1,"derive offset rig after simulation");
+            local vector offsettop=skel_get_boneabs(offsetrig.skeletonindex,1);
+            local vector offsettip=skel_get_boneabs(offsetrig.skeletonindex,3);
+            check(vlen(offsettop-offsettip)>63.5 && vlen(offsettop-offsettip)<64.5,"fixed rig keeps bone spacing with local offsets and rotated entity");
+            check(universal_body.origin_z>127.9 && universal_body.origin_z<128.1,"QC universal world anchor holds");
+            check(hinge2_body.origin_z>127.9 && hinge2_body.origin_z<128.1,"QC hinge2 world anchor holds");
             dprint("PHYSICS_RAGDOLL_OK\n");
             check(masked.origin_z < -100,"dimension mask excludes map collision");
             check(pushed.velocity_x>0,"force before first body creation");
@@ -178,18 +233,30 @@ void() StartFrame = {
         physics_addforce(pushed,'480 0 0',pushed.origin);
         phase=2;return;
     }
-    if (phase==2 && simulated>2.0) {
+    if (phase==2 && simulated>3.1) {
         check(pushed.velocity_x>0,"shape rebuild retains pending force");
         check(skel_ragupdate(rig,"doll progs/physics-rig-invalid.doll",0)==0,"invalid rig rolls back partial bodies");
         check(skel_ragupdate(rig,"doll progs/physics-rig.doll",0)==1,"valid rig recovers after rejected rig");
         check(skel_ragupdate(rig,"doll progs/physics-rig-unsupported.doll",0)==0,"unsupported skeletal joint rejects the entire rig");
         check(skel_ragupdate(rig,"doll progs/physics-rig.doll",0)==1,"valid rig recovers after unsupported joint");
+        check(skel_ragupdate(rig,"doll progs/physics-rig-bodyless.doll",0)==0,"bodyless joint rejects safely");
+        check(skel_ragupdate(rig,"doll progs/physics-rig-badname.doll",0)==0,"unknown body update rejects safely");
+        check(skel_ragupdate(rig,"doll progs/physics-rig-badtype.doll",0)==0,"unknown joint type rejects safely");
+        check(skel_ragupdate(rig,"doll progs/physics-rig-badspring.doll",0)==0,"negative rig spring rolls back whole rig");
+        check(skel_ragupdate(rig,"doll progs/physics-rig-wrongspring.doll",0)==0,"suspension on wrong joint type rejects rig");
         check(physics_supported(0)==0,"backend shutdown");
         check(physics_supported(1)==1,"backend restart");
         check(skel_ragupdate(rig,"doll progs/physics-rig.doll",0)==1,"ragdoll can be reinstantiated after backend restart");
-        phase=3;
+        check(skel_ragupdate(springrig,"doll progs/physics-rig-suspension.doll",0)==1,"recreate suspended rig after backend restart");
+        phase=4;return;
     }
-    if (phase==3) {dprint("PHYSICS_ENGINE_OK\n");phase=4;localcmd("physics_fixture_next\n");}
+    if (phase==4 && simulated>3.7) {
+        check(skel_ragupdate(springrig,"",0)==1,"derive restarted suspension rig");
+        local vector restarted=skel_get_boneabs(springrig.skeletonindex,1);
+        check(vlen(restarted-'0 0 62.8')<.15,"restarted suspension recovers original world rest anchor");
+        dprint("PHYSICS_SUSPENSION_OK\n");phase=3;
+    }
+    if (phase==3) {dprint("PHYSICS_ENGINE_OK\n");phase=5;localcmd("physics_fixture_next\n");}
 };
 void() info_player_start={};
 void() main={};

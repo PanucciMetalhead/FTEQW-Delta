@@ -12,7 +12,7 @@ extern "C" {
 typedef struct fte_jolt_world fte_jolt_world;
 typedef uint64_t fte_jolt_body;
 typedef uint64_t fte_jolt_joint;
-enum { FTE_JOLT_FIXED=-1, FTE_JOLT_POINT=1, FTE_JOLT_HINGE=2, FTE_JOLT_SLIDER=3 };
+enum { FTE_JOLT_FIXED=-1, FTE_JOLT_POINT=1, FTE_JOLT_HINGE=2, FTE_JOLT_SLIDER=3, FTE_JOLT_UNIVERSAL=4, FTE_JOLT_HINGE2=5 };
 /* A zero body handle anchors that side to the world. Limits contain zero;
  * hinge limits/velocity use radians, slider limits/velocity use Quake units.
  * Connected bodies do not collide, even while their constraint is disabled. */
@@ -21,6 +21,12 @@ typedef struct {
     fte_jolt_body body1,body2;
     float anchor[3],axis[3];
     float lower,upper,max_force,velocity,stiffness,damping;
+    /* Two-axis joints: axis is attached to body1; axis2 to body2. They must
+     * initially be orthogonal unit vectors. Both angular ranges contain zero.
+     * Hinge2 may add linear suspension along axis (Quake force/distance units).
+     * Zero suspension stiffness/damping keeps the anchor rigid. */
+    float axis2[3],lower2,upper2,max_force2,velocity2,stiffness2,damping2;
+    float suspension_stiffness,suspension_damping;
 } fte_jolt_joint_desc;
 enum { FTE_JOLT_STATIC, FTE_JOLT_KINEMATIC, FTE_JOLT_DYNAMIC };
 enum {
@@ -57,6 +63,9 @@ const char *fte_jolt_error(const fte_jolt_world *world);
 const char *fte_jolt_version(void);
 fte_jolt_body fte_jolt_add(fte_jolt_world *world, const fte_jolt_desc *desc);
 fte_jolt_joint fte_jolt_joint_add(fte_jolt_world *world,const fte_jolt_joint_desc *desc);
+/* Update only suspension, preserving the original anchors and angular frame.
+ * Valid only for hinge2. Rejected settings leave the existing joint unchanged. */
+int fte_jolt_joint_suspension(fte_jolt_world *world,fte_jolt_joint joint,float stiffness,float damping);
 int fte_jolt_joint_remove(fte_jolt_world *world,fte_jolt_joint joint);
 int fte_jolt_joint_enable(fte_jolt_world *world,fte_jolt_joint joint,int enabled);
 int fte_jolt_joint_frame(fte_jolt_world *world,fte_jolt_joint joint,fte_jolt_state *frame);

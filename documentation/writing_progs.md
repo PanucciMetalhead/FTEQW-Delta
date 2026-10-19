@@ -673,12 +673,19 @@ For a mod that manages separate animations with skeleton APIs, the existing
 
 Animation bones and weights do not define ragdoll masses, bodies or constraints.
 Those require a separate physics rig. The opt-in [Jolt plugin](JoltPhysics.md)
-supports rigid props through `MOVETYPE_PHYSICS`, point/fixed/hinge/slider
-joints, and experimental `.doll` skeletal rigs through `skel_ragupdate`. Loading
+supports rigid props through `MOVETYPE_PHYSICS`, point/fixed/hinge/slider/
+universal/hinge2 joints, and experimental `.doll` skeletal rigs through `skel_ragupdate`. Loading
 a skeletal model does not create a physics rig. For server-side rigs, copy the
 absolute simulated pose into a separate relative render skeleton with
 `skel_copybones`; set the rendered entity's `.basebone = -1` to use the existing
-bone networking. See the Jolt guide for the tested pattern and limits. See
+bone networking. Local body offsets/rotations, orientation targets and joint pivot
+offsets are supported. `cleardoll` releases a rig to resume authored animation; a
+rejected `doll`/`dollstring` returns zero and retains the previous rig. See the Jolt
+guide for the humanoid demo, `.doll` conventions and current limits. Hinge2
+linear suspension uses the fork-only `joint_suspension_stiffness` and
+`joint_suspension_damping` fields or `.doll` `SuspensionStiffness` /
+`SuspensionDamping` directives. They require Jolt and do not affect ordinary
+player physics. See
 [Quake Remaster content](QuakeRemaster.md) for launch
 examples, tested assets, original-model fallback and compatibility limits.
 
@@ -870,9 +877,10 @@ protocol support.
 - **Engine interface** means a field/global/callback/constant or builtin with
   no extension attribution in the exporter. Some are classic and some are
   later additions; this label is not a vanilla compatibility guarantee.
-- **Fork-only** would mean an API introduced solely by FTEQW Delta. This guide's
-  exported API has no newly introduced fork-only gameplay symbols. Renderer
-  implementation changes do not require a new QC API.
+- **Fork-only (FTEQW Delta)** identifies symbols introduced by this fork:
+  `joint_suspension_stiffness` and `joint_suspension_damping` currently control
+  Jolt hinge2 suspension. Their declarations do not imply that a physics plugin
+  is loaded; use `physics_supported()` and explicitly select the Jolt backend.
 
 Original Quake's useful core includes `self`, `other`, `world`, `time`,
 `frametime`, entity position/size/model fields, the standard player callbacks,
@@ -939,7 +947,7 @@ bytecode ownership clear and test the archive's internal paths.
 ## Complete engine API reference
 
 This is a snapshot of the API advertised by this fork's native client build,
-generated on 2026-10-11 from `pr_dumpplatform`. It enumerates active, exported
+generated on 2026-10-19 from `pr_dumpplatform`. It enumerates active, exported
 builtins, callbacks, globals, entity fields, constants, type aliases, convenience
 macros and extension labels for **NQ SSQC**, **QW SSQC**, **CSQC** and **MenuQC**.
 Obsolete entries that the engine deliberately omits are not supported API here.
@@ -992,18 +1000,18 @@ page for a symbol's exact name instead of guessing a builtin number.
 
 <!-- BEGIN GENERATED QUAKEC API -->
 
-This snapshot lists **2013 distinct names** in **2127 declarations** across the four VM interfaces.
+This snapshot lists **2014 distinct names** in **2128 declarations** across the four VM interfaces.
 
 <!-- Export SHA-256 hashes for reproducibility:
-nq_api.qc: 0bff2a834e12a3d67d07477f22cf005328e3a92e26bddc9fb1e15fa0ed00ac22
-qw_api.qc: be11acce03bb9f1127be4584dc3445a129ddee8dd26ea478bcdd11a3e8f09e38
-cs_api.qc: 82b625ec0bcbc5b73e3f41df2c6df6f73bd87807b627f4308601c551d2e29fdc
-menu_api.qc: 19c6a04180d049bb2a45ce8bf00ffa4688f58cbd21517d733343430c65eadaed
+nq_api.qc: 74054552df28908f3e6ffcd355165af0c68993e73d245c9a5ac342fa047fe669
+qw_api.qc: 68de434b1b869b3415755faae2fb352343b3a7ce468192674247fe6b918f189e
+cs_api.qc: a11e87fc3ac07a64293e1f8661a26227aa7c65c8d843f1878ade6c15b341f910
+menu_api.qc: 2fd5688af04df36592db21dabe940cbbe89e2094463fdc32d8350d8b9dce7dea
 -->
 
 ### Engine functions (builtins)
 
-711 declarations.
+710 declarations.
 
 #### `abort`
 
@@ -3943,7 +3951,7 @@ Retrieves the full precision of a stat registered as EV_INTEGER.
 string(float stnum) getstats = #332;
 ```
 
-Retrieves the value of the given EV_STRING stat, as a tempstring. Older engines may use 4 consecutive integer stats, with a limit of 15 chars (yes, really. 15.), but FTE QW uses a separate namespace for string stats and has a much higher length limit.
+Retrieves the value of the given EV_STRING stat, as a tempstring. Older engines may use 4 consecutive integer stats, with a limit of 15 chars (yes, really. 15.), but FTEQW Delta uses a separate namespace for string stats and has a much higher length limit.
 
 #### `getsurfaceclippedpoint`
 
@@ -7813,7 +7821,7 @@ Converts the given true integer into a float without depending on extended qcvm 
 float(string) validstring = #81;
 ```
 
-Returns true if str isn't null. In case `if [not](str)` was configured to test for empty instead of null.
+Returns true if str isn't null. In case 'if [not](str)' was configured to test for empty instead of null.
 
 #### `vectoangles`
 
@@ -10655,7 +10663,7 @@ The null entity. Hurrah. Readonly after map spawn time.
 
 ### Entity fields
 
-198 declarations.
+200 declarations.
 
 #### `abslight`
 
@@ -11846,6 +11854,26 @@ Player input impulse command; consume/reset it according to your game's command 
 ```
 
 Conventional inventory bitmask sent to clients; set/clear bits according to your game's inventory rules.
+
+#### `joint_suspension_damping`
+
+**Scope:** NQ SSQC, QW SSQC, CSQC. **Compatibility:** Fork-only (FTEQW Delta).
+
+```qc
+.float joint_suspension_damping;
+```
+
+FTEQW Delta only. Hinge2 linear damping in mass per second (Quake force/velocity units). Must be nonnegative; nonzero damping requires positive stiffness. Jolt backend only.
+
+#### `joint_suspension_stiffness`
+
+**Scope:** NQ SSQC, QW SSQC, CSQC. **Compatibility:** Fork-only (FTEQW Delta).
+
+```qc
+.float joint_suspension_stiffness;
+```
+
+FTEQW Delta only. Hinge2 linear spring stiffness in mass per second squared (Quake force/distance units). Zero with zero damping keeps the pivot rigid. Jolt backend only.
 
 #### `jointgroup`
 

@@ -2333,6 +2333,7 @@ static void *QDECL PlugBI_GetEngineInterface(const char *interfacename, size_t s
 		{
 			RBEPLUGFUNCS_VERSION,
 			sizeof(wedict_t),
+			sizeof(stdentvars_t), RBE_EXTENTVARS_SIZE, sizeof(rbejointinfo_t),
 
 			World_RegisterPhysicsEngine,
 			World_UnregisterPhysicsEngine,

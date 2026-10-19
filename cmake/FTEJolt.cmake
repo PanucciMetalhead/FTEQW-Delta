@@ -48,7 +48,7 @@ endif()
 add_library(plug_jolt MODULE plugins/plugin.c engine/common/com_phys_jolt.c)
 target_compile_definitions(plug_jolt PRIVATE FTEPLUGIN ${FTE_LIB_DEFINES})
 target_link_libraries(plug_jolt PRIVATE fte-jolt-adapter ${SYS_LIBS})
-EMBED_PLUGIN_META(jolt "Jolt Physics (experimental)" "Opt-in rigid props, point/fixed/hinge/slider joints, and experimental skeletal rigs.")
+EMBED_PLUGIN_META(jolt "Jolt Physics (experimental)" "Opt-in rigid props, point/fixed/hinge/slider/universal/hinge2 joints, and experimental skeletal rigs.")
 # Jolt is statically linked into the module; retain its MIT notice with builds.
 configure_file("${PROJECT_SOURCE_DIR}/plugins/jolt/Jolt-LICENSE.txt"
     "${CMAKE_BINARY_DIR}/Jolt-LICENSE.txt" COPYONLY)

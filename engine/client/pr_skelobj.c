@@ -78,6 +78,7 @@ typedef struct
 //	float moment[12];
 	float animstrength;
 	float animmatrix[12];
+	float boneoffset[12], inverseboneoffset[12];
 } body_t;
 #endif
 
@@ -338,6 +339,7 @@ static dollcreatectx_t *rag_createdoll(model_t *mod, const char *fname, int numb
 	ctx->defbody.dimensions[2] = 4;
 	ctx->defbody.mass = 1;
 	ctx->defbody.orient = false;
+	ctx->defbody.relmatrix[0] = ctx->defbody.relmatrix[5] = ctx->defbody.relmatrix[10] = 1;
 
 	memset(&ctx->defjoint, 0, sizeof(ctx->defjoint));
 	ctx->defjoint.startenabled = true;
@@ -386,7 +388,7 @@ static qboolean rag_dollline(dollcreatectx_t *ctx, int linenum)
 	else if (argc == 3 && !stricmp(cmd, "refpose"))
 	{
 		ctx->d->refanim = atoi(val);
-		ctx->d->refanimtime = atoi(Cmd_Argv(2));
+		ctx->d->refanimtime = atof(Cmd_Argv(2));
 	}
 	//create a new body
 	else if (argc == 3 && !stricmp(cmd, "body"))
@@ -439,12 +441,13 @@ static qboolean rag_dollline(dollcreatectx_t *ctx, int linenum)
 			}
 			return true;
 		}
-		ctx->joint->bonepivot = d->body[(ctx->joint->body2 >= 0)?ctx->joint->body2:ctx->joint->body1].bone;	//default the pivot object to the bone of the second object.
-
 		if (ctx->joint->body1 >= 0 || ctx->joint->body2 >= 0)
+		{
+			ctx->joint->bonepivot = d->body[(ctx->joint->body2 >= 0)?ctx->joint->body2:ctx->joint->body1].bone;
 			d->numjoints++;
+		}
 		else if (!ctx->errors++)
-			Con_Printf("^[Joint property \"%s\" not recognised\\edit\\%s:%i^]\n", ctx->joint->name, d->name, linenum);
+			Con_Printf("Ragdoll joint %s needs at least one body in %s:%i\n", ctx->joint->name, d->name, linenum);
 	}
 	else if (argc == 2 && !stricmp(cmd, "updatebody"))
 	{
@@ -458,7 +461,7 @@ static qboolean rag_dollline(dollcreatectx_t *ctx, int linenum)
 			if (i >= 0)
 				ctx->body = &d->body[i];
 			else if (!ctx->errors++)
-				Con_Printf("^[Cannot update body \"%s\"\\edit\\%s:%i^]\n", ctx->body->name, d->name, linenum);
+				Con_Printf("^[Cannot update body \"%s\"\\edit\\%s:%i^]\n", val, d->name, linenum);
 		}
 	}
 	else if (argc == 2 && !stricmp(cmd, "updatejoint"))
@@ -473,7 +476,7 @@ static qboolean rag_dollline(dollcreatectx_t *ctx, int linenum)
 			if (i >= 0)
 				ctx->joint = &d->joint[i];
 			else if (!ctx->errors++)
-				Con_Printf("^[Cannot update joint \"%s\"\\edit\\%s:%i^]\n", ctx->joint->name, d->name, linenum);
+				Con_Printf("^[Cannot update joint \"%s\"\\edit\\%s:%i^]\n", val, d->name, linenum);
 		}
 	}
 
@@ -510,18 +513,36 @@ static qboolean rag_dollline(dollcreatectx_t *ctx, int linenum)
 		ctx->body->dimensions[1] = atof(Cmd_Argv(2));
 		ctx->body->dimensions[2] = atof(Cmd_Argv(3));
 	}
-	else if (ctx->body && argc == 4 && !stricmp(cmd, "offset"))
+	else if (ctx->body && (argc == 4 || argc == 7) && !stricmp(cmd, "offset"))
 	{
-		vec3_t ang;
+		vec3_t ang = {0}, forward, left, up;
 		ctx->body->isoffset = true;
-		ctx->body->relmatrix[3] = atof(val);
-		ctx->body->relmatrix[7] = atof(Cmd_Argv(2));
-		ctx->body->relmatrix[11] = atof(Cmd_Argv(3));
-		ang[0] = atof(Cmd_Argv(4));
-		ang[1] = atof(Cmd_Argv(5));
-		ang[2] = atof(Cmd_Argv(6));
-		AngleVectorsFLU(ang, &ctx->body->relmatrix[0], &ctx->body->relmatrix[4], &ctx->body->relmatrix[8]);
+		if (argc == 7)
+		{
+			ang[0] = atof(Cmd_Argv(4));
+			ang[1] = atof(Cmd_Argv(5));
+			ang[2] = atof(Cmd_Argv(6));
+		}
+		AngleVectorsFLU(ang, forward, left, up);
+		for (i = 0; i < 3; i++)
+		{
+			ctx->body->relmatrix[4*i] = forward[i];
+			ctx->body->relmatrix[4*i+1] = left[i];
+			ctx->body->relmatrix[4*i+2] = up[i];
+			ctx->body->relmatrix[4*i+3] = atof(Cmd_Argv(i+1));
+		}
 		Matrix3x4_Invert_Simple(ctx->body->relmatrix, ctx->body->inverserelmatrix);
+	}
+	else if (ctx->body && argc == 2 && !stricmp(cmd, "orient"))
+	{
+		i = Mod_TagNumForName(d->model, val, 0)-1;
+		if (i >= 0 && i != ctx->body->bone)
+		{
+			ctx->body->orient = true;
+			ctx->body->orientpeer = i;
+		}
+		else if (!ctx->errors++)
+			Con_Printf("Invalid ragdoll orientation bone %s in %s:%i\n", val, d->name, linenum);
 	}
 
 	//joint properties
@@ -539,6 +560,8 @@ static qboolean rag_dollline(dollcreatectx_t *ctx, int linenum)
 			ctx->joint->type = JOINTTYPE_UNIVERSAL;
 		else if (!stricmp(val, "hinge2"))
 			ctx->joint->type = JOINTTYPE_HINGE2;
+		else if (!ctx->errors++)
+			Con_Printf("Unknown ragdoll joint type %s in %s:%i\n", val, d->name, linenum);
 	}
 	else if (ctx->joint && argc == 2 && !stricmp(cmd, "draw"))
 		ctx->joint->draw = atoi(val);
@@ -552,10 +575,18 @@ static qboolean rag_dollline(dollcreatectx_t *ctx, int linenum)
 		ctx->joint->CFM = atof(val);
 	else if (ctx->joint && argc == 2 && !stricmp(cmd, "CFM2"))
 		ctx->joint->CFM2 = atof(val);
+	else if (ctx->joint && argc == 2 && !stricmp(cmd, "SuspensionStiffness"))
+		ctx->joint->suspension_stiffness = atof(val);
+	else if (ctx->joint && argc == 2 && !stricmp(cmd, "SuspensionDamping"))
+		ctx->joint->suspension_damping = atof(val);
 	else if (ctx->joint && argc == 2 && !stricmp(cmd, "FMax"))
 		ctx->joint->FMax = atof(val);
 	else if (ctx->joint && argc == 2 && !stricmp(cmd, "FMax2"))
 		ctx->joint->FMax2 = atof(val);
+	else if (ctx->joint && argc == 2 && !stricmp(cmd, "Vel"))
+		ctx->joint->Vel = atof(val);
+	else if (ctx->joint && argc == 2 && !stricmp(cmd, "Vel2"))
+		ctx->joint->Vel2 = atof(val);
 	else if (ctx->joint && argc == 2 && !stricmp(cmd, "HiStop"))
 		ctx->joint->HiStop = atof(val);
 	else if (ctx->joint && argc == 2 && !stricmp(cmd, "HiStop2"))
@@ -631,9 +662,10 @@ static doll_t *rag_finishdoll(dollcreatectx_t *ctx)
 		}
 	}
 
+	i = ctx->errors;
 	free(ctx);
 
-	if (!d->numbodies)
+	if (i || !d->numbodies)
 	{
 		rag_freedoll(d);
 		return NULL;
@@ -1237,33 +1269,46 @@ static void rag_uninstanciate(skelobject_t *sko)
 	sko->doll->uses--;
 	sko->doll = NULL;
 }
-static void rag_genbodymatrix(skelobject_t *sko, rbebodyinfo_t *dollbody, float *emat, float *result)
+// Freeze the bone-to-body transform in the reference pose. Simulation and
+// rendering must use this same transform and its inverse, including orientation.
+static qboolean rag_bodyoffset(rbebodyinfo_t *info, float *reference, float *result)
+{
+	float orientation[12] = {1,0,0,0, 0,1,0,0, 0,0,1,0};
+	if (info->orient)
+	{
+		float *bone = reference + info->bone*12;
+		float *peer = reference + info->orientpeer*12;
+		vec3_t direction = {peer[3]-bone[3], peer[7]-bone[7], peer[11]-bone[11]};
+		vec3_t up, forward = {1,0,0}, left;
+		int i;
+		// Express the target direction in the bone frame, then aim local Z at it.
+		for (i = 0; i < 3; i++)
+			up[i] = bone[i]*direction[0] + bone[4+i]*direction[1] + bone[8+i]*direction[2];
+		if (VectorNormalize(up) < 0.0001)
+			return false;
+		if (fabs(up[0]) > 0.9)
+			VectorSet(forward, 0, 1, 0);
+		CrossProduct(up, forward, left);
+		VectorNormalize(left);
+		CrossProduct(left, up, forward);
+		for (i = 0; i < 3; i++)
+		{
+			orientation[4*i] = forward[i];
+			orientation[4*i+1] = left[i];
+			orientation[4*i+2] = up[i];
+		}
+	}
+	R_ConcatTransforms((void*)orientation, (void*)info->relmatrix, (void*)result);
+	return true;
+}
+static void rag_genbodymatrix(skelobject_t *sko, int index, float *emat, float *result)
 {
 	float tmp[12];
-	float *bmat;
-	int bone = dollbody->bone;
-	bmat = sko->bonematrix + bone*12;
-
-	if (dollbody->isoffset)
-	{
-		R_ConcatTransforms((void*)dollbody->relmatrix, (void*)bmat, (void*)tmp);
-		bmat = tmp;
-	}
-
-	R_ConcatTransforms((void*)emat, (void*)bmat, (void*)result);
-
-	if (dollbody->orient)
-	{
-		float peer[12];
-		bone = dollbody->orientpeer;
-		bmat = sko->bonematrix + bone*12;
-		
-		R_ConcatTransforms((void*)emat, (void*)bmat, (void*)peer);
-	}
-
-	//FIXME: handle biasing it to point away from the parent bone towards an orientation bone
+	float *bmat = sko->bonematrix + sko->doll->body[index].bone*12;
+	R_ConcatTransforms((void*)bmat, (void*)sko->body[index].boneoffset, (void*)tmp);
+	R_ConcatTransforms((void*)emat, (void*)tmp, (void*)result);
 }
-static qboolean rag_animate(skelobject_t *sko, doll_t *doll, float *emat)
+static qboolean rag_animate(skelobject_t *sko, float *emat)
 {
 	//drive the various animated bodies to their updated positions
 	int i;
@@ -1271,22 +1316,22 @@ static qboolean rag_animate(skelobject_t *sko, doll_t *doll, float *emat)
 	{
 		if (!sko->body[i].animstrength)
 			continue;
-		rag_genbodymatrix(sko, &doll->body[i], emat, sko->body[i].animmatrix);
+		rag_genbodymatrix(sko, i, emat, sko->body[i].animmatrix);
 	}
 	return true;
 }
 static qboolean rag_instanciate(skelobject_t *sko, doll_t *doll, float *emat, wedict_t *ent)
 {
 	int i;
-	float *bmat;
 	float bodymat[12], worldmat[12];
 	vec3_t aaa2[3];
 	int numbones;
 	galiasbone_t *bones = Mod_GetBoneInfo(sko->model, &numbones);
-	int bone;
 	rbebody_t *body1, *body2;
 	rbejointinfo_t *j;
 	float *absolutes;
+	if (!bones || !numbones || numbones != sko->numbones)
+		return false;
 	sko->numbodies = doll->numbodies;
 	sko->body = BZ_Malloc(sizeof(*sko->body) * sko->numbodies);
 	memset(sko->body, 0, sizeof(*sko->body) * sko->numbodies);
@@ -1313,7 +1358,12 @@ static qboolean rag_instanciate(skelobject_t *sko, doll_t *doll, float *emat, we
 				memcpy(absolutes+12*i, relatives+12*i, sizeof(float)*12);
 		}
 	}
-	else absolutes = NULL;
+	else
+	{
+		absolutes = alloca(sizeof(float)*12*numbones);
+		for (i = 0; i < numbones; i++)
+			Matrix3x4_Invert_Simple(bones[i].inverse, absolutes+12*i);
+	}
 
 	for (i = 0; i < sko->numbodies; i++)
 	{
@@ -1323,13 +1373,16 @@ static qboolean rag_instanciate(skelobject_t *sko, doll_t *doll, float *emat, we
 		if (sko->body[i].animstrength)
 			sko->numanimated++;
 
-		//spawn the body in the base pose, so we can add joints etc (also ignoring the entity matrix, we'll fix all that up later).
-		if (absolutes)	//we have a reference pose
-			memcpy(bodymat, absolutes+12*doll->body[i].bone, sizeof(float)*12);
-		else if (1)
-			Matrix3x4_Invert_Simple(bones[doll->body[i].bone].inverse, bodymat);
-		else
-			rag_genbodymatrix(sko, &doll->body[i], emat, bodymat);
+		// Construct reference bodies with their offsets before resolving joint anchors.
+		if (!rag_bodyoffset(&doll->body[i], absolutes, sko->body[i].boneoffset))
+		{
+			rag_uninstanciate(sko);
+			return false;
+		}
+		Matrix3x4_Invert_Simple(sko->body[i].boneoffset, sko->body[i].inverseboneoffset);
+		R_ConcatTransforms((void*)(absolutes+12*doll->body[i].bone),
+			(void*)sko->body[i].boneoffset, (void*)worldmat);
+		R_ConcatTransforms((void*)emat, (void*)worldmat, (void*)bodymat);
 		if (!sko->world->rbe->RagCreateBody(sko->world, &sko->body[i].odebody, &doll->body[i], bodymat, ent))
 		{
 			rag_uninstanciate(sko);
@@ -1345,28 +1398,27 @@ static qboolean rag_instanciate(skelobject_t *sko, doll_t *doll, float *emat, we
 		body1 = j->body1>=0?&sko->body[j->body1].odebody:NULL;
 		body2 = j->body2>=0?&sko->body[j->body2].odebody:NULL;
 
-		bone = j->bonepivot;
-		bmat = sko->bonematrix + bone*12;
-
-		if (absolutes)	//we have a reference pose
-			memcpy(worldmat, absolutes+12*j->bonepivot, sizeof(float)*12);
-		else if (1)
-		{	//FIXME: j->offset isn't actually used?!?
-			Matrix3x4_Invert_Simple(bones[j->bonepivot].inverse, worldmat);
-		}
-		else
+		memcpy(worldmat, absolutes+12*j->bonepivot, sizeof(worldmat));
+		// Pivot offsets are in the pivot bone's local coordinates; axes remain
+		// in reference model space, as existing .doll files specify them.
+		aaa2[0][0] = worldmat[3] + worldmat[0]*j->offset[0] + worldmat[1]*j->offset[1] + worldmat[2]*j->offset[2];
+		aaa2[0][1] = worldmat[7] + worldmat[4]*j->offset[0] + worldmat[5]*j->offset[1] + worldmat[6]*j->offset[2];
+		aaa2[0][2] = worldmat[11] + worldmat[8]*j->offset[0] + worldmat[9]*j->offset[1] + worldmat[10]*j->offset[2];
+		// Reference bodies and pivots must share world space, including the
+		// entity transform. A world-anchored side cannot be moved afterwards.
 		{
-			memcpy(bodymat, bmat, sizeof(bodymat));
-			bodymat[3] += j->offset[0];
-			bodymat[3+4] += j->offset[1];
-			bodymat[3+8] += j->offset[2];
-			R_ConcatTransforms((void*)emat, (void*)bodymat, (void*)worldmat);
+			vec3_t pivot;
+			int axis;
+			VectorCopy(aaa2[0], pivot);
+			VectorTransform(pivot, (const void*)emat, aaa2[0]);
+			for (axis = 0; axis < 3; axis++)
+			{
+				aaa2[1][axis] = emat[4*axis]*j->axis[0] + emat[4*axis+1]*j->axis[1] + emat[4*axis+2]*j->axis[2];
+				aaa2[2][axis] = emat[4*axis]*j->axis2[0] + emat[4*axis+1]*j->axis2[1] + emat[4*axis+2]*j->axis2[2];
+			}
+			VectorNormalize(aaa2[1]);
+			VectorNormalize(aaa2[2]);
 		}
-		aaa2[0][0] = worldmat[3];
-		aaa2[0][1] = worldmat[3+4];
-		aaa2[0][2] = worldmat[3+8];
-		VectorNormalize2(j->axis, aaa2[1]);
-		VectorNormalize2(j->axis2, aaa2[2]);
 
 		sko->world->rbe->RagCreateJoint(sko->world, &sko->joint[i], j, body1, body2, aaa2);
 		if (!sko->joint[i].joint)
@@ -1382,7 +1434,7 @@ static qboolean rag_instanciate(skelobject_t *sko, doll_t *doll, float *emat, we
 	//this might result in the body flying across the room...
 	for (i = 0; i < sko->numbodies; i++)
 	{
-		rag_genbodymatrix(sko, &doll->body[i], emat, bodymat);
+		rag_genbodymatrix(sko, i, emat, bodymat);
 		if (!sko->world->rbe->RagMatrixToBody(&sko->body[i].odebody, bodymat))
 		{
 			rag_uninstanciate(sko);
@@ -1502,15 +1554,10 @@ static void rag_derive(skelobject_t *sko, skelobject_t *asko, float *emat)
 		{
 			//bones with a body are given an absolute pose matching that body.
 			sko->world->rbe->RagMatrixFromBody(sko->world, &sko->body[doll->bone[i].bodyidx].odebody, bodymat);
-			if (doll->body[doll->bone[i].bodyidx].isoffset)
-			{
-				float tmp[12];
-				R_ConcatTransforms((void*)doll->body[doll->bone[i].bodyidx].inverserelmatrix, (void*)bodymat, (void*)tmp);
-				R_ConcatTransforms((void*)invemat, (void*)tmp, (void*)((float*)bmat+i*12));
-			}
-			else
-				//that body matrix is in world space, so transform to model space for our result
-				R_ConcatTransforms((void*)invemat, (void*)bodymat, (void*)((float*)bmat+i*12));
+			// world_body = entity * model_bone * bone_offset.
+			R_ConcatTransforms((void*)bodymat,
+				(void*)sko->body[doll->bone[i].bodyidx].inverseboneoffset, (void*)rel);
+			R_ConcatTransforms((void*)invemat, (void*)rel, (void*)((float*)bmat+i*12));
 		}
 		else if (amat)	//FIXME: don't do this when the bone has an unanimated child body.
 		{
@@ -1721,7 +1768,7 @@ void rag_updatedeltaent(world_t *w, entity_t *ent, lerpents_t *le)
 			rag_instanciate(sko, mod->dollinfo, emat, NULL);
 		}
 		if (sko->numanimated)
-			rag_animate(sko, sko->doll, emat);
+			rag_animate(sko, emat);
 
 		rag_derive(sko, sko->numanimated?&skorel:NULL, emat);
 
@@ -1884,15 +1931,23 @@ void QCBUILTIN PF_skel_ragedit(pubprogfuncs_t *prinst, struct globalvars_s *pr_g
 			{
 				//make sure the animation target is valid.
 				skel_copy_toabs(sko, psko?psko:sko, 0, sko->numbones);
-				rag_animate(sko, sko->doll, emat);
+				rag_animate(sko, emat);
 			}
 			G_FLOAT(OFS_RETURN) = 1;
 			return;
 		}
 		else if (!stricmp(cmd, "doll"))
+		{
 			doll = sko->model?rag_loaddoll(sko->model, Cmd_Argv(1), sko->numbones):NULL;
+			if (!doll)
+				return; // A rejected file is a failure, not an implicit cleardoll.
+		}
 		else if (!stricmp(cmd, "dollstring"))
+		{
 			doll = sko->model?rag_createdollfromstring(sko->model, "", sko->numbones, ragname):NULL;
+			if (!doll)
+				return;
+		}
 		else if (!stricmp(cmd, "cleardoll"))
 			doll = NULL;
 		else
@@ -1919,7 +1974,7 @@ void QCBUILTIN PF_skel_ragedit(pubprogfuncs_t *prinst, struct globalvars_s *pr_g
 			return;
 		}
 		if (sko->numanimated)
-			rag_animate(sko, doll, emat);
+			rag_animate(sko, emat);
 	}
 	else if (!doll)
 	{
@@ -1929,7 +1984,7 @@ void QCBUILTIN PF_skel_ragedit(pubprogfuncs_t *prinst, struct globalvars_s *pr_g
 	else if (sko->numanimated)
 	{
 		skel_copy_toabs(sko, psko?psko:sko, 0, sko->numbones);
-		rag_animate(sko, doll, emat);
+		rag_animate(sko, emat);
 	}
 
 	if (psko == sko)

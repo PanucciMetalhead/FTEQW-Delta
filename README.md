@@ -41,8 +41,9 @@ models, portable-install detection and repeatable campaign/model checks are cove
 [QuakeRemaster.md](documentation/QuakeRemaster.md).
 
 An opt-in [Jolt rigid-body plugin](documentation/JoltPhysics.md) is available
-for QuakeC mods, including primitive props, point/fixed/hinge/slider joints and
-experimental `.doll` skeletal rigs. Classic movement stays in the engine.
+for QuakeC mods, including primitive props, six joint types and experimental
+`.doll` skeletal rigs, with hinge2 suspension controls for mod authors. Humanoid checks cover original test assets and an optional
+owned remaster soldier. Classic movement stays in the engine.
 
 The [console command and cvar reference](documentation/console_commands.md) covers
 Quake 1 and Quake 3/OpenArena, including shared settings, game-specific behavior,

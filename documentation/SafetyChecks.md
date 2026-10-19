@@ -278,7 +278,10 @@ QuakeC server/client field registration and the shared link-container macro now
 use standard `offsetof` too. The `qcfields` and `qcfields_split` fixtures compile
 the production entity declarations and registration macros, checking every
 registered offset/type/name against real allocated structures in combined and
-split VM layouts. Runtime physics assertions are unchanged; CI server watchdogs
+split VM layouts. They also exercise the production ABI 2 compatibility helper:
+null interfaces, old/future versions and mismatched entity/joint sizes are
+rejected, and the old ABI 1 interface has a different request size. Runtime
+physics assertions are unchanged; CI server watchdogs
 allow 60 seconds per mode (300 for the whole case) so a slow shared runner can
 finish its simulation steps. Timeouts retain the mode name and partial log.
 
@@ -287,3 +290,39 @@ C++ UBSan runtime, which provides the vptr cache/handlers needed when loading
 the instrumented plugin into an otherwise C engine. Engine translation units
 remain C17; the real `jolt-engine` test verifies dynamic loading, not just the
 adapter linked directly into a test executable.
+
+
+The humanoid milestone adds a data-free `jolt-humanoid` CTest case (logs under
+`physics-humanoid/`). It builds an original 24-bone mesh/animation and 16-body
+rig, verifies translation/orientation round trips for every bone, and checks
+floor/stairs/slope/wall/overlap scenes, animation transitions, repeated cleanup
+and live backend restart. Adapter checks cover universal/hinge2 independent
+motors, hard/soft angular stops, perpendicular axes, world anchors and suspension
+units. The older engine fixture also tests rotated bodies, seven-argument body
+offsets, orientation targets, pivot offsets and malformed rig rejection.
+
+The `skelnetwork` fixture extracts the actual `Bones_To_PosQuat4`, pose matrix
+builder, quaternion interpolator and client network skeleton lifetime functions.
+It checks 24-bone encode/decode errors against the existing quantization,
+quaternion-sign-safe midpoint interpolation, bone-count replacement, stale
+indices, allocation exhaustion, and native/VM cleanup under ASan/UBSan. This
+brings the standalone source sanitizer suite to 37 fixtures. The optional
+`physics_humanoid.py --network-test` connects two native clients to a private
+loopback dedicated server and checks receipt/rendering of animated and simulated
+poses without loading a client physics plugin. It requires owned UI assets and
+GPU access, so it is a local validation rather than an asset-free CI test.
+
+
+The instrumented two-client run also exercised console input while connecting.
+It exposed a before-array pointer in the full-input comparison. The comparison
+now uses an in-array end pointer. The `consoleinput` source fixture checks every
+input length from empty to the 2046-character payload limit, including the full
+marker and both terminators, under ASan/UBSan.
+
+
+Hinge2 suspension is exercised through the C adapter, compiled QuakeC entities
+and `.doll` rigs. Checks cover load/deflection units, damping energy loss,
+arbitrary-axis forces, live stiffness/damping edits without anchor drift,
+invalid-edit retention, disabled constraints and restoring a rigid pivot. A
+translated/rotated world-anchored rig verifies reference-space conversion and
+backend restart; malformed spring definitions must roll back the entire rig.

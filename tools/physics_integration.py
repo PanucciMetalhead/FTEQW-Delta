@@ -66,9 +66,23 @@ def write_rig(game):
     for i,(a,b) in enumerate([('top','mid'),('mid','tip')]):
         doll+=f'joint link{i} {a} {b}\ntype hinge\naxis 0 1 0\nLoStop -0.5\nHiStop 0.5\nCFM 0\n'
     (models/'physics-rig.doll').write_text(doll)
+    suspended=doll.replace('type hinge','type fixed')
+    suspended+='joint suspension "" top\ntype hinge2\naxis 0 0 1\naxis2 1 0 0\nLoStop 0\nHiStop 0\nCFM 0\nCFM2 0\n'
+    suspended+='SuspensionStiffness 2000\nSuspensionDamping 150\n'
+    (models/'physics-rig-suspension.doll').write_text(suspended)
+    (models/'physics-rig-badspring.doll').write_text(suspended.replace('SuspensionStiffness 2000','SuspensionStiffness -1'))
+    (models/'physics-rig-wrongspring.doll').write_text(suspended.replace('type hinge2','type hinge'))
+    offset='refpose skin\nupdatebody default\nshape box\ndimensions 8 8 20\nmass 1\nanimate 0\n'
+    offset+='offset 3 2 1 20 35 -10\nbody top bone0\norient bone1\nbody mid bone1\norient bone2\nbody tip bone2\norient bone1\n'
+    offset+='joint link0 top mid\ntype fixed\npivot bone1 1 2 3\n'
+    offset+='joint link1 mid tip\ntype fixed\npivot bone2 -2 3 1\n'
+    (models/'physics-rig-offset.doll').write_text(offset)
+    (models/'physics-rig-bodyless.doll').write_text('joint stray\ntype point\n')
+    (models/'physics-rig-badname.doll').write_text(doll+'updatebody missing\n')
+    (models/'physics-rig-badtype.doll').write_text(doll.replace('type hinge','type unknown',1))
     invalid=doll.replace('body mid bone1\n','body mid bone1\nmass -1\n')
     (models/'physics-rig-invalid.doll').write_text(invalid)
-    (models/'physics-rig-unsupported.doll').write_text(doll.replace('type hinge','type universal',1))
+    (models/'physics-rig-unsupported.doll').write_text(doll.replace('axis 0 1 0','axis 0 0 0',1))
     textures=game/'textures/physics';textures.mkdir(parents=True,exist_ok=True)
     # An original checker gives the skeletal test mesh a self-contained skin.
     header=struct.pack('<BBBHHBHHHHBB',0,0,2,0,0,0,0,0,16,16,32,0x28)
@@ -143,7 +157,7 @@ map physics
         if proc.returncode or text.count('PHYSICS_ENGINE_OK')!=3 or re.search(
                 r'PHYSICS_FAIL|AddressSanitizer|UndefinedBehaviorSanitizer|runtime error:|Jolt entity .* rejected|Jolt simulation stopped',text):
             raise AssertionError(f'{name}: exit={proc.returncode}; engine checks failed; inspect {logpath}\n{text[-7000:]}')
-        if mode==1 and text.count('PHYSICS_RAGDOLL_OK')!=3:
+        if mode==1 and (text.count('PHYSICS_RAGDOLL_OK')!=3 or text.count('PHYSICS_SUSPENSION_OK')!=3):
             raise AssertionError(f'Missing ragdoll checks: {logpath}')
         heights=[float(x) for x in re.findall(r'PHYSICS_CLASSIC_Z ([\d.-]+)',text)]
         results[name]={'map_runs':3,'classic_z':heights,

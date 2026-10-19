@@ -16,6 +16,7 @@
 #include <Jolt/Physics/Constraints/FixedConstraint.h>
 #include <Jolt/Physics/Constraints/HingeConstraint.h>
 #include <Jolt/Physics/Constraints/PointConstraint.h>
+#include <Jolt/Physics/Constraints/SixDOFConstraint.h>
 #include <Jolt/Physics/Constraints/SliderConstraint.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/RegisterTypes.h>
@@ -58,14 +59,20 @@ void release_runtime() {
 bool finite3(const float *v) {
     return v && std::isfinite(v[0]) && std::isfinite(v[1]) && std::isfinite(v[2]);
 }
+bool suspension_ok(float stiffness, float damping) {
+    return std::isfinite(stiffness) && stiffness >= 0 && std::isfinite(damping) && damping >= 0 &&
+           (stiffness > 0 || damping == 0);
+}
 bool rotation(const float *v) {
     if (!finite3(v) || !std::isfinite(v[3]))
         return false;
-    double length = double(v[0]) * v[0] + double(v[1]) * v[1] + double(v[2]) * v[2] + double(v[3]) * v[3];
+    double length =
+        double(v[0]) * v[0] + double(v[1]) * v[1] + double(v[2]) * v[2] + double(v[3]) * v[3];
     return length > .999 && length < 1.001;
 }
 bool state_ok(const fte_jolt_state *s) {
-    return s && finite3(s->position) && rotation(s->rotation) && finite3(s->velocity) && finite3(s->spin);
+    return s && finite3(s->position) && rotation(s->rotation) && finite3(s->velocity) &&
+           finite3(s->spin);
 }
 JPH::Vec3 vec(const float *v, float scale = 1) {
     return JPH::Vec3(v[0] * scale, v[1] * scale, v[2] * scale);
@@ -73,9 +80,7 @@ JPH::Vec3 vec(const float *v, float scale = 1) {
 JPH::RVec3 pos(const float *v) {
     return JPH::RVec3(double(v[0]) * metres, double(v[1]) * metres, double(v[2]) * metres);
 }
-JPH::Quat quat(const float *v) {
-    return JPH::Quat(v[0], v[1], v[2], v[3]).Normalized();
-}
+JPH::Quat quat(const float *v) { return JPH::Quat(v[0], v[1], v[2], v[3]).Normalized(); }
 template <class V> void store(V v, float *out, float scale = 1) {
     out[0] = float(v.GetX()) * scale;
     out[1] = float(v.GetY()) * scale;
@@ -101,7 +106,9 @@ class Broad final : public JPH::BroadPhaseLayerInterface {
 };
 class PairFilter final : public JPH::ObjectLayerPairFilter {
   public:
-    bool ShouldCollide(JPH::ObjectLayer a, JPH::ObjectLayer b) const override { return a == 2 || b == 2; }
+    bool ShouldCollide(JPH::ObjectLayer a, JPH::ObjectLayer b) const override {
+        return a == 2 || b == 2;
+    }
 };
 class BroadFilter final : public JPH::ObjectVsBroadPhaseLayerFilter {
   public:
@@ -115,9 +122,12 @@ struct Record {
     unsigned entity, owner, solid_mask, hit_mask, family;
     bool proxy;
 };
+#include "jolt_dual_axis.h"
+
 struct JointRecord {
     JPH::Ref<JPH::TwoBodyConstraint> constraint;
     fte_jolt_body body1, body2;
+    int type;
 };
 struct Force {
     fte_jolt_body token;
@@ -181,8 +191,8 @@ struct fte_jolt_world {
     }
 };
 namespace {
-JPH::ValidateResult Contacts::OnContactValidate(const JPH::Body &a, const JPH::Body &b, JPH::RVec3Arg,
-                                                const JPH::CollideShapeResult &) {
+JPH::ValidateResult Contacts::OnContactValidate(const JPH::Body &a, const JPH::Body &b,
+                                                JPH::RVec3Arg, const JPH::CollideShapeResult &) {
     auto ai = world->bodies.find(a.GetUserData()), bi = world->bodies.find(b.GetUserData());
     if (ai == world->bodies.end() || bi == world->bodies.end())
         return JPH::ValidateResult::RejectAllContactsForThisBodyPair;
@@ -220,7 +230,8 @@ JPH::RefConst<JPH::Shape> make_shape(fte_jolt_world *w, const fte_jolt_desc &d) 
     if (d.shape == FTE_JOLT_MESH) {
         if (d.motion != FTE_JOLT_STATIC || !d.vertices || !d.indices || d.vertex_count < 3 ||
             d.vertex_count > 2000000 || !d.triangle_count || d.triangle_count > 2000000) {
-            w->fail("Triangle meshes require a static body and bounded vertex/index data");
+            w->fail("Triangle meshes require a static body and bounded vertex/index "
+                    "data");
             return nullptr;
         }
         JPH::VertexList vertices;
@@ -252,7 +263,8 @@ JPH::RefConst<JPH::Shape> make_shape(fte_jolt_world *w, const fte_jolt_desc &d) 
         return result.Get();
     }
     if (!finite3(d.size) || d.size[0] < .25f || d.size[1] < .25f || d.size[2] < .25f) {
-        w->fail("Primitive body dimensions must be finite and at least 0.25 Quake units");
+        w->fail("Primitive body dimensions must be finite and at least 0.25 Quake "
+                "units");
         return nullptr;
     }
     JPH::Vec3 half = vec(d.size, .5f * metres);
@@ -284,11 +296,12 @@ JPH::RefConst<JPH::Shape> make_shape(fte_jolt_world *w, const fte_jolt_desc &d) 
         else
             shape = new JPH::CapsuleShape(height, radius);
     } else
-        shape = new JPH::CylinderShape(extents[axis], radius, std::min(radius, extents[axis]) * .1f);
+        shape =
+            new JPH::CylinderShape(extents[axis], radius, std::min(radius, extents[axis]) * .1f);
     if (axis == 1)
         return shape;
-    JPH::Quat turn =
-        JPH::Quat::sRotation(axis == 0 ? JPH::Vec3::sAxisZ() : JPH::Vec3::sAxisX(), JPH::JPH_PI / 2);
+    JPH::Quat turn = JPH::Quat::sRotation(axis == 0 ? JPH::Vec3::sAxisZ() : JPH::Vec3::sAxisX(),
+                                          JPH::JPH_PI / 2);
     return new JPH::RotatedTranslatedShape(JPH::Vec3::sZero(), turn, shape);
 }
 } // namespace
@@ -296,8 +309,8 @@ extern "C" {
 #define FTE_JOLT_STRING_(x) #x
 #define FTE_JOLT_STRING(x) FTE_JOLT_STRING_(x)
 const char *fte_jolt_version(void) {
-    return FTE_JOLT_STRING(JPH_VERSION_MAJOR) "." FTE_JOLT_STRING(JPH_VERSION_MINOR) "." FTE_JOLT_STRING(
-        JPH_VERSION_PATCH);
+    return FTE_JOLT_STRING(JPH_VERSION_MAJOR) "." FTE_JOLT_STRING(
+        JPH_VERSION_MINOR) "." FTE_JOLT_STRING(JPH_VERSION_PATCH);
 }
 fte_jolt_world *fte_jolt_create(unsigned max_bodies, unsigned hz, unsigned max_steps) {
     if (!max_bodies || max_bodies > 8192 || !hz || hz > 1000 || !max_steps || max_steps > 64 ||
@@ -328,9 +341,10 @@ fte_jolt_body fte_jolt_add(fte_jolt_world *w, const fte_jolt_desc *d) {
     if (!w)
         return 0;
     if (!d || !state_ok(&d->state) || d->motion < 0 || d->motion > 2 || !std::isfinite(d->mass) ||
-        (d->motion == FTE_JOLT_DYNAMIC && d->mass <= 0) || !std::isfinite(d->friction) || d->friction < 0 ||
-        !std::isfinite(d->restitution) || d->restitution < 0 || d->restitution > 1 ||
-        !std::isfinite(d->gravity_scale) || !std::isfinite(d->linear_damping) || d->linear_damping < 0 ||
+        (d->motion == FTE_JOLT_DYNAMIC && d->mass <= 0) || !std::isfinite(d->friction) ||
+        d->friction < 0 || !std::isfinite(d->restitution) || d->restitution < 0 ||
+        d->restitution > 1 || !std::isfinite(d->gravity_scale) ||
+        !std::isfinite(d->linear_damping) || d->linear_damping < 0 ||
         !std::isfinite(d->angular_damping) || d->angular_damping < 0) {
         w->fail("Invalid body state/material/mass");
         return 0;
@@ -345,8 +359,8 @@ fte_jolt_body fte_jolt_add(fte_jolt_world *w, const fte_jolt_desc *d) {
     JPH::EMotionType motion = d->motion == 0   ? JPH::EMotionType::Static
                               : d->motion == 1 ? JPH::EMotionType::Kinematic
                                                : JPH::EMotionType::Dynamic;
-    JPH::BodyCreationSettings settings(shape, pos(d->state.position), quat(d->state.rotation), motion,
-                                       JPH::ObjectLayer(d->motion));
+    JPH::BodyCreationSettings settings(shape, pos(d->state.position), quat(d->state.rotation),
+                                       motion, JPH::ObjectLayer(d->motion));
     auto token = next_token.fetch_add(1);
     settings.mUserData = token;
     settings.mFriction = d->friction;
@@ -357,8 +371,8 @@ fte_jolt_body fte_jolt_add(fte_jolt_world *w, const fte_jolt_desc *d) {
     settings.mLinearDamping = d->linear_damping;
     settings.mAngularDamping = d->angular_damping;
     settings.mMaxLinearVelocity = 100000 * metres;
-    settings.mMotionQuality =
-        d->motion == FTE_JOLT_DYNAMIC ? JPH::EMotionQuality::LinearCast : JPH::EMotionQuality::Discrete;
+    settings.mMotionQuality = d->motion == FTE_JOLT_DYNAMIC ? JPH::EMotionQuality::LinearCast
+                                                            : JPH::EMotionQuality::Discrete;
     settings.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
     settings.mMassPropertiesOverride.mMass = d->mass > 0 ? d->mass : 1;
     auto &api = w->physics.GetBodyInterface();
@@ -435,8 +449,8 @@ int fte_jolt_material(fte_jolt_world *w, fte_jolt_body body, float friction, flo
     auto *p = w->find(body);
     if (!p)
         return 0;
-    if (!std::isfinite(friction) || friction < 0 || !std::isfinite(restitution) || restitution < 0 ||
-        restitution > 1 || !std::isfinite(gravity))
+    if (!std::isfinite(friction) || friction < 0 || !std::isfinite(restitution) ||
+        restitution < 0 || restitution > 1 || !std::isfinite(gravity))
         return w->fail("Invalid material");
     auto &api = w->physics.GetBodyInterface();
     api.SetFriction(p->id, friction);
@@ -445,7 +459,8 @@ int fte_jolt_material(fte_jolt_world *w, fte_jolt_body body, float friction, flo
         api.SetGravityFactor(p->id, gravity);
     return 1;
 }
-int fte_jolt_filter(fte_jolt_world *w, fte_jolt_body body, unsigned owner, unsigned solid, unsigned hit) {
+int fte_jolt_filter(fte_jolt_world *w, fte_jolt_body body, unsigned owner, unsigned solid,
+                    unsigned hit) {
     if (!w)
         return 0;
     auto *p = w->find(body);
@@ -557,9 +572,7 @@ void fte_jolt_get_stats(const fte_jolt_world *w, fte_jolt_stats *out) {
     out->joints = unsigned(w->joints.size());
     out->active = w->physics.GetNumActiveBodies(JPH::EBodyType::RigidBody);
 }
-size_t fte_jolt_contacts(const fte_jolt_world *w) {
-    return w ? w->contacts.size() : 0;
-}
+size_t fte_jolt_contacts(const fte_jolt_world *w) { return w ? w->contacts.size() : 0; }
 int fte_jolt_get_contact(const fte_jolt_world *w, size_t i, fte_jolt_contact *out) {
     if (!w || !out || i >= w->contacts.size())
         return 0;
@@ -570,11 +583,18 @@ fte_jolt_joint fte_jolt_joint_add(fte_jolt_world *w, const fte_jolt_joint_desc *
     if (!w || !d)
         return 0;
     if (w->joints.size() >= 16384 || (!d->body1 && !d->body2) || d->body1 == d->body2 ||
-        !finite3(d->anchor) || !finite3(d->axis) || !std::isfinite(d->lower) || !std::isfinite(d->upper) ||
-        d->lower > 0 || d->upper < 0 || !std::isfinite(d->max_force) || d->max_force < 0 ||
-        !std::isfinite(d->velocity) || !std::isfinite(d->stiffness) || d->stiffness < 0 ||
-        !std::isfinite(d->damping) || d->damping < 0) {
+        !finite3(d->anchor) || !finite3(d->axis) || !std::isfinite(d->lower) ||
+        !std::isfinite(d->upper) || d->lower > 0 || d->upper < 0 || !std::isfinite(d->max_force) ||
+        d->max_force < 0 || !std::isfinite(d->velocity) || !std::isfinite(d->stiffness) ||
+        d->stiffness < 0 || !std::isfinite(d->damping) || d->damping < 0) {
         w->fail("Invalid joint settings or joint capacity exceeded");
+        return 0;
+    }
+    if (!suspension_ok(d->suspension_stiffness, d->suspension_damping) ||
+        (d->type != FTE_JOLT_HINGE2 &&
+         (d->suspension_stiffness != 0 || d->suspension_damping != 0))) {
+        w->fail("Suspension requires hinge2, nonnegative finite stiffness/damping and positive "
+                "stiffness for damping");
         return 0;
     }
     Record *a = d->body1 ? w->find(d->body1) : nullptr, *b = d->body2 ? w->find(d->body2) : nullptr;
@@ -588,11 +608,13 @@ fte_jolt_joint fte_jolt_joint_add(fte_jolt_world *w, const fte_jolt_joint_desc *
     JPH::BodyID id1 = a ? a->id : JPH::BodyID(), id2 = b ? b->id : JPH::BodyID();
     JPH::Ref<JPH::TwoBodyConstraint> constraint;
     JPH::Vec3 axis = vec(d->axis), normal = JPH::Vec3::sZero();
-    if (d->type == FTE_JOLT_HINGE || d->type == FTE_JOLT_SLIDER) {
+    if (d->type == FTE_JOLT_HINGE || d->type == FTE_JOLT_SLIDER || d->type == FTE_JOLT_UNIVERSAL ||
+        d->type == FTE_JOLT_HINGE2) {
         if (std::fabs(axis.LengthSq() - 1) > .001) {
             w->fail("Joint axis must be normalized");
             return 0;
         }
+        axis = axis.Normalized();
         normal = axis.GetNormalizedPerpendicular();
     }
     if (d->type == FTE_JOLT_POINT) {
@@ -615,8 +637,8 @@ fte_jolt_joint fte_jolt_joint_add(fte_jolt_world *w, const fte_jolt_joint_desc *
         settings.mLimitsMin = d->lower;
         settings.mLimitsMax = d->upper;
         settings.mLimitsSpringSettings =
-            JPH::SpringSettings(JPH::ESpringMode::StiffnessAndDamping, d->stiffness * metres * metres,
-                                d->damping * metres * metres);
+            JPH::SpringSettings(JPH::ESpringMode::StiffnessAndDamping,
+                                d->stiffness * metres * metres, d->damping * metres * metres);
         settings.mMotorSettings.SetTorqueLimit(d->max_force * metres * metres);
         constraint = api.CreateConstraint(&settings, id1, id2);
         if (constraint && d->max_force > 0) {
@@ -640,8 +662,46 @@ fte_jolt_joint fte_jolt_joint_add(fte_jolt_world *w, const fte_jolt_joint_desc *
             slider->SetTargetVelocity(d->velocity * metres);
             slider->SetMotorState(JPH::EMotorState::Velocity);
         }
+    } else if (d->type == FTE_JOLT_UNIVERSAL || d->type == FTE_JOLT_HINGE2) {
+        JPH::Vec3 second = vec(d->axis2);
+        if (!finite3(d->axis2) || std::fabs(second.LengthSq() - 1) > .001 ||
+            std::fabs(axis.Dot(second)) > .001 || !std::isfinite(d->lower2) ||
+            !std::isfinite(d->upper2) || d->lower2 > 0 || d->upper2 < 0 ||
+            d->lower < -JPH::JPH_PI || d->upper > JPH::JPH_PI || d->lower2 < -JPH::JPH_PI ||
+            d->upper2 > JPH::JPH_PI || !std::isfinite(d->max_force2) || d->max_force2 < 0 ||
+            !std::isfinite(d->velocity2) || !std::isfinite(d->stiffness2) || d->stiffness2 < 0 ||
+            !std::isfinite(d->damping2) || d->damping2 < 0) {
+            w->fail("Invalid two-axis joint: need orthogonal unit axes, angular "
+                    "limits and valid suspension");
+            return 0;
+        }
+        second = (second - axis * axis.Dot(second)).Normalized();
+        JPH::SixDOFConstraintSettings settings;
+        using Axis = JPH::SixDOFConstraintSettings;
+        settings.mPosition1 = settings.mPosition2 = pos(d->anchor);
+        // R = Ry(angle1) * Rx(angle2), with Y attached to body1, X to body2.
+        settings.mAxisX1 = settings.mAxisX2 = second;
+        settings.mAxisY1 = settings.mAxisY2 = axis;
+        for (int i = 0; i < 3; i++)
+            settings.MakeFixedAxis(static_cast<Axis::EAxis>(i));
+        settings.MakeFixedAxis(Axis::RotationZ);
+        settings.mSwingType = JPH::ESwingType::Pyramid;
+        settings.SetLimitedAxis(Axis::RotationY, d->stiffness > 0 ? -JPH::JPH_PI : d->lower,
+                                d->stiffness > 0 ? JPH::JPH_PI : d->upper);
+        settings.SetLimitedAxis(Axis::RotationX, d->stiffness2 > 0 ? -JPH::JPH_PI : d->lower2,
+                                d->stiffness2 > 0 ? JPH::JPH_PI : d->upper2);
+        if (d->type == FTE_JOLT_HINGE2 && d->suspension_stiffness > 0) {
+            settings.SetLimitedAxis(Axis::TranslationY, 0, 0);
+            settings.mLimitsSpringSettings[Axis::TranslationY] =
+                JPH::SpringSettings(JPH::ESpringMode::StiffnessAndDamping, d->suspension_stiffness,
+                                    d->suspension_damping);
+        }
+        auto *core =
+            static_cast<JPH::SixDOFConstraint *>(api.CreateConstraint(&settings, id1, id2));
+        if (core)
+            constraint = new DualAxisConstraint(core, settings, *d);
     } else {
-        w->fail("Unsupported joint type (point, fixed, hinge and slider are supported)");
+        w->fail("Unsupported joint type");
         return 0;
     }
     if (!constraint) {
@@ -649,7 +709,7 @@ fte_jolt_joint fte_jolt_joint_add(fte_jolt_world *w, const fte_jolt_joint_desc *
         return 0;
     }
     fte_jolt_joint token = next_token.fetch_add(1);
-    w->joints.emplace(token, JointRecord{constraint, d->body1, d->body2});
+    w->joints.emplace(token, JointRecord{constraint, d->body1, d->body2, d->type});
     if (d->body1 && d->body2)
         ++w->connected[std::minmax(d->body1, d->body2)];
     w->physics.AddConstraint(constraint);
@@ -659,6 +719,20 @@ fte_jolt_joint fte_jolt_joint_add(fte_jolt_world *w, const fte_jolt_joint_desc *
         api.InvalidateContactCache(b->id);
     api.ActivateConstraint(constraint);
     return token;
+}
+int fte_jolt_joint_suspension(fte_jolt_world *w, fte_jolt_joint token, float stiffness,
+                              float damping) {
+    if (!w)
+        return 0;
+    auto it = w->joints.find(token);
+    if (it == w->joints.end())
+        return w->fail("Invalid or stale joint handle");
+    if (it->second.type != FTE_JOLT_HINGE2 || !suspension_ok(stiffness, damping))
+        return w->fail("Invalid hinge2 suspension settings");
+    static_cast<DualAxisConstraint *>(it->second.constraint.GetPtr())
+        ->SetSuspension(stiffness, damping);
+    w->physics.GetBodyInterface().ActivateConstraint(it->second.constraint);
+    return 1;
 }
 int fte_jolt_joint_remove(fte_jolt_world *w, fte_jolt_joint token) {
     if (!w)

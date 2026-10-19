@@ -682,6 +682,12 @@ static void QDECL World_Bullet_RagCreateJoint(world_t *world, rbejoint_t *joint,
 	auto rb1 = reinterpret_cast<btRigidBody*>(body1->body);
 	auto rb2 = reinterpret_cast<btRigidBody*>(body2->body);
 
+	if (info->suspension_stiffness != 0 || info->suspension_damping != 0)
+	{
+		Con_Printf("Bullet: .doll suspension controls require the Jolt backend.\n");
+		joint->joint = NULL;
+		return;
+	}
 	switch(info->type)
 	{
 	case JOINTTYPE_POINT:
@@ -1803,8 +1809,7 @@ static bool World_Bullet_DoInit(void)
 extern "C" qboolean Plug_Init(void)
 {
 	rbefuncs = (rbeplugfuncs_t*)plugfuncs->GetEngineInterface("RBE", sizeof(*rbefuncs));
-	if (rbefuncs && (	rbefuncs->version < RBEPLUGFUNCS_VERSION ||
-						rbefuncs->wedictsize != sizeof(wedict_t)))
+	if (!RBE_Compatible(rbefuncs))
 		rbefuncs = nullptr;
 
 	plugfuncs->ExportFunction("Shutdown", (funcptr_t)World_Bullet_Shutdown);

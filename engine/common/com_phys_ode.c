@@ -1911,6 +1911,12 @@ static void QDECL World_ODE_RagEnableJoint(rbejoint_t *joint, qboolean enabled)
 static void QDECL World_ODE_RagCreateJoint(world_t *world, rbejoint_t *joint, rbejointinfo_t *info, rbebody_t *body1, rbebody_t *body2, vec3_t aaa2[3])
 {
 	struct odectx_s *ctx = (struct odectx_s*)world->rbe;
+	if (info->suspension_stiffness != 0 || info->suspension_damping != 0)
+	{
+		Con_Printf("ODE: .doll suspension controls require the Jolt backend.\n");
+		joint->joint = NULL;
+		return;
+	}
 	switch(info->type)
 	{
 		case JOINTTYPE_POINT:
@@ -2938,8 +2944,7 @@ qboolean Plug_Init(void)
 	cvar_r_meshpitch = cvarfuncs->GetNVFDG("r_meshpitch", "1", 0, NULL, NULL);
 	cvar_r_meshroll = cvarfuncs->GetNVFDG("r_meshroll", "1", 0, NULL, NULL);
 #endif
-	if (rbefuncs && (	rbefuncs->version < RBEPLUGFUNCS_VERSION ||
-						rbefuncs->wedictsize != sizeof(wedict_t)))
+	if (!RBE_Compatible(rbefuncs))
 		rbefuncs = NULL;
 	if (!rbefuncs)
 	{

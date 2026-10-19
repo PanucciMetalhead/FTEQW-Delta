@@ -8,8 +8,37 @@ typedef float pvec_t, pvec3_t[3], vec_t, vec3_t[3];
 typedef int32_t pint_t, string_t, func_t;
 typedef uint64_t puint64_t;
 typedef unsigned char qbyte;
+typedef int qboolean;
+#define USERBE
 /* ENGINE_ENTITY_TYPES */
 /* ENGINE_CSQC_TYPES */
+#define QDECL
+/* Opaque owners are sufficient to test the native layout handshake. */
+typedef struct world_s world_t;
+typedef struct model_s model_t;
+typedef struct { unsigned char storage[256]; } wedict_t;
+/* ENGINE_RBE_INTERFACE */
+static void check_rbe_layout(void)
+{
+    rbeplugfuncs_t api = {0};
+    api.version = RBEPLUGFUNCS_VERSION;
+    api.wedictsize = sizeof(wedict_t);
+    api.stdentvarssize = sizeof(stdentvars_t);
+    api.extentvarssize = RBE_EXTENTVARS_SIZE;
+    api.jointinfosize = sizeof(rbejointinfo_t);
+    assert(RBE_Compatible(&api));
+    assert(!RBE_Compatible(NULL));
+    --api.version; assert(!RBE_Compatible(&api)); ++api.version;
+    ++api.version; assert(!RBE_Compatible(&api)); --api.version;
+    ++api.wedictsize; assert(!RBE_Compatible(&api)); --api.wedictsize;
+    ++api.stdentvarssize; assert(!RBE_Compatible(&api)); --api.stdentvarssize;
+    ++api.extentvarssize; assert(!RBE_Compatible(&api)); --api.extentvarssize;
+    ++api.jointinfosize; assert(!RBE_Compatible(&api)); --api.jointinfosize;
+    assert(RBE_Compatible(&api));
+    /* ABI 1 had two ints followed by seven function pointers. */
+    struct old_rbe { int version, wedictsize; void (*callbacks[7])(void); };
+    assert(sizeof(struct old_rbe) != sizeof(api));
+}
 enum { ev_void, ev_string, ev_float, ev_vector, ev_entity, ev_function, ev_integer };
 static char server_id, client_id;
 static void *svprogfuncs = &server_id, *csqcprogs = &client_id;
@@ -51,6 +80,7 @@ int main(void)
 #ifdef VM_Q1
     extentvars_t server_extra = {0}; csqcextentvars_t client_extra = {0};
 #endif
+    check_rbe_layout();
     register_server(); register_client();
 #define TEST_OBJECT server
 #define TEST_BIAS 0

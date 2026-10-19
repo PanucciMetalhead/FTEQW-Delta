@@ -49,10 +49,15 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     (out / 'results.json').unlink(missing_ok=True)
     cases = {
+        'consoleinput': [],
         'qcfields': [],
         'qcfields_split': [],
         'modelreset': [],
         'concat': [('engine/common/zone.c', name) for name in ('Z_StrCatLen', 'Z_StrCat')],
+        'skelnetwork': [('engine/common/mathlib.c', name) for name in
+                        ('Bones_To_PosQuat4','GenMatrixPosQuat4Scale','QuaternionSlerp')] +
+                       [('engine/client/pr_skelobj.c', name) for name in
+                        ('skel_reset','skel_dodelete','skel_create','skel_get','rag_removedeltaent','rag_lerpdeltaent')],
         'skeleton': [('engine/client/pr_skelobj.c', name) for name in
                      ('skel_reset', 'skel_dodelete', 'skel_create', 'skel_get')],
         'messages': [('engine/common/common.c', name) for name in
@@ -113,6 +118,9 @@ def main():
             start = source.index('typedef struct {', source.index('//note: doesn\'t even have to match'))
             end = source.index('typedef struct csqcedict_s', start)
             template = template.replace('/* ENGINE_CSQC_TYPES */', source[start:end])
+            start = source.rfind('typedef struct', 0, source.index('int wedictsize;'))
+            end = source.index('qofs_t PR_ReadBytesString', start)
+            template = template.replace('/* ENGINE_RBE_INTERFACE */', source[start:end])
             source = function('engine/server/pr_cmds.c', 'PR_RegisterFields')
             source = source[source.index('#define comfieldfloat'):source.index('//Tell the qc library')]
             template = template.replace('/* ENGINE_SSQC_REGISTRATION */', source)
@@ -122,12 +130,17 @@ def main():
             macro = re.search(r'^#define\s+STRUCT_FROM_LINK[^\n]+',
                               (ROOT / 'engine/common/common.h').read_text(), re.M)[0]
             template = template.replace('/* ENGINE_CONTAINER_MACRO */', macro)
+        if name == 'consoleinput':
+            source = function('engine/client/console.c', 'Con_DrawInput')
+            end = source.index('endmtext[1] = 0;') + len('endmtext[1] = 0;')
+            start = source.rfind('\n\tif (', 0, end)
+            template = template.replace('/* ENGINE_INPUT_CAPACITY */', source[start:end])
         if name == 'modelreset':
             source = function('engine/gl/gl_model.c', 'Mod_LoadModelWorker')
             start = source.index('//clear out any old state.')
             end = source.index('if (!*mod->publicname)', start)
             template = template.replace('/* ENGINE_MODEL_RESET */', source[start:end])
-        if name == 'skeleton':
+        if name in ('skeleton','skelnetwork'):
             struct = re.search(r'typedef struct skelobject_s\s*\{.*?\} skelobject_t;',
                                (ROOT / 'engine/client/pr_skelobj.c').read_text(), re.S)[0]
             template = template.replace('/* ENGINE_SKEL_TYPE */', struct)

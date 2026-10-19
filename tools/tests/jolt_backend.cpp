@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <initializer_list>
 #ifdef FTE_TEST_ODE
 #include <ode/ode.h>
 #endif
@@ -156,6 +157,113 @@ static void constraints() {
     }
     std::puts("JOLT_CONSTRAINTS_OK: world/body joints, limits, motors, collision exclusion, frames and teardown");
 }
+// For initial axes (Y, X), q = Ry(first) * Rx(second). Compute the actual
+// joint coordinates independently of the production adapter and Jolt helpers.
+static void dual_angles(const fte_jolt_state &s,float &first,float &second) {
+    float n=std::hypot(s.rotation[0],s.rotation[3]);
+    require(n>.001f,"two-axis pose stays away from singular swing");
+    float x=s.rotation[0]/n,w=s.rotation[3]/n;
+    first=2*std::atan2(s.rotation[1]*w-s.rotation[2]*x,n);
+    second=2*std::atan2(x,w);
+}
+static void dual_axis_constraints() {
+    for(int type : {FTE_JOLT_UNIVERSAL,FTE_JOLT_HINGE2}) {
+        auto *w=world();auto d=box(128);auto b=add(w,d);
+        fte_jolt_joint_desc j{};j.type=type;j.body2=b;j.anchor[2]=128;
+        j.axis[1]=1;j.axis2[0]=1;j.lower=-.35f;j.upper=.65f;j.lower2=-.7f;j.upper2=.45f;
+        j.max_force=j.max_force2=100000;j.velocity=1.5f;j.velocity2=-2;
+        auto joint=fte_jolt_joint_add(w,&j);require(joint!=0,"create two-axis motorized joint");
+        for(int frame=0;frame<120;frame++) {
+            advance(w,1,1.0/60,0);auto s=state(w,b);float a,c;dual_angles(s,a,c);
+            require(a>-.4f&&a<.7f&&c>-.75f&&c<.5f,"both angular limits hold throughout motion");
+            float x[3],y[3],z[3];fte_jolt_axes(s.rotation,x,y,z);
+            require(std::fabs(x[1])<.015f,"universal axes remain perpendicular");
+            require(std::fabs(s.position[2]-128)<.05f,"two-axis joint holds its anchor");
+        }
+        float a,c;dual_angles(state(w,b),a,c);
+        require(a>.5f&&c<-.55f,"independent two-axis motors reach opposite stops");
+        require(fte_jolt_joint_enable(w,joint,0)!=0,"disable two-axis joint");advance(w,30);
+        require(state(w,b).position[2]<100,"disabled two-axis joint releases body");
+        require(fte_jolt_remove(w,b)!=0&&!fte_jolt_joint_enable(w,joint,1),"remove dependent two-axis joint");
+        fte_jolt_destroy(w);
+    }
+    // Soft angular stops are independent, with no hard core limit masking them.
+    auto *w=world();auto b=add(w,box(128));fte_jolt_joint_desc j{};
+    j.type=FTE_JOLT_UNIVERSAL;j.body2=b;j.anchor[2]=128;j.axis[1]=1;j.axis2[0]=1;
+    j.lower=j.lower2=-.25f;j.upper=j.upper2=.25f;
+    j.stiffness=j.stiffness2=100000;j.damping=j.damping2=20000;
+    j.max_force=j.max_force2=500;j.velocity=1;j.velocity2=-1;
+    require(fte_jolt_joint_add(w,&j)!=0,"soft two-axis stops");advance(w,180,1.0/60,0);
+    float a,c;dual_angles(state(w,b),a,c);
+    require(a>.24f&&a<.35f&&c<-.24f&&c>-.35f,"soft stops on both axes resist motor torque");
+    fte_jolt_destroy(w);
+    // Suspension is along body1's first axis. Check displacement in Quake units:
+    // mass * gravity / stiffness = 2 * 800 / 2000 = 0.8 units.
+    w=world();b=add(w,box(128));j={};j.type=FTE_JOLT_HINGE2;j.body2=b;j.anchor[2]=128;
+    j.axis[2]=1;j.axis2[0]=1;j.suspension_stiffness=2000;j.suspension_damping=150;
+    require(fte_jolt_joint_add(w,&j)!=0,"hinge2 suspension");advance(w,180);
+    require(std::fabs(state(w,b).position[2]-127.2f)<.1f,"hinge2 suspension units and equilibrium");
+    fte_jolt_destroy(w);
+    w=world();b=add(w,box(128));j={};j.type=FTE_JOLT_UNIVERSAL;j.body1=b;
+    j.axis[1]=1;j.axis2[0]=1;j.lower=j.lower2=-.5f;j.upper=j.upper2=.5f;
+    require(fte_jolt_joint_add(w,&j)!=0,"two-axis joint with second side world-anchored");
+    auto bad=j;bad.axis2[0]=0;bad.axis2[1]=1;require(!fte_jolt_joint_add(w,&bad),"parallel axes rejected");
+    bad=j;bad.axis2[0]=2;require(!fte_jolt_joint_add(w,&bad),"nonunit second axis rejected");
+    bad=j;bad.velocity2=std::numeric_limits<float>::infinity();require(!fte_jolt_joint_add(w,&bad),"nonfinite second-axis settings rejected");
+    bad=j;bad.lower2=.1f;require(!fte_jolt_joint_add(w,&bad),"second-axis range must contain reference pose");
+    advance(w,5);fte_jolt_destroy(w);
+    std::puts("JOLT_DUAL_AXIS_OK: universal/hinge2 frames, two-axis motors/stops, suspension and validation");
+}
+static fte_jolt_joint spring(fte_jolt_world *w,fte_jolt_body b,float k,float damping) {
+    fte_jolt_joint_desc j{};j.type=FTE_JOLT_HINGE2;j.body2=b;j.anchor[2]=128;
+    j.axis[2]=1;j.axis2[0]=1;j.suspension_stiffness=k;j.suspension_damping=damping;
+    auto token=fte_jolt_joint_add(w,&j);require(token!=0,"create suspension joint");return token;
+}
+static double spring_energy(float damping) {
+    auto *w=world();auto b=add(w,box(128));spring(w,b,2000,damping);
+    auto s=state(w,b);s.velocity[2]=32;require(fte_jolt_set(w,b,&s)!=0,"kick suspension");
+    advance(w,15,1.0/60,0);s=state(w,b);
+    double energy=s.velocity[2]*s.velocity[2]+1000*(s.position[2]-128)*(s.position[2]-128);
+    fte_jolt_destroy(w);return energy;
+}
+static void suspension_controls() {
+    auto *w=world();auto b=add(w,box(128));auto joint=spring(w,b,2000,150);
+    advance(w,180);require(std::fabs(state(w,b).position[2]-127.2f)<.05f,"spring equilibrium before edits");
+    fte_jolt_enable(w,b,0);auto before=state(w,b);
+    require(fte_jolt_joint_suspension(w,joint,4000,150)!=0,"edit suspension in place");
+    require(state(w,b).position[2]==before.position[2],"spring edit does not teleport body");
+    fte_jolt_stats stats{};fte_jolt_get_stats(w,&stats);require(stats.active==1,"spring edit wakes its body");
+    advance(w,120);require(std::fabs(state(w,b).position[2]-127.6f)<.05f,"stiffer spring preserves original rest anchor");
+    require(fte_jolt_joint_suspension(w,joint,4000,60)!=0,"damping-only edit");advance(w,60);
+    require(std::fabs(state(w,b).position[2]-127.6f)<.05f,"damping edit preserves static equilibrium");
+    require(!fte_jolt_joint_suspension(w,joint,-1,0),"negative stiffness rejected");
+    require(!fte_jolt_joint_suspension(w,joint,0,1),"damping without spring rejected");
+    require(!fte_jolt_joint_suspension(w,joint,100,-1),"negative damping rejected");
+    require(!fte_jolt_joint_suspension(w,joint,std::numeric_limits<float>::infinity(),0),"infinite stiffness rejected");
+    require(!fte_jolt_joint_suspension(w,joint,100,std::numeric_limits<float>::quiet_NaN()),"NaN damping rejected");
+    advance(w,60);require(std::fabs(state(w,b).position[2]-127.6f)<.05f,"rejected edits retain last valid spring");
+    auto *other=world();require(!fte_jolt_joint_suspension(other,joint,2000,150),"cross-world spring handle rejected");fte_jolt_destroy(other);
+    fte_jolt_joint_desc wrong{};wrong.type=FTE_JOLT_POINT;wrong.body2=b;wrong.anchor[2]=128;
+    auto point=fte_jolt_joint_add(w,&wrong);require(point!=0,"point joint for type validation");
+    require(!fte_jolt_joint_suspension(w,point,2000,150),"suspension update rejects point joint");fte_jolt_joint_remove(w,point);
+    wrong.suspension_stiffness=2000;require(!fte_jolt_joint_add(w,&wrong),"suspension creation rejects non-hinge2 joint");
+    require(fte_jolt_joint_suspension(w,joint,0,0)!=0,"restore rigid anchor");advance(w,60);
+    require(std::fabs(state(w,b).position[2]-128)<.01f,"rigid edit restores the original rest position");
+    fte_jolt_joint_enable(w,joint,0);require(fte_jolt_joint_suspension(w,joint,2000,150)!=0,"edit disabled spring");advance(w,30);
+    require(state(w,b).position[2]<100,"editing a disabled spring does not enable it");
+    fte_jolt_remove(w,b);require(!fte_jolt_joint_suspension(w,joint,2000,150),"removed spring handle rejected");fte_jolt_destroy(w);
+    // Rotated frame: suspension along X, with a steady force rather than gravity.
+    w=world();b=add(w,box(128));fte_jolt_joint_desc j{};j.type=FTE_JOLT_HINGE2;j.body2=b;j.anchor[2]=128;
+    j.axis[0]=1;j.axis2[2]=1;j.suspension_stiffness=2000;j.suspension_damping=150;
+    joint=fte_jolt_joint_add(w,&j);require(joint!=0,"sideways suspension");
+    const float force[]={-1600,0,0};
+    for(int i=0;i<180;i++) {auto s=state(w,b);fte_jolt_force(w,b,force,s.position);advance(w,1,1.0/60,0);}
+    auto s=state(w,b);require(std::fabs(s.position[0]+.8f)<.05f && std::fabs(s.position[2]-128)<.01f,"suspension follows its axis rather than world Z");
+    fte_jolt_destroy(w);
+    double undamped=spring_energy(0),damped=spring_energy(150);
+    require(undamped>1 && damped<undamped*.1,"damping dissipates suspension energy");
+    std::puts("JOLT_SUSPENSION_OK: rest-preserving edits, equilibrium, damping, rotated frames, validation and lifecycle");
+}
 #ifdef FTE_TEST_ODE
 static void ode_reference() {
     require(dInitODE2(0)!=0,"initialize ODE reference");auto w=dWorldCreate();dWorldSetGravity(w,0,0,-800);
@@ -169,7 +277,7 @@ static void ode_reference() {
 #endif
 int main() {
     std::printf("Jolt %s production adapter tests\n",fte_jolt_version());
-    primitives();mesh_and_ccd();lifecycle_forces_and_filters();validation_and_timestep();contacts_and_materials();constraints();
+    primitives();mesh_and_ccd();lifecycle_forces_and_filters();validation_and_timestep();contacts_and_materials();constraints();dual_axis_constraints();suspension_controls();
 #ifdef FTE_TEST_ODE
     ode_reference();
 #endif

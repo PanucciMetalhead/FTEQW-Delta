@@ -1497,7 +1497,7 @@ int Con_DrawInput (console_t *con, qboolean focused, int left, int right, int y,
 	}
 */
 
-	if ((char*)endmtext == (char*)(maskedtext-2) + sizeof(maskedtext))
+	if (endmtext == maskedtext + countof(maskedtext) - 2)
 		endmtext[-1] = CON_WHITEMASK | '+' | CON_NONCLEARBG;
 	endmtext[1] = 0;
 

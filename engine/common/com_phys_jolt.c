@@ -241,7 +241,12 @@ static void sync_joint(world_t *world,wedict_t *ed) {
     }
     VectorCopy(ed->v->origin,desc.anchor);
     rbeapi->AngleVectors(ed->v->angles,desc.axis,right,up);
-    if (type==JOINTTYPE_HINGE) {desc.lower=-M_PI;desc.upper=M_PI;}
+    VectorCopy(up,desc.axis2);
+    if(type==JOINTTYPE_HINGE2) {
+        float length=sqrtf(DotProduct(ed->v->velocity,ed->v->velocity));int i;
+        for(i=0;i<3;i++) desc.axis2[i]=length>0?ed->v->velocity[i]/length:0;
+    }
+    if (type==JOINTTYPE_HINGE || type==JOINTTYPE_UNIVERSAL || type==JOINTTYPE_HINGE2) {desc.lower=-M_PI;desc.upper=M_PI;}
     if (type==JOINTTYPE_SLIDER) {desc.lower=-1e20f;desc.upper=1e20f;}
     if (ed->v->movedir[1]<0) {
         desc.velocity=ed->v->movedir[0];desc.max_force=-ed->v->movedir[1];
@@ -251,7 +256,26 @@ static void sync_joint(world_t *world,wedict_t *ed) {
         desc.upper=fmaxf(0,ed->v->movedir[2]);desc.lower=-desc.upper;
     }
     if (type==JOINTTYPE_HINGE) {desc.lower=fmaxf(-M_PI,desc.lower);desc.upper=fminf(M_PI,desc.upper);}
-    if (joint && !memcmp(&desc,&joint->settings,sizeof(desc)) && enemy==joint->enemy && aiment==joint->aiment) return;
+    if(type==JOINTTYPE_UNIVERSAL || type==JOINTTYPE_HINGE2) {
+        desc.lower=fmaxf(-M_PI,desc.lower);desc.upper=fminf(M_PI,desc.upper);
+        desc.lower2=desc.lower;desc.upper2=desc.upper;desc.max_force2=desc.max_force;
+        desc.velocity2=desc.velocity;desc.stiffness2=desc.stiffness;desc.damping2=desc.damping;
+    }
+    desc.suspension_stiffness=ed->xv->joint_suspension_stiffness;
+    desc.suspension_damping=ed->xv->joint_suspension_damping;
+    if (joint && enemy==joint->enemy && aiment==joint->aiment) {
+        fte_jolt_joint_desc changed=joint->settings;
+        if (!memcmp(&desc,&changed,sizeof(desc))) return;
+        changed.suspension_stiffness=desc.suspension_stiffness;
+        changed.suspension_damping=desc.suspension_damping;
+        if(type==JOINTTYPE_HINGE2 && joint->handle && !memcmp(&desc,&changed,sizeof(desc))) {
+            // Updating the spring must not redefine rest anchors around the
+            // currently compressed body. Cache rejected requests to avoid spam.
+            if(!fte_jolt_joint_suspension(ctx->simulation,joint->handle,desc.suspension_stiffness,desc.suspension_damping))
+                Con_Printf("Jolt suspension entity %i rejected: %s\n",ed->entnum,fte_jolt_error(ctx->simulation));
+            joint->settings=desc;return;
+        }
+    }
     remove_joint(world,ed);joint=(jolt_joint_t*)calloc(1,sizeof(*joint));if (!joint) {ctx->failed=qtrue;return;}
     ed->rbe.joint.joint=joint;ed->rbe.joint_type=type;
     joint->simulation=ctx->simulation;joint->settings=desc;joint->enemy=enemy;joint->aiment=aiment;
@@ -317,9 +341,14 @@ static void QDECL rag_create_joint(world_t *world,rbejoint_t *slot,rbejointinfo_
     memset(&desc,0,sizeof(desc));desc.type=info->type;
     if(a&&a->body)desc.body1=((jolt_rag_body_t*)a->body)->handle;
     if(b&&b->body)desc.body2=((jolt_rag_body_t*)b->body)->handle;
-    VectorCopy(axes[0],desc.anchor);VectorCopy(axes[1],desc.axis);
+    VectorCopy(axes[0],desc.anchor);VectorCopy(axes[1],desc.axis);VectorCopy(axes[2],desc.axis2);
     desc.lower=info->LoStop;desc.upper=info->HiStop;desc.max_force=info->FMax;desc.velocity=info->Vel;
     joint_compliance(&desc,info->ERP,info->CFM);
+    desc.lower2=info->LoStop2;desc.upper2=info->HiStop2;desc.max_force2=info->FMax2;desc.velocity2=info->Vel2;
+    {fte_jolt_joint_desc secondary;memset(&secondary,0,sizeof(secondary));
+     joint_compliance(&secondary,info->ERP2,info->CFM2);desc.stiffness2=secondary.stiffness;desc.damping2=secondary.damping;}
+    desc.suspension_stiffness=info->suspension_stiffness;
+    desc.suspension_damping=info->suspension_damping;
     joint=(jolt_joint_t*)calloc(1,sizeof(*joint));if(!joint) return;
     joint->simulation=ctx->simulation;joint->settings=desc;
     joint->handle=fte_jolt_joint_add(ctx->simulation,&desc);
@@ -447,7 +476,7 @@ static void QDECL shutdown_plugin(void) {
 }
 qboolean Plug_Init(void) {
     rbeapi=plugfuncs->GetEngineInterface(plugrbefuncs_name,sizeof(*rbeapi));
-    if (!rbeapi || rbeapi->version!=RBEPLUGFUNCS_VERSION || rbeapi->wedictsize!=sizeof(wedict_t)) {
+    if (!RBE_Compatible(rbeapi)) {
         Con_Printf("Jolt: incompatible rigid-body plugin interface.\n");return qfalse;
     }
     enabled=cvarfuncs->GetNVFDG("physics_jolt_enabled","0",0,"Enable experimental Jolt rigid props before loading a map. Classic movement is unchanged.","Jolt Physics");

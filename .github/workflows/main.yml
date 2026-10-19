@@ -93,9 +93,11 @@ jobs:
             build/Testing/Temporary/LastTest.log
             build/qcc-tests/*.log
             build/physics-tests/**
+            build/physics-humanoid/**
             build-sanitize/Testing/Temporary/LastTest.log
             build-sanitize/qcc-tests/*.log
             build-sanitize/physics-tests/**
+            build-sanitize/physics-humanoid/**
             build-sanitize/parser-tests/
             build-sanitize/package-tests/
             build/package-tests/

@@ -312,7 +312,9 @@ and the extension fields are added on the end and can have extra vm-specific stu
 	comfieldvector(color,"This affects the colour of realtime lights that were enabled via the pflags field.")/*Hexen2 has a .float color, the warnings should be benign but does mean updated hexen2 mods may need to use color_x for map compat*/ \
 	comfieldfloat(light_lev,"This is the radius of an entity's light. This is not normally used by the engine, but is used for realtime lights (ones that are enabled with the pflags field).")\
 	comfieldfloat(style,"Used by the light util to decide how an entity's light should animate. On an entity with pflags set, this also affects realtime lights.")\
-	comfieldfloat(pflags,"Realtime lighting flags")
+	comfieldfloat(pflags,"Realtime lighting flags")\
+	comfieldfloat(joint_suspension_stiffness,"FTEQW Delta only. Hinge2 linear spring stiffness in mass per second squared (Quake force/distance units). Zero with zero damping keeps the pivot rigid. Jolt backend only.")\
+	comfieldfloat(joint_suspension_damping,"FTEQW Delta only. Hinge2 linear damping in mass per second (Quake force/velocity units). Must be nonnegative; nonzero damping requires positive stiffness. Jolt backend only.")
 
 #ifdef HEXEN2
 #else
@@ -541,6 +543,7 @@ typedef struct
 	float Vel,		Vel2;
 	vec3_t offset,	offset2;
 	vec3_t axis,	axis2;
+	float suspension_stiffness, suspension_damping;
 } rbejointinfo_t;
 
 enum rbecommands_e
