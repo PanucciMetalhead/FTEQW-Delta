@@ -41,7 +41,7 @@ models, portable-install detection and repeatable campaign/model checks are cove
 [QuakeRemaster.md](documentation/QuakeRemaster.md).
 
 An opt-in [Jolt rigid-body plugin](documentation/JoltPhysics.md) is available
-for QuakeC mods, including primitive props, six joint types and experimental
+for QuakeC mods, including primitive/convex/compound props, six joint types and experimental
 `.doll` skeletal rigs, with hinge2 suspension controls for mod authors. Humanoid checks cover original test assets and an optional
 owned remaster soldier. Engine-controlled brush lifts, doors and rotating geometry
 interact with Jolt props and rigs; classic movement stays in the engine.

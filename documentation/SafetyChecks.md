@@ -278,7 +278,7 @@ QuakeC server/client field registration and the shared link-container macro now
 use standard `offsetof` too. The `qcfields` and `qcfields_split` fixtures compile
 the production entity declarations and registration macros, checking every
 registered offset/type/name against real allocated structures in combined and
-split VM layouts. They also exercise the production ABI 3 compatibility helper:
+split VM layouts. They also exercise the production ABI 4 compatibility helper:
 null interfaces, old/future versions and mismatched entity/joint/backend sizes are
 rejected, and the old ABI 1 interface has a different request size. Runtime
 physics assertions are unchanged; CI server watchdogs
@@ -341,3 +341,16 @@ and prediction routines are unchanged. This intentionally adds Jolt-only branche
 to `sv_phys.c`; the earlier source-identical movement assembly comparison is not
 a claim about this new implementation. CI still compares GNU11/C17 output of the
 same reviewed source revision.
+
+
+The explicit collision-shape milestone adds `jolt-shapes`, with original MD5
+models and authored `.jolt` recipes. The real SSQC fixture checks stacks, compound
+openings versus single-hull filling, scaling, live recipe-path changes, rejected
+geometry recovery, bounded file reads and map/plugin reload. Adapter checks cover
+analytic cuboid/compound inertia, offset center-of-mass transforms, force units,
+CCD through openings and against solid pieces, momentum transfer and lift contact.
+Malformed/degenerate/nonfinite/oversized shapes leave no registered bodies. A
+separate local run uses the client executable in dedicated mode to exercise both
+model-extraction variants. This exposed and fixed a dedicated skeletal path that
+read renderer tangent arrays while building collision vertices. The standalone
+source-based sanitizer fixture count remains 37.

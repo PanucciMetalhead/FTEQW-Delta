@@ -26,6 +26,17 @@ int main(void)
             fte_jolt_step(world,1.0/60,0) && fte_jolt_get(world,platform,&state) &&
             state.position[0]>15.99f && state.position[0]<16.01f;
     }
+    if (passed) {
+        const float points[]={-8,-8,-8, 8,-8,-8, 0,8,-8, 0,0,8};
+        body.motion=FTE_JOLT_DYNAMIC;body.shape=FTE_JOLT_CONVEX;
+        body.vertices=points;body.vertex_count=4;
+        fte_jolt_body hull=fte_jolt_add(world,&body);
+        const char recipe[]="ftejolt 1 hull { -8 -8 -8 8 -8 -8 0 8 -8 0 0 8 }";
+        body.shape=FTE_JOLT_COMPOUND;body.compound_text=recipe;body.compound_length=sizeof(recipe)-1;
+        body.state.position[0]=64;
+        fte_jolt_body compound=fte_jolt_add(world,&body);
+        passed=hull && compound && fte_jolt_remove(world,hull) && fte_jolt_remove(world,compound);
+    }
     fte_jolt_destroy(world);
     if (!passed) return 1;
     puts("JOLT_C17_BOUNDARY_OK");

@@ -8,6 +8,7 @@
 
 #ifdef USERBE
 static rbeplugfuncs_t *rbeapi;
+static plugfsfuncs_t *jolt_fs;
 static cvar_t *enabled, *mesh_pitch;
 static qboolean jolt_registered;
 typedef struct jolt_rag_body_s {
@@ -22,7 +23,8 @@ typedef struct jolt_entity_s {
     vec3_t center, mins, maxs;
     float mass, scale, damping_linear, damping_angular;
     int shape, motion, modelindex;
-    qboolean warned;
+    qboolean warned, long_shape_file;
+    char shape_file[MAX_QPATH];
 } jolt_entity_t;
 typedef struct jolt_command_s {
     struct jolt_command_s *next;
@@ -75,6 +77,8 @@ static int adapter_shape(int shape,const vec3_t size) {
     case GEOMTYPE_BOX:return FTE_JOLT_BOX;
     case GEOMTYPE_SPHERE:return FTE_JOLT_SPHERE;
     case GEOMTYPE_TRIMESH:return FTE_JOLT_MESH;
+    case GEOMTYPE_CONVEX:return FTE_JOLT_CONVEX;
+    case GEOMTYPE_COMPOUND:return FTE_JOLT_COMPOUND;
     case GEOMTYPE_CAPSULE:return FTE_JOLT_CAPSULE_X+axis;
     case GEOMTYPE_CYLINDER:return FTE_JOLT_CYLINDER_X+axis;
     case GEOMTYPE_CAPSULE_X:case GEOMTYPE_CAPSULE_Y:case GEOMTYPE_CAPSULE_Z:return FTE_JOLT_CAPSULE_X+shape-GEOMTYPE_CAPSULE_X;
@@ -135,12 +139,38 @@ static qboolean make_state(world_t *world,wedict_t *ed,jolt_entity_t *body,fte_j
     }
     return qtrue;
 }
+static char *load_compound(const char *path,size_t *length,char *error,size_t errorsize) {
+    vfsfile_t *file; qofs_t size; char *text; size_t i,len=strlen(path);
+    *length=0;
+    if(len<12 || len>=MAX_QPATH || strncmp(path,"progs/",6) || strcmp(path+len-5,".jolt") ||
+       strstr(path,"..") || strstr(path,"//")) {
+        Q_strlcpy(error,"Compound physics_shape must be a relative progs/*.jolt path without traversal",errorsize);return NULL;
+    }
+    for(i=0;i<len;i++) if(!((path[i]>='a' && path[i]<='z') || (path[i]>='A' && path[i]<='Z') ||
+        (path[i]>='0' && path[i]<='9') || strchr("/_-.",path[i]))) {
+        Q_strlcpy(error,"Compound recipe path contains an unsupported character",errorsize);return NULL;
+    }
+    file=jolt_fs->OpenVFS(path,"rb",FS_GAME);
+    if(!file) {Q_strlcpy(error,"Compound recipe not found in the active game filesystem",errorsize);return NULL;}
+    size=VFS_GETLEN(file);
+    if(size<=0 || size>262144) {
+        VFS_CLOSE(file);Q_strlcpy(error,"Compound recipe must contain 1..262144 bytes",errorsize);return NULL;
+    }
+    text=(char*)malloc((size_t)size+1);
+    if(!text) {VFS_CLOSE(file);Q_strlcpy(error,"Cannot allocate compound recipe",errorsize);return NULL;}
+    if(VFS_READ(file,text,(int)size)!=(int)size) {
+        VFS_CLOSE(file);free(text);Q_strlcpy(error,"Short read in compound recipe",errorsize);return NULL;
+    }
+    VFS_CLOSE(file);text[size]=0;*length=(size_t)size;return text;
+}
 static void sync_entity(world_t *world,wedict_t *ed) {
     jolt_context_t *ctx=context(world);
     jolt_entity_t *body=(jolt_entity_t*)ed->rbe.body.body;
     int shape=geometry(ed),motion=(int)ed->v->movetype==MOVETYPE_PHYSICS?FTE_JOLT_DYNAMIC:
         ed->entnum && ((int)ed->v->movetype==MOVETYPE_PUSH || (int)ed->v->movetype==MOVETYPE_H2PUSHPULL)?FTE_JOLT_KINEMATIC:FTE_JOLT_STATIC;
-    int modelindex=shape==GEOMTYPE_TRIMESH?(int)ed->v->modelindex:0;
+    int modelindex=(shape==GEOMTYPE_TRIMESH || shape==GEOMTYPE_CONVEX)?(int)ed->v->modelindex:0;
+    const char *shape_file=shape==GEOMTYPE_COMPOUND?PR_GetString(world->progs,ed->xv->physics_shape):"";
+    qboolean long_shape_file=strlen(shape_file)>=MAX_QPATH;
     float mass=ed->xv->mass>0?ed->xv->mass:1,scale=ed->xv->scale?ed->xv->scale:1;
     vec3_t mins,maxs,size;model_t *model=NULL;
     float gravity=ed->xv->gravity?ed->xv->gravity:1;
@@ -150,25 +180,28 @@ static void sync_entity(world_t *world,wedict_t *ed) {
     fte_jolt_state state;
     qboolean changed;
     if (shape==GEOMTYPE_NONE) {if (body) destroy_geometry(world,ed);return;}
-    if (shape==GEOMTYPE_TRIMESH) {
-        model=world->Get_CModel(world,modelindex);
-        if (!model || !model->surfaces) {if (body) destroy_geometry(world,ed);return;}
-        VectorScale(model->mins,scale,mins);VectorScale(model->maxs,scale,maxs);
+    if (shape==GEOMTYPE_TRIMESH || shape==GEOMTYPE_CONVEX) {
+        model=modelindex?world->Get_CModel(world,modelindex):NULL;
+        if (model && model->loadstate==MLS_LOADED) {
+            VectorScale(model->mins,scale,mins);VectorScale(model->maxs,scale,maxs);
+        } else {model=NULL;VectorClear(mins);VectorClear(maxs);}
     } else {VectorCopy(ed->v->mins,mins);VectorCopy(ed->v->maxs,maxs);}
     VectorSubtract(maxs,mins,size);
-    if (shape!=GEOMTYPE_TRIMESH && (size[0]<=0 || size[1]<=0 || size[2]<=0)) {if (body) destroy_geometry(world,ed);return;}
+    if (shape!=GEOMTYPE_TRIMESH && shape!=GEOMTYPE_CONVEX && shape!=GEOMTYPE_COMPOUND && (size[0]<=0 || size[1]<=0 || size[2]<=0)) {if (body) destroy_geometry(world,ed);return;}
     changed=!body || body->shape!=shape || body->motion!=motion || body->modelindex!=modelindex ||
-        body->mass!=mass || body->scale!=scale || body->damping_linear!=linear || body->damping_angular!=angular ||
+        body->mass!=mass || body->scale!=scale || body->long_shape_file!=long_shape_file ||
+        strncmp(body->shape_file,shape_file,MAX_QPATH-1) || body->damping_linear!=linear || body->damping_angular!=angular ||
         !equal3(body->mins,mins) || !equal3(body->maxs,maxs);
     if (changed) {
-        fte_jolt_desc desc;int i;
+        fte_jolt_desc desc;int i;char failure[192]={0};char *recipe=NULL;
         destroy_geometry(world,ed);body=(jolt_entity_t*)calloc(1,sizeof(*body));
         if (!body) {ctx->failed=qtrue;return;}
         ed->rbe.body.body=body;
         body->shape=shape;body->motion=motion;body->modelindex=modelindex;body->mass=mass;body->scale=scale;
         body->damping_linear=linear;body->damping_angular=angular;
+        Q_strlcpy(body->shape_file,shape_file,sizeof(body->shape_file));body->long_shape_file=long_shape_file;
         VectorCopy(mins,body->mins);VectorCopy(maxs,body->maxs);
-        for (i=0;i<3;i++) body->center[i]=(mins[i]+maxs[i])*.5f;
+        for (i=0;i<3;i++) body->center[i]=shape==GEOMTYPE_COMPOUND?0:(mins[i]+maxs[i])*.5f;
         memset(&desc,0,sizeof(desc));
         desc.shape=adapter_shape(shape,size);desc.motion=motion;desc.mass=mass;desc.friction=friction;
         desc.restitution=restitution;desc.gravity_scale=gravity;desc.linear_damping=linear;desc.angular_damping=angular;
@@ -176,9 +209,13 @@ static void sync_entity(world_t *world,wedict_t *ed) {
         VectorCopy(size,desc.size);
         if (make_state(world,ed,body,&desc.state)) {
             qboolean mesh_ok=qtrue;
-            if (shape==GEOMTYPE_TRIMESH) {
+            if (shape==GEOMTYPE_TRIMESH || shape==GEOMTYPE_CONVEX) {
                 vec3_t zero={0,0,0};
-                mesh_ok=rbeapi->GenerateCollisionMesh(world,model,ed,zero);
+                mesh_ok=model && rbeapi->GenerateCollisionMesh(world,model,ed,zero);
+                if(!mesh_ok) Q_strlcpy(failure,"Model has no usable BSP/alias collision geometry",sizeof(failure));
+                if(shape==GEOMTYPE_CONVEX && ed->xv->fatness!=0) {
+                    Q_strlcpy(failure,"Convex collision does not support renderer fatness; author the collision shape explicitly",sizeof(failure));mesh_ok=qfalse;
+                }
                 if (mesh_ok) {
                     for (i=0;i<ed->rbe.numvertices;i++) {
                         int axis;for (axis=0;axis<3;axis++) ed->rbe.vertex3f[3*i+axis]=ed->rbe.vertex3f[3*i+axis]*scale-body->center[axis];
@@ -186,11 +223,18 @@ static void sync_entity(world_t *world,wedict_t *ed) {
                     desc.vertices=ed->rbe.vertex3f;desc.indices=ed->rbe.element3i;desc.vertex_count=ed->rbe.numvertices;desc.triangle_count=ed->rbe.numtriangles;
                 }
             }
+            if (shape==GEOMTYPE_COMPOUND) {
+                recipe=load_compound(shape_file,&desc.compound_length,failure,sizeof(failure));
+                desc.compound_text=recipe;desc.shape_scale=scale;mesh_ok=recipe!=NULL;
+            }
+            if((shape==GEOMTYPE_CONVEX || shape==GEOMTYPE_COMPOUND) && (!isfinite(scale) || scale<=0)) {
+                Q_strlcpy(failure,"Collision model scale must be positive and finite",sizeof(failure));mesh_ok=qfalse;
+            }
             if (mesh_ok) body->handle=fte_jolt_add(ctx->simulation,&desc);
-            rbeapi->ReleaseCollisionMesh(ed);
+            free(recipe);rbeapi->ReleaseCollisionMesh(ed);
         }
         if (!body->handle) {
-            Con_Printf("Jolt entity %i rejected: %s\n",ed->entnum,fte_jolt_error(ctx->simulation));
+            Con_Printf("Jolt entity %i rejected: %s\n",ed->entnum,failure[0]?failure:fte_jolt_error(ctx->simulation));
             body->warned=qtrue;return;
         }
         ed->rbe.physics=qtrue;remember(ed);
@@ -492,6 +536,8 @@ qboolean Plug_Init(void) {
     if (!RBE_Compatible(rbeapi)) {
         Con_Printf("Jolt: incompatible rigid-body plugin interface.\n");return qfalse;
     }
+    jolt_fs=plugfuncs->GetEngineInterface(plugfsfuncs_name,sizeof(*jolt_fs));
+    if(!jolt_fs) {Con_Printf("Jolt: filesystem interface unavailable.\n");return qfalse;}
     enabled=cvarfuncs->GetNVFDG("physics_jolt_enabled","0",0,"Enable experimental Jolt rigid props before loading a map. Classic movement is unchanged.","Jolt Physics");
     mesh_pitch=cvarfuncs->GetNVFDG("r_meshpitch","1",0,NULL,NULL);
     if (!rbeapi->RegisterPhysicsEngine("Jolt",start_world)) {

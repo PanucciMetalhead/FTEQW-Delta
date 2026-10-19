@@ -9,10 +9,12 @@
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
 #include <Jolt/Physics/Collision/Shape/CylinderShape.h>
 #include <Jolt/Physics/Collision/Shape/MeshShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
+#include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
 #include <Jolt/Physics/Constraints/FixedConstraint.h>
 #include <Jolt/Physics/Constraints/HingeConstraint.h>
 #include <Jolt/Physics/Constraints/PointConstraint.h>
@@ -22,11 +24,17 @@
 #include <Jolt/RegisterTypes.h>
 #include <algorithm>
 #include <atomic>
+#include <cfloat>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
+#include <locale>
 #include <map>
 #include <mutex>
 #include <new>
+#include <sstream>
+#include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -229,7 +237,151 @@ void Contacts::record(const JPH::Body &a, const JPH::Body &b, const JPH::Contact
     store(m.mWorldSpaceNormal, contact.normal);
     world->contacts.push_back(contact);
 }
+// Authored collision pieces are deliberately bounded; no implicit decomposition
+// of concave triangle soup and no silent replacement with primitive geometry.
+constexpr size_t hull_points_limit = 4096, compound_parts_limit = 64;
+constexpr size_t compound_bytes_limit = 256 * 1024;
+JPH::RefConst<JPH::Shape> convex_shape(fte_jolt_world *w, const float *vertices, size_t count,
+                                       float scale = 1) {
+    if (!vertices || count < 4 || count > hull_points_limit || !std::isfinite(scale) ||
+        scale <= 0) {
+        w->fail("Convex hull requires 4..4096 points and a positive finite scale");
+        return nullptr;
+    }
+    JPH::Array<JPH::Vec3> points;
+    points.reserve(count);
+    JPH::Vec3 low = JPH::Vec3::sReplicate(FLT_MAX), high = -low;
+    for (size_t i = 0; i < count; ++i) {
+        const float *v = vertices + 3 * i;
+        if (!finite3(v) || std::fabs(double(v[0]) * scale) > 1000000 ||
+            std::fabs(double(v[1]) * scale) > 1000000 ||
+            std::fabs(double(v[2]) * scale) > 1000000) {
+            w->fail("Convex coordinates must be finite and within 1000000 local Quake units");
+            return nullptr;
+        }
+        auto point = vec(v, scale * metres);
+        points.push_back(point);
+        low = JPH::Vec3::sMin(low, point);
+        high = JPH::Vec3::sMax(high, point);
+    }
+    float extent = (high - low).ReduceMin();
+    if (extent < .25f * metres) {
+        w->fail("Convex hull must span at least 0.25 Quake units on every local axis");
+        return nullptr;
+    }
+    JPH::ConvexHullShapeSettings settings(points, std::min(.01f, extent * .05f));
+    settings.mHullTolerance = .0001f;
+    settings.mMaxErrorConvexRadius = .001f;
+    auto result = settings.Create();
+    if (result.HasError()) {
+        w->fail(result.GetError().c_str());
+        return nullptr;
+    }
+    auto shape = result.Get();
+    float volume = shape->GetVolume();
+    auto mass = shape->GetMassProperties();
+    if (!std::isfinite(volume) || volume <= 1e-9f || !std::isfinite(mass.mMass) ||
+        mass.mMass <= 0 || !std::isfinite(shape->GetInnerRadius()) ||
+        shape->GetInnerRadius() <= 0) {
+        w->fail("Convex hull requires nonzero three-dimensional volume and valid mass properties");
+        return nullptr;
+    }
+    return shape;
+}
+class Recipe {
+    std::string_view text;
+    size_t cursor = 0;
+
+  public:
+    explicit Recipe(std::string_view input) : text(input) {}
+    std::string_view next() {
+        for (;;) {
+            while (cursor < text.size() && (text[cursor] == ' ' || text[cursor] == '\t' ||
+                                            text[cursor] == '\r' || text[cursor] == '\n'))
+                ++cursor;
+            if (cursor + 1 < text.size() && text[cursor] == '/' && text[cursor + 1] == '/') {
+                while (cursor < text.size() && text[cursor] != '\n')
+                    ++cursor;
+            } else
+                break;
+        }
+        if (cursor == text.size())
+            return {};
+        size_t start = cursor++;
+        if (text[start] == '{' || text[start] == '}')
+            return text.substr(start, 1);
+        while (cursor < text.size() && text[cursor] != ' ' && text[cursor] != '\t' &&
+               text[cursor] != '\r' && text[cursor] != '\n' && text[cursor] != '{' &&
+               text[cursor] != '}')
+            ++cursor;
+        return text.substr(start, cursor - start);
+    }
+    static bool number(std::string_view token, float &value) {
+        if (token.empty() || token.size() > 64)
+            return false;
+        // The classic locale makes recipes portable even in non-English hosts.
+        std::istringstream stream{std::string(token)};
+        stream.imbue(std::locale::classic());
+        stream >> std::noskipws >> value;
+        return stream && stream.eof() && std::isfinite(value);
+    }
+};
+JPH::RefConst<JPH::Shape> compound_shape(fte_jolt_world *w, const fte_jolt_desc &d) {
+    if (!d.compound_text || !d.compound_length || d.compound_length > compound_bytes_limit ||
+        std::memchr(d.compound_text, 0, d.compound_length)) {
+        w->fail("Compound recipe must contain 1..262144 bytes of text without embedded NULs");
+        return nullptr;
+    }
+    Recipe recipe(std::string_view(d.compound_text, d.compound_length));
+    if (recipe.next() != "ftejolt" || recipe.next() != "1") {
+        w->fail("Compound recipe must start with ftejolt 1");
+        return nullptr;
+    }
+    JPH::StaticCompoundShapeSettings settings;
+    size_t parts = 0, total = 0;
+    auto word = recipe.next();
+    while (!word.empty()) {
+        if (word != "hull" || ++parts > compound_parts_limit || recipe.next() != "{") {
+            w->fail("Compound expects hull { x y z ... } blocks, at most 64 pieces");
+            return nullptr;
+        }
+        std::vector<float> vertices;
+        word = recipe.next();
+        while (word != "}") {
+            float v[3];
+            if (++total > hull_points_limit || vertices.size() / 3 >= 256 ||
+                !Recipe::number(word, v[0]) || !Recipe::number(recipe.next(), v[1]) ||
+                !Recipe::number(recipe.next(), v[2])) {
+                w->fail("Invalid compound vertex; limit is 256 points per piece, 4096 total");
+                return nullptr;
+            }
+            vertices.insert(vertices.end(), v, v + 3);
+            word = recipe.next();
+        }
+        auto hull = convex_shape(w, vertices.data(), vertices.size() / 3,
+                                 d.shape_scale ? d.shape_scale : 1);
+        if (!hull)
+            return nullptr;
+        settings.AddShape(JPH::Vec3::sZero(), JPH::Quat::sIdentity(), hull.GetPtr());
+        word = recipe.next();
+    }
+    if (!parts) {
+        w->fail("Compound recipe contains no hulls");
+        return nullptr;
+    }
+    auto result = settings.Create();
+    if (result.HasError()) {
+        w->fail(result.GetError().c_str());
+        return nullptr;
+    }
+    return result.Get();
+}
+
 JPH::RefConst<JPH::Shape> make_shape(fte_jolt_world *w, const fte_jolt_desc &d) {
+    if (d.shape == FTE_JOLT_CONVEX)
+        return convex_shape(w, d.vertices, d.vertex_count);
+    if (d.shape == FTE_JOLT_COMPOUND)
+        return compound_shape(w, d);
     if (d.shape == FTE_JOLT_MESH) {
         if (d.motion == FTE_JOLT_DYNAMIC || !d.vertices || !d.indices || d.vertex_count < 3 ||
             d.vertex_count > 2000000 || !d.triangle_count || d.triangle_count > 2000000) {

@@ -5,6 +5,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <string>
+#include <vector>
 #include <initializer_list>
 #ifdef FTE_TEST_ODE
 #include <ode/ode.h>
@@ -334,6 +336,90 @@ static void kinematic_motion() {
     require(std::fabs(endpoints[0]-120)<.001 && std::fabs(endpoints[1]-120)<.001,"60/144 Hz target arrival agrees");
     std::puts("JOLT_KINEMATIC_OK: lift, friction, rotation, mesh, bounded sweep, partial ticks and lifecycle");
 }
+static std::vector<float> hull_box(float x,float y,float z,float sx,float sy,float sz) {
+    std::vector<float> points;
+    for(int i=0;i<8;i++) {points.push_back(x+(i&1?sx:-sx)*.5f);points.push_back(y+(i&2?sy:-sy)*.5f);points.push_back(z+(i&4?sz:-sz)*.5f);}
+    return points;
+}
+static std::string hull_text(const std::vector<float> &points) {
+    std::string result="hull {\n";
+    for(size_t i=0;i<points.size();i+=3)
+        result+=std::to_string(points[i])+" "+std::to_string(points[i+1])+" "+std::to_string(points[i+2])+"\n";
+    return result+"}\n";
+}
+static fte_jolt_desc convex_desc(const std::vector<float> &points,float z=128) {
+    auto d=box(z);d.shape=FTE_JOLT_CONVEX;d.vertices=points.data();d.vertex_count=points.size()/3;return d;
+}
+static fte_jolt_desc compound_desc(const std::string &recipe,float z=128) {
+    auto d=box(z);d.shape=FTE_JOLT_COMPOUND;d.compound_text=recipe.data();d.compound_length=recipe.size();return d;
+}
+static void convex_and_compound() {
+    auto points=hull_box(0,0,0,32,32,32);
+    auto *w=world();floor(w);fte_jolt_body stack[3];
+    for(int i=0;i<3;i++)stack[i]=add(w,convex_desc(points,18+34*i));
+    advance(w,240);
+    for(int i=0;i<3;i++)require(std::fabs(state(w,stack[i]).position[2]-(16+32*i))<2,"convex stack settles");
+    fte_jolt_destroy(w);
+    // Analytic inertia of a cuboid and a force applied at its offset COM.
+    points=hull_box(72,0,0,64,16,32);w=world();auto b=add(w,convex_desc(points));
+    auto initial=state(w,b);float force[]={240,0,0},center[]={72,0,128},torque[]={20,0,0};
+    require(fte_jolt_force(w,b,force,center)!=0,"force at convex COM");advance(w,1,1.0/120,0);
+    auto s=state(w,b);require(std::fabs(s.velocity[0]-1)<.001 && std::fabs(s.spin[2])<1e-6,"hull mass and offset COM use correct units");
+    require(fte_jolt_torque(w,b,torque)!=0,"convex torque");advance(w,1,1.0/120,0);s=state(w,b);
+    require(std::fabs(s.spin[0]-20.0/(2.0*(16*16+32*32)/12)/120)<1e-5,"convex inertia matches cuboid");
+    fte_jolt_destroy(w);
+    // Compound inertia combines piece volumes and the parallel-axis theorem.
+    std::string recipe="ftejolt 1\n// Original equal-volume pieces\n"+hull_text(hull_box(8,0,0,16,16,16))+hull_text(hull_box(40,0,0,16,16,16));
+    float spins[2];
+    for(int scale=1;scale<=2;scale++) {
+        w=world();auto d=compound_desc(recipe);d.shape_scale=float(scale);b=add(w,d);
+        float turn[]={0,0,20};require(fte_jolt_torque(w,b,turn)!=0,"compound torque");advance(w,1,1.0/120,0);s=state(w,b);spins[scale-1]=s.spin[2];
+        float forward[3],left[3],up[3];fte_jolt_axes(s.rotation,forward,left,up);
+        require(std::fabs(s.position[0]+forward[0]*24*scale-24*scale)<.001 && std::fabs(s.position[1]+forward[1]*24*scale)<.001,"compound rotates about volume-weighted COM without origin jump");
+        fte_jolt_destroy(w);
+    }
+    require(std::fabs(spins[0]-20.0/(2.0*(16*16+16*16)/12+2.0*16*16)/120)<1e-6 && std::fabs(spins[0]-4*spins[1])<1e-6,"compound inertia and scale follow analytic units");
+    // A U-frame preserves its opening; one convex hull intentionally fills it.
+    auto left=hull_box(-24,0,0,8,16,64),right=hull_box(24,0,0,8,16,64),top=hull_box(0,0,28,56,16,8);
+    recipe="ftejolt 1\n"+hull_text(left)+hull_text(right)+hull_text(top);
+    points=left;points.insert(points.end(),right.begin(),right.end());points.insert(points.end(),top.begin(),top.end());
+    for(int mode=0;mode<3;mode++) {
+        w=world();auto frame=mode==0?convex_desc(points):compound_desc(recipe);frame.mass=100;auto body=add(w,frame);
+        auto shot=box(128);shot.shape=FTE_JOLT_SPHERE;shot.size[0]=shot.size[1]=shot.size[2]=8;
+        shot.state.position[0]=mode==2?24:0;shot.state.position[1]=-100;shot.state.velocity[1]=2000;shot.gravity_scale=0;
+        b=add(w,shot);advance(w,10,1.0/120,0);s=state(w,b);
+        if(mode==1)require(s.position[1]>50,"CCD projectile passes through compound opening");
+        else require(s.position[1]<0,"CCD projectile strikes filled hull or solid compound piece");
+        if(mode==2)require(state(w,body).velocity[1]>0,"impact transfers momentum to dynamic compound");
+        fte_jolt_destroy(w);
+    }
+    // Exercise compounds on a moving platform and repeated native shape lifetimes.
+    for(int iteration=0;iteration<12;iteration++) {
+        w=world();auto deck=box(64,FTE_JOLT_KINEMATIC);deck.size[0]=deck.size[1]=128;deck.size[2]=16;
+        auto lift=add(w,deck);b=add(w,compound_desc(recipe,104));advance(w,120);
+        for(int i=1;i<=30;i++)move_to(w,lift,target(w,lift,0,0,64+i));
+        require(state(w,b).position[2]>130,"lift carries dynamic compound");
+        require(fte_jolt_remove(w,b)!=0,"compound removal releases children");fte_jolt_destroy(w);
+    }
+    // Reject malformed input before any body is registered.
+    w=world();auto bad=convex_desc(points);bad.vertex_count=3;require(!fte_jolt_add(w,&bad),"too few hull points rejected");
+    bad.vertex_count=4097;require(!fte_jolt_add(w,&bad),"hull point budget enforced before reading");
+    auto planar=hull_box(0,0,0,32,32,0);bad=convex_desc(planar);require(!fte_jolt_add(w,&bad),"flat hull rejected");
+    for(size_t i=0;i<planar.size();i+=3)planar[i+2]=-planar[i]-planar[i+1];
+    require(!fte_jolt_add(w,&bad),"tilted zero-volume hull rejected");
+    points[0]=std::numeric_limits<float>::quiet_NaN();bad=convex_desc(points);require(!fte_jolt_add(w,&bad),"nonfinite hull rejected");
+    const char *invalid[]={"", "ftejolt 2", "ftejolt 1", "ftejolt 1 hull {}", "ftejolt 1 hull { 0 0", "ftejolt 1 hull { nan 0 0 }", "ftejolt 1 hull { 1,2 0 0 }", "ftejolt 1 box {}"};
+    for(auto text:invalid) {std::string input=text;bad=compound_desc(input);require(!fte_jolt_add(w,&bad),"malformed compound rejected");}
+    std::string malformed="ftejolt 1\n"+hull_text(left)+"garbage";bad=compound_desc(malformed);require(!fte_jolt_add(w,&bad),"trailing unknown tokens rejected");
+    malformed="ftejolt 1\n";for(int i=0;i<65;i++)malformed+=hull_text(left);
+    bad=compound_desc(malformed);require(!fte_jolt_add(w,&bad),"compound piece limit enforced");
+    bad=compound_desc(recipe);bad.compound_length=262145;require(!fte_jolt_add(w,&bad),"recipe byte limit checked before reading");
+    bad=compound_desc(recipe);bad.shape_scale=-1;require(!fte_jolt_add(w,&bad),"negative recipe scale rejected");
+    malformed=recipe;malformed[4]=0;bad=compound_desc(malformed);require(!fte_jolt_add(w,&bad),"embedded NUL rejected");
+    fte_jolt_stats stats{};fte_jolt_get_stats(w,&stats);require(stats.bodies==0,"rejected shape construction leaves no bodies");fte_jolt_destroy(w);
+    std::puts("JOLT_CONVEX_OK: hulls, authored compounds, openings, CCD, COM/inertia, scale, stacks, lifts and bounded input");
+}
+
 #ifdef FTE_TEST_ODE
 static void ode_reference() {
     require(dInitODE2(0)!=0,"initialize ODE reference");auto w=dWorldCreate();dWorldSetGravity(w,0,0,-800);
@@ -347,7 +433,7 @@ static void ode_reference() {
 #endif
 int main() {
     std::printf("Jolt %s production adapter tests\n",fte_jolt_version());
-    primitives();mesh_and_ccd();lifecycle_forces_and_filters();validation_and_timestep();contacts_and_materials();constraints();dual_axis_constraints();suspension_controls();kinematic_motion();
+    primitives();mesh_and_ccd();lifecycle_forces_and_filters();validation_and_timestep();contacts_and_materials();constraints();dual_axis_constraints();suspension_controls();kinematic_motion();convex_and_compound();
 #ifdef FTE_TEST_ODE
     ode_reference();
 #endif

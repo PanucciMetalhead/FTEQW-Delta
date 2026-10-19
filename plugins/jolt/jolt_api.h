@@ -32,7 +32,8 @@ enum { FTE_JOLT_STATIC, FTE_JOLT_KINEMATIC, FTE_JOLT_DYNAMIC };
 enum {
     FTE_JOLT_BOX=1, FTE_JOLT_SPHERE, FTE_JOLT_CAPSULE_X,
     FTE_JOLT_CAPSULE_Y, FTE_JOLT_CAPSULE_Z, FTE_JOLT_CYLINDER_X,
-    FTE_JOLT_CYLINDER_Y, FTE_JOLT_CYLINDER_Z, FTE_JOLT_MESH
+    FTE_JOLT_CYLINDER_Y, FTE_JOLT_CYLINDER_Z, FTE_JOLT_MESH,
+    FTE_JOLT_CONVEX, FTE_JOLT_COMPOUND
 };
 typedef struct {
     float position[3], rotation[4], velocity[3], spin[3];
@@ -47,6 +48,12 @@ typedef struct {
     const float *vertices;
     const int *indices;
     size_t vertex_count, triangle_count;
+    /* Convex uses vertices (4..4096, not triangle topology). Compound uses a
+     * bounded authored ftejolt 1 text recipe, copied while add() runs. Coordinates
+     * are local Quake units, with scale 0 meaning 1 for zero-initialized callers. */
+    const char *compound_text;
+    size_t compound_length;
+    float shape_scale;
 } fte_jolt_desc;
 typedef struct {
     fte_jolt_body body1, body2;

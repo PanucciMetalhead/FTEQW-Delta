@@ -13522,6 +13522,8 @@ void PR_DumpPlatform_f(void)
 		{"GEOMTYPE_CYLINDER_X",		"const float", QW|NQ|CS, NULL, GEOMTYPE_CYLINDER_X},
 		{"GEOMTYPE_CYLINDER_Y",		"const float", QW|NQ|CS, NULL, GEOMTYPE_CYLINDER_Y},
 		{"GEOMTYPE_CYLINDER_Z",		"const float", QW|NQ|CS, NULL, GEOMTYPE_CYLINDER_Z},
+		{"GEOMTYPE_CONVEX", "const float", QW|NQ|CS, D("FTEQW Delta only. Jolt convex collision hull of the model at body creation; dynamic triangle meshes are not converted implicitly."), GEOMTYPE_CONVEX},
+		{"GEOMTYPE_COMPOUND", "const float", QW|NQ|CS, D("FTEQW Delta only. Jolt compound of authored convex pieces from the entity physics_shape recipe."), GEOMTYPE_COMPOUND},
 
 		{"JOINTTYPE_FIXED",			"const float", QW|NQ|CS, NULL, JOINTTYPE_FIXED},
 		{"JOINTTYPE_POINT",			"const float", QW|NQ|CS, NULL, JOINTTYPE_POINT},

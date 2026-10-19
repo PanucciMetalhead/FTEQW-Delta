@@ -1630,6 +1630,12 @@ if(BUILD_TESTING AND TARGET fte-jolt-adapter)
                 --plugin $<TARGET_FILE:plug_jolt>
                 --out "${CMAKE_BINARY_DIR}/physics-kinematic/$<CONFIG>")
         set_tests_properties(jolt-kinematic PROPERTIES TIMEOUT 240)
+        add_test(NAME jolt-shapes
+            COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/physics_shapes.py"
+                --server $<TARGET_FILE:fteqw-sv> --qcc $<TARGET_FILE:fteqcc>
+                --plugin $<TARGET_FILE:plug_jolt>
+                --out "${CMAKE_BINARY_DIR}/physics-shapes/$<CONFIG>")
+        set_tests_properties(jolt-shapes PROPERTIES TIMEOUT 150)
     endif()
     add_custom_target(jolt-check-deps DEPENDS ${fte_jolt_check_deps})
 endif()

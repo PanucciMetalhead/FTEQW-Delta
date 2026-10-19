@@ -687,7 +687,11 @@ linear suspension uses the fork-only `joint_suspension_stiffness` and
 `SuspensionDamping` directives. They require Jolt and do not affect ordinary
 player physics. Engine-controlled pushers also carry/push Jolt props and skeletal
 bodies; they retain engine movement and blocking rules for ordinary entities.
-Jolt props do not trigger automatic door rollback or crush damage. See
+Jolt props do not trigger automatic door rollback or crush damage. Irregular props
+can explicitly choose `GEOMTYPE_CONVEX` for a creation-pose model hull or
+`GEOMTYPE_COMPOUND` with a `physics_shape` recipe under `progs/`. Compounds preserve
+authored gaps; one convex hull fills them. See [the shape guide](JoltPhysics.md#irregular-dynamic-props)
+for the file format, limits and rejection behavior. See
 [Quake Remaster content](QuakeRemaster.md) for launch
 examples, tested assets, original-model fallback and compatibility limits.
 
@@ -880,8 +884,9 @@ protocol support.
   no extension attribution in the exporter. Some are classic and some are
   later additions; this label is not a vanilla compatibility guarantee.
 - **Fork-only (FTEQW Delta)** identifies symbols introduced by this fork:
-  `joint_suspension_stiffness` and `joint_suspension_damping` currently control
-  Jolt hinge2 suspension. Their declarations do not imply that a physics plugin
+  `joint_suspension_stiffness` and `joint_suspension_damping` control
+  Jolt hinge2 suspension. `GEOMTYPE_CONVEX`, `GEOMTYPE_COMPOUND` and
+  `physics_shape` select model hulls and authored compound collision pieces. Their declarations do not imply that a physics plugin
   is loaded; use `physics_supported()` and explicitly select the Jolt backend.
 
 Original Quake's useful core includes `self`, `other`, `world`, `time`,
@@ -1002,13 +1007,13 @@ page for a symbol's exact name instead of guessing a builtin number.
 
 <!-- BEGIN GENERATED QUAKEC API -->
 
-This snapshot lists **2014 distinct names** in **2128 declarations** across the four VM interfaces.
+This snapshot lists **2017 distinct names** in **2131 declarations** across the four VM interfaces.
 
 <!-- Export SHA-256 hashes for reproducibility:
-nq_api.qc: 74054552df28908f3e6ffcd355165af0c68993e73d245c9a5ac342fa047fe669
-qw_api.qc: 68de434b1b869b3415755faae2fb352343b3a7ce468192674247fe6b918f189e
-cs_api.qc: a11e87fc3ac07a64293e1f8661a26227aa7c65c8d843f1878ade6c15b341f910
-menu_api.qc: 2fd5688af04df36592db21dabe940cbbe89e2094463fdc32d8350d8b9dce7dea
+nq_api.qc: 815ae69fc8883e686e86886254e506d62c0654117e04498d0e33e0620d10b0bb
+qw_api.qc: 8cdc2d6e656ba15ecb96f377461594804123c10dd51f31f3bec0809fcc890140
+cs_api.qc: f3d514efa2415155a6bfec5dab001869652f2ae814de81351a3d3e79cad0950d
+menu_api.qc: 43c325a216756b222a988e1f60dc0d49cf373212221bf299d71d2f46c276a634
 -->
 
 ### Engine functions (builtins)
@@ -10665,7 +10670,7 @@ The null entity. Hurrah. Readonly after map spawn time.
 
 ### Entity fields
 
-200 declarations.
+201 declarations.
 
 #### `abslight`
 
@@ -12217,6 +12222,16 @@ Owning entity, commonly the projectile's shooter; used by relevant collision/gam
 
 Realtime lighting flags
 
+#### `physics_shape`
+
+**Scope:** NQ SSQC, QW SSQC, CSQC. **Compatibility:** Fork-only (FTEQW Delta).
+
+```qc
+.string physics_shape;
+```
+
+FTEQW Delta only. Jolt compound collision recipe under progs/ with a .jolt extension. Used with GEOMTYPE_COMPOUND; local model-space vertices are scaled by .scale. Loaded when geometry is created, not each frame.
+
 #### `pitch_speed`
 
 **Scope:** NQ SSQC, QW SSQC, CSQC. **Compatibility:** Engine interface.
@@ -12669,7 +12684,7 @@ Desired yaw and maximum yaw adjustment used by changeyaw/AI.
 
 ### Constants
 
-709 declarations.
+711 declarations.
 
 #### `ATTN_IDLE`
 
@@ -14100,6 +14115,26 @@ const float GEOMTYPE_CAPSULE_Z = 8;
 ```
 
 Rigid-body geometry selector for capsule z; use with .geomtype and a supporting physics backend.
+
+#### `GEOMTYPE_COMPOUND`
+
+**Scope:** NQ SSQC, QW SSQC, CSQC. **Compatibility:** Fork-only (FTEQW Delta).
+
+```qc
+const float GEOMTYPE_COMPOUND = 13;
+```
+
+FTEQW Delta only. Jolt compound of authored convex pieces from the entity physics_shape recipe.
+
+#### `GEOMTYPE_CONVEX`
+
+**Scope:** NQ SSQC, QW SSQC, CSQC. **Compatibility:** Fork-only (FTEQW Delta).
+
+```qc
+const float GEOMTYPE_CONVEX = 12;
+```
+
+FTEQW Delta only. Jolt convex collision hull of the model at body creation; dynamic triangle meshes are not converted implicitly.
 
 #### `GEOMTYPE_CYLINDER`
 

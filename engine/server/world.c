@@ -2929,12 +2929,12 @@ static qboolean GenerateCollisionMesh_BSP(world_t *world, model_t *mod, wedict_t
 #include "com_mesh.h"
 static qboolean GenerateCollisionMesh_Alias(world_t *world, model_t *mod, wedict_t *ed, vec3_t geomcenter)
 {
-	mesh_t mesh;
+	mesh_t mesh = {0};
 	unsigned int numverts;
 	unsigned int numindexes,i;
 	galiasinfo_t *inf;
 	unsigned int surfnum = 0;
-	entity_t re;
+	entity_t re = {0};
 	int *ptr_elements;
 	float *ptr_verts;
 

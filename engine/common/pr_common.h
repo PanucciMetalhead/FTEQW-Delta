@@ -722,6 +722,8 @@ unsigned int FTEToDPContents(unsigned int contents);
 #define	GEOMTYPE_CYLINDER_X	9
 #define	GEOMTYPE_CYLINDER_Y	10
 #define	GEOMTYPE_CYLINDER_Z	11
+#define GEOMTYPE_CONVEX 12
+#define GEOMTYPE_COMPOUND 13
 
 
 #define JOINTTYPE_POINT 1
@@ -747,9 +749,9 @@ typedef struct
 	void (QDECL *AngleVectors)(const vec3_t angles, vec3_t forward, vec3_t right, vec3_t up);
 #define plugrbefuncs_name "RBE"
 } rbeplugfuncs_t;
-// ABI 3 includes the split-phase engine layout. Size checks also reject
+// ABI 4 adds the physics_shape entity field. Size checks also reject
 // earlier interface requests before callbacks can be used.
-#define RBEPLUGFUNCS_VERSION 3
+#define RBEPLUGFUNCS_VERSION 4
 #ifdef VM_Q1
 #define RBE_EXTENTVARS_SIZE sizeof(extentvars_t)
 #else

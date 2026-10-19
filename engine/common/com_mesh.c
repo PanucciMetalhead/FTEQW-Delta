@@ -1399,6 +1399,24 @@ static void Alias_BuildSkeletalMesh(mesh_t *mesh, framestate_t *framestate, gali
 		meshcache.usebonepose = Alias_GetBoneInformation(inf, framestate, meshcache.bonecachetype=SKEL_INVERSE_ABSOLUTE, meshcache.boneposebuffer1, meshcache.boneposebuffer2, inf->numbones, NULL);
 
 	morphweights = inf->AnimateMorphs?inf->AnimateMorphs(inf, framestate, alloca(sizeof(*morphweights)*inf->nummorphs)):NULL;
+#ifdef SERVERONLY
+    // Dedicated servers need collision vertices, not renderer tangent frames.
+    // Those arrays need not exist in a headless model allocation.
+    if (morphweights)
+    {
+        size_t m,v;
+        vecV_t *xyz = alloca(sizeof(*xyz)*inf->numverts);
+        memcpy(xyz, inf->ofs_skel_xyz, sizeof(*xyz)*inf->numverts);
+        for (m=0; m<inf->nummorphs; m++)
+            if (morphweights[m]>0)
+                for (v=0; v<inf->numverts; v++)
+                    VectorMA(xyz[v], morphweights[m], inf->ofs_skel_xyz[(m+1)*inf->numverts+v], xyz[v]);
+        Alias_TransformVerticies_V(meshcache.usebonepose, inf->numverts, bidx, weight, xyz[0], mesh->xyz_array[0]);
+    }
+    else
+        Alias_TransformVerticies_V(meshcache.usebonepose, inf->numverts, bidx, weight, inf->ofs_skel_xyz[0], mesh->xyz_array[0]);
+    mesh->normals_array = mesh->snormals_array = mesh->tnormals_array = NULL;
+#else
 	if (morphweights)
 	{
 		size_t m,v;
@@ -1449,6 +1467,7 @@ static void Alias_BuildSkeletalMesh(mesh_t *mesh, framestate_t *framestate, gali
 				inf->ofs_skel_xyz[0], mesh->xyz_array[0],
 				inf->ofs_skel_norm[0], mesh->normals_array[0]
 				);
+#endif
 }
 
 #if defined(MD5MODELS) || defined(ZYMOTICMODELS) || defined(DPMMODELS)
@@ -1883,7 +1902,7 @@ qboolean Alias_GAliasBuildMesh(mesh_t *mesh, vbo_t **vbop, galiasinfo_t *inf, in
 				Alias_BuildSkeletalMesh(mesh, &e->framestate, inf);
 
 #ifdef PEXT_FATNESS
-				if (e->fatness)
+				if (e->fatness && mesh->normals_array)
 				{
 					int i;
 					for (i = 0; i < mesh->numvertexes; i++)

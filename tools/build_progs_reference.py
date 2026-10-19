@@ -487,7 +487,7 @@ def reference(folder):
             elif extension_groups or kind=='extension': compatibility='Shared extension'
             elif '#0:' in decl: compatibility='Unnumbered/FTE binding'
             else: compatibility='Engine interface'
-            if n in ('joint_suspension_stiffness', 'joint_suspension_damping'): compatibility='Fork-only (FTEQW Delta)'
+            if n in ('joint_suspension_stiffness', 'joint_suspension_damping', 'physics_shape', 'GEOMTYPE_CONVEX', 'GEOMTYPE_COMPOUND'): compatibility='Fork-only (FTEQW Delta)'
             if kind in ('type','alias'): compatibility='Source convenience'
             out += [f'#### `{n}`','',f"**Scope:** {', '.join(e['modes'])}. **Compatibility:** {compatibility}.",'','```qc',decl,'```','',desc,'']
     out += [END,'']

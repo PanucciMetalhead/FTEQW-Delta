@@ -12,6 +12,7 @@ not redirected to Jolt.
 Supported through the existing SSQC/CSQC rigid-body interface:
 
 - Dynamic boxes, spheres, capsules and cylinders, including explicit X/Y/Z axes.
+- Explicit model-derived convex hulls and authored compounds of convex pieces.
 - Static and kinematic triangle collision meshes generated from world/brush models, with the
   existing mesh generator's sky/liquid exclusions.
 - Mass, friction, restitution, gravity scale, linear/angular damping, position,
@@ -32,7 +33,7 @@ kinematic proxies that carry and push Jolt bodies through contact velocities.
 Other ordinary solids keep static proxies, refreshed from their QuakeC poses.
 The world itself stays static.
 
-**Not implemented:** dynamic triangle meshes/convex conversion,
+**Not implemented:** freely simulated concave triangle soup, automatic convex decomposition,
 multithreaded simulation, or Jolt state serialization. Unsupported rig joints
 reject the entire rig and roll back constructed bodies/joints. There is no
 promise of ODE-identical solver response or multiplayer determinism. SSQC and
@@ -64,9 +65,9 @@ ctest --test-dir build/jolt -C Debug -R 'jolt-' --output-on-failure
 For a headless test build, add `-DFTE_ENGINE=OFF
 -DFTE_ENGINE_SERVER_ONLY=ON` and omit `fteqw` from the build targets.
 Multi-configuration generators put binaries under `build/jolt/Debug`; the
-plugin must remain beside the engine executable. Rigid-body plugin ABI 3 checks
+plugin must remain beside the engine executable. Rigid-body plugin ABI 4 checks
 entity, joint and backend interface layout sizes; rebuild physics plugins together with this engine.
-Older ABI 1/2 modules are rejected before their callbacks are used. The Jolt
+Older ABI 1/2/3 modules are rejected before their callbacks are used. The Jolt
 module is `fteplug_jolt.so` on
 macOS/Linux or `fteplug_jolt.dll` on Windows. Jolt is statically linked into the
 plugin; no separate Jolt shared library is required. Retain the accompanying
@@ -127,7 +128,7 @@ void() physics_crate =
 Use your own model and bounds; visual models do not have to be skeletal. When
 using `SOLID_BBOX`, `SOLID_SLIDEBOX` or `SOLID_CORPSE`, the proxy starts aligned
 with the world axes, matching the existing backend convention. A dynamic body
-can subsequently rotate. `geomtype` selects the primitive collision shape;
+can subsequently rotate. `geomtype` selects the collision shape;
 `GEOMTYPE_TRIMESH` supports static entities and engine-controlled pushers;
 dynamic triangle meshes are still rejected.
 
@@ -150,6 +151,109 @@ scale world gravity. Nonpositive mass defaults to 1 in the engine bridge.
 Positive `.friction` is used directly; zero retains the existing default
 convention of 1. `.bouncefactor` is clamped to 0–1. These values are opt-in mod
 properties, not global changes to the base game's physics.
+
+## Irregular dynamic props
+
+The fork adds three Jolt-only QuakeC symbols: `GEOMTYPE_CONVEX` (12),
+`GEOMTYPE_COMPOUND` (13) and the `.string physics_shape` entity field.
+`GEOMTYPE_TRIMESH` remains triangle soup for static/kinematic geometry; selecting
+it for a dynamic body reports an error. Shapes are never silently converted to
+boxes or convex hulls. These entity shapes do not extend the `.doll` body syntax;
+ragdoll bodies still use the documented primitives.
+
+### One convex hull from a model
+
+After precaching/assigning a model, set:
+
+```qc
+prop.movetype = MOVETYPE_PHYSICS;
+prop.solid = SOLID_PHYSICS_BOX;
+prop.geomtype = GEOMTYPE_CONVEX;
+prop.mass = 10;
+```
+
+The engine extracts BSP/alias-family model vertices, including skeletal MD5
+vertices, in the entity's pose when the body is created. It freezes that hull;
+changing animation frames does not rebuild it each frame. Model index, scale,
+mass, damping or collision bounds changes use the existing geometry-rebuild path.
+As with other rigid shapes, `SOLID_BBOX` / `SOLID_SLIDEBOX` / `SOLID_CORPSE` start
+world-aligned; `SOLID_PHYSICS_BOX` lets the creation pose include entity angles.
+
+A hull encloses every input vertex and fills concave openings. Use a simple
+collision model or compound recipe for a chair, arch or frame whose gaps matter.
+There is a 4096-input-vertex limit and Jolt permits at most 256 output hull
+vertices. Inputs must be finite and genuinely three-dimensional, spanning at
+least 0.25 Quake units on each local axis. Scaled local coordinates are limited
+to ±1,000,000 Quake units. Zero-volume or excessively complex hulls are rejected.
+The renderer's `.fatness` inflation is unsupported for model hulls and is
+rejected explicitly; author the desired collision geometry instead.
+
+### Authored compounds
+
+A compound groups convex pieces into one rigid body while preserving the spaces
+between them. Set `prop.geomtype = GEOMTYPE_COMPOUND` and
+`prop.physics_shape = "progs/myprop.jolt"`. The visual model is independent;
+recipe coordinates use the same local origin as that model. `.scale` scales the
+whole recipe; zero retains the engine's default scale of one, otherwise the scale
+must be positive and finite.
+
+The versioned text format starts with `ftejolt 1`, followed by one or more
+`hull { ... }` blocks. Each block contains whitespace-separated XYZ triples;
+`//` comments are allowed. For example, two separated box-shaped pieces are:
+
+```text
+ftejolt 1
+// Left piece, eight corner vertices.
+hull {
+ -24 -8 -8   -8 -8 -8   -8 8 -8   -24 8 -8
+ -24 -8  8   -8 -8  8   -8 8  8   -24 8  8
+}
+// Right piece. The space between the pieces stays empty.
+hull {
+   8 -8 -8   24 -8 -8   24 8 -8     8 8 -8
+   8 -8  8   24 -8  8   24 8  8     8 8  8
+}
+```
+
+Pieces may touch or overlap; they are not merged by shared vertices. Each piece
+must be a valid three-dimensional convex hull. The format supports up to 64
+pieces, 256 input points per piece, 4096 points total and 256 KiB of text. Nested
+compounds and automatic decomposition are not supported. Use an exporter or your
+own script to emit model-space vertices; the original U-frame recipe generated
+by `tools/physics_shapes.py` is another complete example.
+
+The total `.mass` applies to the whole body. Uniform-density piece volumes
+determine mass distribution, center of mass and inertia, then the adapter scales
+them to the requested total mass. Overlapping volumes count toward each piece's
+contribution; minimize unnecessary overlap when mass distribution matters.
+Entity origins remain aligned with the visual model even when the physical
+center of mass lies elsewhere. Linear velocity uses the center-of-mass velocity,
+as in the existing rigid-body interface; force application points are world-space.
+
+Recipes load through the active game filesystem, including game archives. Paths
+must begin `progs/`, end `.jolt`, fit the engine's `MAX_QPATH`, and use portable
+ASCII letters/digits plus slash, underscore, hyphen or period. Traversal, absolute
+paths, embedded NULs, malformed numbers and oversized inputs are rejected. A
+missing/invalid recipe logs an error and creates no physics body; it does not
+choose a fallback shape. Failed requests are cached to avoid repeating the same
+error every frame. Changing `.physics_shape` to a valid path rebuilds the body.
+Editing file contents at the same path takes effect on the next geometry rebuild
+or map/backend reload, not through per-frame file polling.
+
+The data-free `jolt-shapes` regression loads original MD5 models/recipes through
+compiled SSQC, checks stacking, concave openings, live recipe changes, scaling,
+invalid-input recovery and three map/plugin cycles. It checks expected rejection
+messages as well as success markers. To run it separately:
+
+```sh
+python3 tools/physics_shapes.py --server build/jolt/fteqw-sv \
+  --qcc build/jolt/fteqcc --plugin build/jolt/fteplug_jolt.so \
+  --out build/shape-check
+```
+
+Use `--client-host` with `--server build/jolt/fteqw` to exercise the client binary
+in dedicated mode too. The headless skeletal extractor computes collision vertices
+without accessing renderer tangent arrays; both host variants are checked locally.
 
 ## Doors, lifts and rotating brush geometry
 
@@ -198,6 +302,7 @@ The `jolt-` tests are:
 | --- | --- |
 | `jolt-c-boundary` | A real C17 translation unit creates/steps/destroys the C++ backend and creates/toggles/removes a joint through its C ABI. |
 | `jolt-backend` | All primitive shapes, static mesh/CCD, unit conversions, gravity, forces/torque/impulses, partial steps, sleeping/waking, owner/dimension filters, cached-contact changes, stacking, restitution/friction, invalid input, stale/cross-world handles, capacity limits, repeated worlds and fixed-step behavior at 60/144 frame rates. World/body constraints, angular/linear limits and motors, joint frames, connected collision exclusion, dependent-joint removal and repeated multi-body teardown. Suspension load/deflection, damping energy loss, arbitrary-axis forces, live spring edits preserving rest anchors, invalid edits, disabled joints and rigid-pivot restoration. Optional ODE free-fall comparison. |
+| `jolt-shapes` | Original MD5 models and authored compound recipes through real SSQC; hull stacks, opening preservation, scale, recipe-path rebuilds, bounded malformed-input rejection/recovery and map/plugin reload. |
 | `jolt-kinematic` | Original inline BSP brush and real SSQC: classic-vs-Jolt lift carrying, sleeping prop and skeletal-body transport, rotating brushes, blocked doors, deleting support, 60/120 Hz server steps, three map loads and plugin reload. |
 | `jolt-humanoid` | Original 24-bone mesh/animation and 16-body rig, actual animation changes, activation without position/orientation jumps, all-bone relative render copying, floor/stairs/slope/wall/overlap, repeated spawn/removal/animation transitions and live backend restart. No owned assets required. |
 | `jolt-engine` | Real compiled SSQC and an original synthetic BSP: absent/disabled/enabled plugin, map collision, QuakeC forces/touches, removal before/after body creation, sleeping, shape rebuilds, backend restart, plugin reload and three map loads per mode. An original MD5/.doll rig exercises bone simulation, relative render-pose copying, named joint toggling, rejected-body/joint rollback and live-rig restart/reload. QuakeC suspension updates and translated/rotated world-anchored rigs are checked before and after backend restart. Optional ODE collision/fixed-joint baseline. Ordinary toss position is compared across modes. |
@@ -224,8 +329,8 @@ complete engine shutdown leak audit or a third-party ODE library audit.
 
 Local validation on Apple Silicon/macOS passes native Debug, Release and
 ASan/UBSan adapter, ABI and engine checks against the supplied Jolt checkout and Homebrew
-ODE. The complete native Debug build passes 7/7 CTest checks; the instrumented
-build passes 10/10, including 37 standalone source-based sanitizer fixtures. The native
+ODE. The complete native Debug build passes 8/8 CTest checks; the instrumented
+build passes 11/11, including 37 standalone source-based sanitizer fixtures. The native
 Metal demo also passed client connection, joint release and map-reload checks;
 its captured poses were visually inspected. Skeleton allocation without CSQC,
 world isolation, cache reuse and native/VM ownership have dedicated sanitizer
@@ -444,7 +549,7 @@ softness and joint paths, so those fragments are not used as a correctness oracl
 
 Bullet and ODE will be removed, including their build options, plugins, source,
 console registrations and documentation references, once Jolt passes the
-replacement gates. Remaining gates include alternate joint-interface conventions, dynamic mesh/convex policy,
+replacement gates. Remaining gates include alternate joint-interface conventions,
 mixed animated/kinematic rig interaction, independent CSQC physics, active-scene save/load,
 and many-body CPU/bandwidth checks. ODE remains a useful comparison during that
 work. No classic player-movement or Quake 3 qagame-physics conversion is implied.

@@ -314,7 +314,8 @@ and the extension fields are added on the end and can have extra vm-specific stu
 	comfieldfloat(style,"Used by the light util to decide how an entity's light should animate. On an entity with pflags set, this also affects realtime lights.")\
 	comfieldfloat(pflags,"Realtime lighting flags")\
 	comfieldfloat(joint_suspension_stiffness,"FTEQW Delta only. Hinge2 linear spring stiffness in mass per second squared (Quake force/distance units). Zero with zero damping keeps the pivot rigid. Jolt backend only.")\
-	comfieldfloat(joint_suspension_damping,"FTEQW Delta only. Hinge2 linear damping in mass per second (Quake force/velocity units). Must be nonnegative; nonzero damping requires positive stiffness. Jolt backend only.")
+	comfieldfloat(joint_suspension_damping,"FTEQW Delta only. Hinge2 linear damping in mass per second (Quake force/velocity units). Must be nonnegative; nonzero damping requires positive stiffness. Jolt backend only.")\
+	comfieldstring(physics_shape,"FTEQW Delta only. Jolt compound collision recipe under progs/ with a .jolt extension. Used with GEOMTYPE_COMPOUND; local model-space vertices are scaled by .scale. Loaded when geometry is created, not each frame.")
 
 #ifdef HEXEN2
 #else
