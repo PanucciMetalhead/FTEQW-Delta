@@ -12,7 +12,7 @@ not redirected to Jolt.
 Supported through the existing SSQC/CSQC rigid-body interface:
 
 - Dynamic boxes, spheres, capsules and cylinders, including explicit X/Y/Z axes.
-- Static triangle collision meshes generated from world/brush models, with the
+- Static and kinematic triangle collision meshes generated from world/brush models, with the
   existing mesh generator's sky/liquid exclusions.
 - Mass, friction, restitution, gravity scale, linear/angular damping, position,
   orientation, linear/angular velocity, forces, torque and sleeping/waking.
@@ -27,11 +27,12 @@ Supported through the existing SSQC/CSQC rigid-body interface:
 A mod must explicitly use `MOVETYPE_PHYSICS`. Loading the plugin does not convert
 existing monsters, items, doors or players to rigid bodies. Simulation results
 are copied back only to entities using that movement type. Other solid entities
-provide static collision proxies, refreshed from their QuakeC poses each frame.
-Those proxies do **not** yet implement swept kinematic pushers or velocity-based
-interaction with moving platforms.
+provide collision proxies. `MOVETYPE_PUSH` / `MOVETYPE_H2PUSHPULL` entities use
+kinematic proxies that carry and push Jolt bodies through contact velocities.
+Other ordinary solids keep static proxies, refreshed from their QuakeC poses.
+The world itself stays static.
 
-**Not implemented:** dynamic triangle meshes/convex conversion, swept kinematic pushers,
+**Not implemented:** dynamic triangle meshes/convex conversion,
 multithreaded simulation, or Jolt state serialization. Unsupported rig joints
 reject the entire rig and roll back constructed bodies/joints. There is no
 promise of ODE-identical solver response or multiplayer determinism. SSQC and
@@ -63,9 +64,9 @@ ctest --test-dir build/jolt -C Debug -R 'jolt-' --output-on-failure
 For a headless test build, add `-DFTE_ENGINE=OFF
 -DFTE_ENGINE_SERVER_ONLY=ON` and omit `fteqw` from the build targets.
 Multi-configuration generators put binaries under `build/jolt/Debug`; the
-plugin must remain beside the engine executable. Rigid-body plugin ABI 2 checks
-entity and joint layout sizes; rebuild physics plugins together with this engine.
-Older ABI 1 modules are rejected before their callbacks are used. The Jolt
+plugin must remain beside the engine executable. Rigid-body plugin ABI 3 checks
+entity, joint and backend interface layout sizes; rebuild physics plugins together with this engine.
+Older ABI 1/2 modules are rejected before their callbacks are used. The Jolt
 module is `fteplug_jolt.so` on
 macOS/Linux or `fteplug_jolt.dll` on Windows. Jolt is statically linked into the
 plugin; no separate Jolt shared library is required. Retain the accompanying
@@ -127,7 +128,8 @@ Use your own model and bounds; visual models do not have to be skeletal. When
 using `SOLID_BBOX`, `SOLID_SLIDEBOX` or `SOLID_CORPSE`, the proxy starts aligned
 with the world axes, matching the existing backend convention. A dynamic body
 can subsequently rotate. `geomtype` selects the primitive collision shape;
-`GEOMTYPE_TRIMESH` is supported only for static entities in this milestone.
+`GEOMTYPE_TRIMESH` supports static entities and engine-controlled pushers;
+dynamic triangle meshes are still rejected.
 
 `physics_addforce(entity, force, point)` takes a **world-space point**, despite
 the old declaration naming it `relative_ofs`. Force uses mass × Quake
@@ -149,6 +151,43 @@ Positive `.friction` is used directly; zero retains the existing default
 convention of 1. `.bouncefactor` is clamped to 0–1. These values are opt-in mod
 properties, not global changes to the base game's physics.
 
+## Doors, lifts and rotating brush geometry
+
+Pushers stay under ordinary engine/QuakeC control. Jolt prepares new collision
+proxies before entity physics, then simulates after the engine accepts or rolls
+back each pusher move. This uses actual poses rather than extrapolating requested
+velocity, so a classically blocked door does not sweep through its rejected path.
+Both SSQC and CSQC call the split phases; separate CSQC gameplay validation is
+still a remaining gate.
+
+Jolt-controlled `MOVETYPE_PHYSICS` entities are excluded from classic pusher
+translation/rotation to avoid moving them twice. Their contacts and forces are
+resolved by Jolt. Classic players and ordinary entities keep the existing pusher
+rules. This also means a Jolt prop does **not** make an engine door roll back or
+call its `.blocked` function. Mods must define their own crush/damage policy
+using contact callbacks; no automatic damage rule is added.
+
+Kinematic targets interpolate position and shortest-path rotation across the
+advancing fixed ticks. Calls shorter than one tick retain the latest target;
+arrival clears the derived velocity so stopped geometry does not drift. Jolt
+uses the body's center offset when deriving motion, including rotating inline
+brushes. Deleting collision support wakes nearby sleeping bodies so they fall.
+Static scenery and ordinary non-pusher solids are not converted to kinematics.
+
+Fast translation/rotation requests extra collision samples. Travel estimates
+include the mover's bounding radius and the smallest dynamic primitive's inner
+radius, with at most **64 collision samples per fixed tick** and eight fixed
+ticks per engine call. Ordinary slow movers generally need one. This reduces
+thin-object tunneling, but is not an unlimited continuous rotational sweep:
+very large teleports, tiny geometry or full turns between sampled poses remain
+limited by the cap and shortest-path rotation. Teleports of pushers are currently
+interpreted as a swept target; mods should remove/recreate the proxy via a map or
+backend reset when deliberately relocating geometry without interaction.
+
+The adapter's `fte_jolt_set` remains an explicit teleport that cancels a queued
+kinematic target. `fte_jolt_move` accepts only live kinematic handles; dynamic
+bodies, stale/cross-world handles and invalid target states are rejected.
+
 ## Repeatable tests
 
 `jolt-check-deps` builds the adapter tests, C17 boundary executable, plugin,
@@ -159,6 +198,7 @@ The `jolt-` tests are:
 | --- | --- |
 | `jolt-c-boundary` | A real C17 translation unit creates/steps/destroys the C++ backend and creates/toggles/removes a joint through its C ABI. |
 | `jolt-backend` | All primitive shapes, static mesh/CCD, unit conversions, gravity, forces/torque/impulses, partial steps, sleeping/waking, owner/dimension filters, cached-contact changes, stacking, restitution/friction, invalid input, stale/cross-world handles, capacity limits, repeated worlds and fixed-step behavior at 60/144 frame rates. World/body constraints, angular/linear limits and motors, joint frames, connected collision exclusion, dependent-joint removal and repeated multi-body teardown. Suspension load/deflection, damping energy loss, arbitrary-axis forces, live spring edits preserving rest anchors, invalid edits, disabled joints and rigid-pivot restoration. Optional ODE free-fall comparison. |
+| `jolt-kinematic` | Original inline BSP brush and real SSQC: classic-vs-Jolt lift carrying, sleeping prop and skeletal-body transport, rotating brushes, blocked doors, deleting support, 60/120 Hz server steps, three map loads and plugin reload. |
 | `jolt-humanoid` | Original 24-bone mesh/animation and 16-body rig, actual animation changes, activation without position/orientation jumps, all-bone relative render copying, floor/stairs/slope/wall/overlap, repeated spawn/removal/animation transitions and live backend restart. No owned assets required. |
 | `jolt-engine` | Real compiled SSQC and an original synthetic BSP: absent/disabled/enabled plugin, map collision, QuakeC forces/touches, removal before/after body creation, sleeping, shape rebuilds, backend restart, plugin reload and three map loads per mode. An original MD5/.doll rig exercises bone simulation, relative render-pose copying, named joint toggling, rejected-body/joint rollback and live-rig restart/reload. QuakeC suspension updates and translated/rotated world-anchored rigs are checked before and after backend restart. Optional ODE collision/fixed-joint baseline. Ordinary toss position is compared across modes. |
 
@@ -184,8 +224,8 @@ complete engine shutdown leak audit or a third-party ODE library audit.
 
 Local validation on Apple Silicon/macOS passes native Debug, Release and
 ASan/UBSan adapter, ABI and engine checks against the supplied Jolt checkout and Homebrew
-ODE. The complete native Debug build passes 6/6 CTest checks; the instrumented
-build passes 9/9, including 37 standalone source-based sanitizer fixtures. The native
+ODE. The complete native Debug build passes 7/7 CTest checks; the instrumented
+build passes 10/10, including 37 standalone source-based sanitizer fixtures. The native
 Metal demo also passed client connection, joint release and map-reload checks;
 its captured poses were visually inspected. Skeleton allocation without CSQC,
 world isolation, cache reuse and native/VM ownership have dedicated sanitizer
@@ -404,7 +444,7 @@ softness and joint paths, so those fragments are not used as a correctness oracl
 
 Bullet and ODE will be removed, including their build options, plugins, source,
 console registrations and documentation references, once Jolt passes the
-replacement gates. Remaining gates include alternate joint-interface conventions, dynamic mesh/convex policy, moving-platform and
-mixed animation interaction, independent CSQC physics, active-scene save/load,
+replacement gates. Remaining gates include alternate joint-interface conventions, dynamic mesh/convex policy,
+mixed animated/kinematic rig interaction, independent CSQC physics, active-scene save/load,
 and many-body CPU/bandwidth checks. ODE remains a useful comparison during that
 work. No classic player-movement or Quake 3 qagame-physics conversion is implied.

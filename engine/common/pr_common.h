@@ -735,7 +735,7 @@ typedef struct
 {
 	int version;
 	int wedictsize;	//sizeof(wedict_t)
-	int stdentvarssize, extentvarssize, jointinfosize; // Reject mismatched native layouts.
+	int stdentvarssize, extentvarssize, jointinfosize, enginesize; // Reject mismatched native layouts.
 
 	qboolean (QDECL *RegisterPhysicsEngine)(const char *enginename, void(QDECL*start_physics)(world_t*world));	//returns false if there's already one active.
 	void (QDECL *UnregisterPhysicsEngine)(const char *enginename);	//returns false if there's already one active.
@@ -747,9 +747,9 @@ typedef struct
 	void (QDECL *AngleVectors)(const vec3_t angles, vec3_t forward, vec3_t right, vec3_t up);
 #define plugrbefuncs_name "RBE"
 } rbeplugfuncs_t;
-// ABI 2 adds layout sizes and suspension properties. The larger interface
-// also makes ABI 1 requests fail the engine's exact struct-size lookup.
-#define RBEPLUGFUNCS_VERSION 2
+// ABI 3 includes the split-phase engine layout. Size checks also reject
+// earlier interface requests before callbacks can be used.
+#define RBEPLUGFUNCS_VERSION 3
 #ifdef VM_Q1
 #define RBE_EXTENTVARS_SIZE sizeof(extentvars_t)
 #else
@@ -761,7 +761,8 @@ static inline qboolean RBE_Compatible(const rbeplugfuncs_t *api)
 		api->wedictsize == sizeof(wedict_t) &&
 		api->stdentvarssize == sizeof(stdentvars_t) &&
 		api->extentvarssize == RBE_EXTENTVARS_SIZE &&
-		api->jointinfosize == sizeof(rbejointinfo_t);
+		api->jointinfosize == sizeof(rbejointinfo_t) &&
+		api->enginesize == sizeof(rigidbodyengine_t);
 }
 
 qofs_t PR_ReadBytesString(char *str);

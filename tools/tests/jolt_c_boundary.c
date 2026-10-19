@@ -18,6 +18,14 @@ int main(void)
         fte_jolt_joint joint=fte_jolt_joint_add(world,&settings);
         passed=joint && fte_jolt_joint_enable(world,joint,0) && fte_jolt_joint_remove(world,joint);
     }
+    if (passed) {
+        body.motion=FTE_JOLT_KINEMATIC;
+        fte_jolt_body platform=fte_jolt_add(world,&body);
+        state=body.state;state.position[0]=16;
+        passed=platform && fte_jolt_move(world,platform,&state) &&
+            fte_jolt_step(world,1.0/60,0) && fte_jolt_get(world,platform,&state) &&
+            state.position[0]>15.99f && state.position[0]<16.01f;
+    }
     fte_jolt_destroy(world);
     if (!passed) return 1;
     puts("JOLT_C17_BOUNDARY_OK");

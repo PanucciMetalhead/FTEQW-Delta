@@ -750,6 +750,11 @@ static qboolean WPhys_PushAngles (world_t *w, wedict_t *pusher, vec3_t move, vec
 		check = WEDICT_NUM_PB(w->progs, e);
 		if (ED_ISFREE(check))
 			continue;
+#ifdef USERBE
+		// Split-phase rigid-body backends resolve their own pusher contacts.
+		if (w->rbe && w->rbe->RunFrameAfterEntities && check->v->movetype == MOVETYPE_PHYSICS)
+			continue;
+#endif
 
 		if (check->v->movetype == MOVETYPE_PUSH
 		|| check->v->movetype == MOVETYPE_NONE
@@ -960,6 +965,11 @@ qboolean WPhys_Push (world_t *w, wedict_t *pusher, vec3_t move, vec3_t amove)
 		check = WEDICT_NUM_PB(w->progs, e);
 		if (ED_ISFREE(check))
 			continue;
+#ifdef USERBE
+		// Split-phase rigid-body backends resolve their own pusher contacts.
+		if (w->rbe && w->rbe->RunFrameAfterEntities && check->v->movetype == MOVETYPE_PHYSICS)
+			continue;
+#endif
 		if (check->v->movetype == MOVETYPE_PUSH
 		|| check->v->movetype == MOVETYPE_NONE
 		|| check->v->movetype == MOVETYPE_FOLLOW
@@ -2740,6 +2750,10 @@ qboolean SV_Physics (void)
 
 
 		World_Physics_Frame(&sv.world);
+#ifdef USERBE
+		if (sv.world.rbe && sv.world.rbe->RunFrameAfterEntities)
+			sv.world.rbe->RunFrameAfterEntities(&sv.world, host_frametime, sv_gravity.value);
+#endif
 
 #ifdef VM_Q1
 		if (svs.gametype == GT_Q1QVM)

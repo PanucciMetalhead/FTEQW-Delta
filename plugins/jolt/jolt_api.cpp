@@ -121,6 +121,9 @@ struct Record {
     int motion;
     unsigned entity, owner, solid_mask, hit_mask, family;
     bool proxy;
+    bool has_target = false;
+    fte_jolt_state target{};
+    float radius = 0, inner_radius = 0;
 };
 #include "jolt_dual_axis.h"
 
@@ -228,9 +231,9 @@ void Contacts::record(const JPH::Body &a, const JPH::Body &b, const JPH::Contact
 }
 JPH::RefConst<JPH::Shape> make_shape(fte_jolt_world *w, const fte_jolt_desc &d) {
     if (d.shape == FTE_JOLT_MESH) {
-        if (d.motion != FTE_JOLT_STATIC || !d.vertices || !d.indices || d.vertex_count < 3 ||
+        if (d.motion == FTE_JOLT_DYNAMIC || !d.vertices || !d.indices || d.vertex_count < 3 ||
             d.vertex_count > 2000000 || !d.triangle_count || d.triangle_count > 2000000) {
-            w->fail("Triangle meshes require a static body and bounded vertex/index "
+            w->fail("Triangle meshes require a static/kinematic body and bounded vertex/index "
                     "data");
             return nullptr;
         }
@@ -375,6 +378,12 @@ fte_jolt_body fte_jolt_add(fte_jolt_world *w, const fte_jolt_desc *d) {
                                                             : JPH::EMotionQuality::Discrete;
     settings.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
     settings.mMassPropertiesOverride.mMass = d->mass > 0 ? d->mass : 1;
+    if (d->motion == FTE_JOLT_KINEMATIC) {
+        // Mesh shapes have no volumetric inertia. Kinematics have infinite
+        // solver mass; provide a harmless explicit tensor instead of querying it.
+        settings.mOverrideMassProperties = JPH::EOverrideMassProperties::MassAndInertiaProvided;
+        settings.mMassPropertiesOverride.mInertia = JPH::Mat44::sIdentity();
+    }
     auto &api = w->physics.GetBodyInterface();
     auto *body = api.CreateBody(settings);
     if (!body) {
@@ -384,6 +393,9 @@ fte_jolt_body fte_jolt_add(fte_jolt_world *w, const fte_jolt_desc *d) {
     auto id = body->GetID();
     w->bodies.emplace(token, Record{id, d->motion, d->entity, d->owner, d->solid_mask, d->hit_mask,
                                     d->collision_family, d->is_proxy != 0});
+    auto &record = w->bodies.at(token);
+    record.radius = shape->GetLocalBounds().GetExtent().Length();
+    record.inner_radius = shape->GetInnerRadius();
     api.AddBody(id, d->motion ? JPH::EActivation::Activate : JPH::EActivation::DontActivate);
     return token;
 }
@@ -399,6 +411,11 @@ int fte_jolt_remove(fte_jolt_world *w, fte_jolt_body body) {
             fte_jolt_joint_remove(w, current->first);
     }
     auto &api = w->physics.GetBodyInterface();
+    auto bounds = api.GetTransformedShape(p->id).GetWorldSpaceBounds();
+    bounds.ExpandBy(JPH::Vec3::sReplicate(2 * metres));
+    // Sleeping contacts are not necessarily revisited after their support is
+    // removed; wake the local neighborhood before discarding that geometry.
+    api.ActivateBodiesInAABox(bounds, JPH::BroadPhaseLayerFilter(), JPH::ObjectLayerFilter());
     api.RemoveBody(p->id);
     api.DestroyBody(p->id);
     w->bodies.erase(body);
@@ -433,6 +450,7 @@ int fte_jolt_set(fte_jolt_world *w, fte_jolt_body body, const fte_jolt_state *s)
     auto *p = w->find(body);
     if (!p)
         return 0;
+    p->has_target = false;
     auto &api = w->physics.GetBodyInterface();
     if (p->motion)
         api.SetPositionRotationAndVelocity(p->id, pos(s->position), quat(s->rotation),
@@ -440,6 +458,18 @@ int fte_jolt_set(fte_jolt_world *w, fte_jolt_body body, const fte_jolt_state *s)
     else
         api.SetPositionAndRotation(p->id, pos(s->position), quat(s->rotation),
                                    JPH::EActivation::DontActivate);
+    return 1;
+}
+int fte_jolt_move(fte_jolt_world *w, fte_jolt_body token, const fte_jolt_state *target) {
+    if (!w)
+        return 0;
+    auto *body = w->find(token);
+    if (!body || body->motion != FTE_JOLT_KINEMATIC)
+        return w->fail("Kinematic target requires a live kinematic body");
+    if (!state_ok(target))
+        return w->fail("Invalid kinematic target");
+    body->target = *target;
+    body->has_target = true;
     return 1;
 }
 int fte_jolt_material(fte_jolt_world *w, fte_jolt_body body, float friction, float restitution,
@@ -531,6 +561,7 @@ int fte_jolt_step(fte_jolt_world *w, double dt, double gravity) {
     if (!std::isfinite(dt) || dt < 0 || !std::isfinite(gravity))
         return w->fail("Invalid physics step");
     w->stats.steps = 0;
+    w->stats.collision_steps = 0;
     w->contacts.clear();
     double limit = w->tick * w->max_steps;
     if (dt > limit) {
@@ -540,7 +571,46 @@ int fte_jolt_step(fte_jolt_world *w, double dt, double gravity) {
     w->accumulator += dt;
     w->physics.SetGravity(JPH::Vec3(0, 0, float(-gravity * metres)));
     auto &api = w->physics.GetBodyInterface();
+    unsigned ticks = std::min(w->max_steps, unsigned((w->accumulator + 1e-10) / w->tick));
+    struct Move {
+        Record *body;
+        JPH::RVec3 start;
+        JPH::Quat rotation;
+    };
+    std::vector<Move> moves;
+    float sweep_distance = 4 * metres;
+    if (ticks)
+        for (auto &entry : w->bodies) {
+            auto &body = entry.second;
+            if (body.motion == FTE_JOLT_DYNAMIC && body.inner_radius > 0)
+                sweep_distance =
+                    std::min(sweep_distance, std::max(metres / 32, body.inner_radius * .5f));
+            if (body.has_target) {
+                JPH::RVec3 start;
+                JPH::Quat rotation;
+                api.GetPositionAndRotation(body.id, start, rotation);
+                moves.push_back({&body, start, rotation});
+            }
+        }
     while (w->accumulator + 1e-10 >= w->tick && w->stats.steps < w->max_steps) {
+        unsigned collision_steps = 1;
+        for (const auto &move : moves) {
+            auto &body = *move.body;
+            float fraction = float(w->stats.steps + 1) / ticks;
+            auto target = move.start + (pos(body.target.position) - move.start) * fraction;
+            auto orientation = move.rotation.SLERP(quat(body.target.rotation), fraction);
+            JPH::RVec3 current;
+            JPH::Quat rotation;
+            api.GetPositionAndRotation(body.id, current, rotation);
+            float travel = JPH::Vec3(target - current).Length() +
+                           body.radius * 2 *
+                               std::acos(std::min(
+                                   1.0f, std::fabs((orientation * rotation.Conjugated()).GetW())));
+            collision_steps =
+                std::max(collision_steps,
+                         unsigned(std::min(64.0, std::ceil(double(travel) / sweep_distance))));
+            api.MoveKinematic(body.id, target, orientation, float(w->tick));
+        }
         for (const auto &force : w->forces) {
             auto i = w->bodies.find(force.token);
             if (i == w->bodies.end())
@@ -550,15 +620,21 @@ int fte_jolt_step(fte_jolt_world *w, double dt, double gravity) {
             else
                 api.AddForce(i->second.id, force.force, force.point);
         }
-        auto error = w->physics.Update(float(w->tick), 1, &w->temp, &w->jobs);
+        auto error = w->physics.Update(float(w->tick), int(collision_steps), &w->temp, &w->jobs);
         if (error != JPH::EPhysicsUpdateError::None)
             return w->fail("Jolt simulation capacity exceeded");
         w->accumulator = std::max(0.0, w->accumulator - w->tick);
         ++w->stats.steps;
+        w->stats.collision_steps += collision_steps;
         w->stats.simulated_time += w->tick;
     }
-    if (w->stats.steps)
+    if (w->stats.steps) {
         w->forces.clear();
+        for (const auto &move : moves) {
+            move.body->has_target = false;
+            api.SetLinearAndAngularVelocity(move.body->id, JPH::Vec3::sZero(), JPH::Vec3::sZero());
+        }
+    }
     return 1;
 }
 void fte_jolt_get_stats(const fte_jolt_world *w, fte_jolt_stats *out) {

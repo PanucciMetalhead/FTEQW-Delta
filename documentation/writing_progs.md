@@ -685,7 +685,9 @@ guide for the humanoid demo, `.doll` conventions and current limits. Hinge2
 linear suspension uses the fork-only `joint_suspension_stiffness` and
 `joint_suspension_damping` fields or `.doll` `SuspensionStiffness` /
 `SuspensionDamping` directives. They require Jolt and do not affect ordinary
-player physics. See
+player physics. Engine-controlled pushers also carry/push Jolt props and skeletal
+bodies; they retain engine movement and blocking rules for ordinary entities.
+Jolt props do not trigger automatic door rollback or crush damage. See
 [Quake Remaster content](QuakeRemaster.md) for launch
 examples, tested assets, original-model fallback and compatibility limits.
 

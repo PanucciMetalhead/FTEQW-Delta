@@ -138,7 +138,8 @@ static qboolean make_state(world_t *world,wedict_t *ed,jolt_entity_t *body,fte_j
 static void sync_entity(world_t *world,wedict_t *ed) {
     jolt_context_t *ctx=context(world);
     jolt_entity_t *body=(jolt_entity_t*)ed->rbe.body.body;
-    int shape=geometry(ed),motion=(int)ed->v->movetype==MOVETYPE_PHYSICS?FTE_JOLT_DYNAMIC:FTE_JOLT_STATIC;
+    int shape=geometry(ed),motion=(int)ed->v->movetype==MOVETYPE_PHYSICS?FTE_JOLT_DYNAMIC:
+        ed->entnum && ((int)ed->v->movetype==MOVETYPE_PUSH || (int)ed->v->movetype==MOVETYPE_H2PUSHPULL)?FTE_JOLT_KINEMATIC:FTE_JOLT_STATIC;
     int modelindex=shape==GEOMTYPE_TRIMESH?(int)ed->v->modelindex:0;
     float mass=ed->xv->mass>0?ed->xv->mass:1,scale=ed->xv->scale?ed->xv->scale:1;
     vec3_t mins,maxs,size;model_t *model=NULL;
@@ -195,7 +196,9 @@ static void sync_entity(world_t *world,wedict_t *ed) {
         ed->rbe.physics=qtrue;remember(ed);
     }
     if (!body->handle) return;
-    if (!equal3(ed->v->origin,ed->rbe.origin) || !equal3(ed->v->angles,ed->rbe.angles) ||
+    if (body->motion==FTE_JOLT_KINEMATIC) {
+        if (make_state(world,ed,body,&state) && fte_jolt_move(ctx->simulation,body->handle,&state)) remember(ed);
+    } else if (!equal3(ed->v->origin,ed->rbe.origin) || !equal3(ed->v->angles,ed->rbe.angles) ||
         !equal3(ed->v->velocity,ed->rbe.velocity) || !equal3(ed->v->avelocity,ed->rbe.avelocity)) {
         if (make_state(world,ed,body,&state) && fte_jolt_set(ctx->simulation,body->handle,&state)) remember(ed);
     }
@@ -416,6 +419,16 @@ static wedict_t *contact_entity(world_t *world,fte_jolt_body handle,unsigned num
     }
     return NULL;
 }
+static void QDECL prepare_frame(world_t *world,double dt,double gravity) {
+    jolt_context_t *ctx=context(world);unsigned i;
+    (void)dt;(void)gravity;
+    if(ctx->failed || (!world->rbe_hasphysicsents && !ctx->rag_bodies)) return;
+    // Capture initial mover poses before classic pushers advance or are blocked.
+    for(i=0;i<world->num_edicts;i++) {
+        wedict_t *ed=WEDICT_NUM_PB(world->progs,i);
+        if(!ED_ISFREE(ed) && !ed->rbe.body.body) sync_entity(world,ed);
+    }
+}
 static void QDECL run_frame(world_t *world,double dt,double gravity) {
     jolt_context_t *ctx=context(world);rigidbodyengine_t *original=world->rbe;
     unsigned i,spawncount=world->spawncount;size_t index;fte_jolt_stats stats;
@@ -467,7 +480,7 @@ static void QDECL start_world(world_t *world) {
     ctx->pub.RagMatrixToBody=rag_matrix_to_body;ctx->pub.RagMatrixFromJoint=rag_matrix_from_joint;
     ctx->pub.RagMatrixFromBody=rag_matrix_from_body;ctx->pub.RagEnableJoint=rag_enable_joint;
     ctx->pub.RagCreateJoint=rag_create_joint;ctx->pub.RagDestroyBody=rag_destroy_body;ctx->pub.RagDestroyJoint=rag_destroy_joint;
-    ctx->pub.RunFrame=run_frame;ctx->pub.PushCommand=push_command;ctx->pub.RagCreateBody=rag_create_body;
+    ctx->pub.RunFrame=prepare_frame;ctx->pub.RunFrameAfterEntities=run_frame;ctx->pub.PushCommand=push_command;ctx->pub.RagCreateBody=rag_create_body;
     world->rbe=&ctx->pub;
     Con_Printf("Jolt %s rigid-body backend initialized (120 Hz; experimental).\n",fte_jolt_version());
 }

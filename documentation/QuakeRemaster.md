@@ -106,6 +106,7 @@ collision, point/fixed/hinge/slider/universal/hinge2 joints, hinge2 suspension
 and experimental `.doll` rigs.
 The humanoid test tool can generate an original rig for an owned remaster soldier
 and check animation transitions, terrain collisions and two-client replication.
+A separate original brush fixture verifies lifts carrying skeletal bodies.
 These require mod-authored bodies and constraints; rerelease models alone do not
 define a rig. Full ODE replacement remains in progress;
 classic player movement, prediction and ordinary entity physics stay in the

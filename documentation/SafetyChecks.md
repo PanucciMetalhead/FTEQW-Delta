@@ -278,8 +278,8 @@ QuakeC server/client field registration and the shared link-container macro now
 use standard `offsetof` too. The `qcfields` and `qcfields_split` fixtures compile
 the production entity declarations and registration macros, checking every
 registered offset/type/name against real allocated structures in combined and
-split VM layouts. They also exercise the production ABI 2 compatibility helper:
-null interfaces, old/future versions and mismatched entity/joint sizes are
+split VM layouts. They also exercise the production ABI 3 compatibility helper:
+null interfaces, old/future versions and mismatched entity/joint/backend sizes are
 rejected, and the old ABI 1 interface has a different request size. Runtime
 physics assertions are unchanged; CI server watchdogs
 allow 60 seconds per mode (300 for the whole case) so a slow shared runner can
@@ -326,3 +326,18 @@ arbitrary-axis forces, live stiffness/damping edits without anchor drift,
 invalid-edit retention, disabled constraints and restoring a rigid pivot. A
 translated/rotated world-anchored rig verifies reference-space conversion and
 backend restart; malformed spring definitions must roll back the entire rig.
+
+
+The kinematic milestone adds `jolt-kinematic`: an original inline BSP brush and
+compiled SSQC exercise lifts, rotating geometry, blocked doors, sleeping props,
+skeletal bodies, support removal and map/plugin reload at 60/120 Hz. A classic
+lift rider is compared with Jolt absent and enabled. Adapter checks cover
+fast translation and rotation that cross a prop between non-overlapping endpoint
+poses, bounded adaptive collision work, mesh kinematics, partial fixed ticks,
+60/144 Hz target arrival, explicit teleport cancellation and stale handles.
+The new engine callback runs Jolt after accepted entity movement; classic pusher
+code skips only `MOVETYPE_PHYSICS` when that callback is present. Player movement
+and prediction routines are unchanged. This intentionally adds Jolt-only branches
+to `sv_phys.c`; the earlier source-identical movement assembly comparison is not
+a claim about this new implementation. CI still compares GNU11/C17 output of the
+same reviewed source revision.

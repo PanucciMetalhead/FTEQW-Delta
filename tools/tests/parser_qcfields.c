@@ -17,6 +17,8 @@ typedef int qboolean;
 typedef struct world_s world_t;
 typedef struct model_s model_t;
 typedef struct { unsigned char storage[256]; } wedict_t;
+typedef struct trace_s trace_t;
+/* ENGINE_RBE_WORLD */
 /* ENGINE_RBE_INTERFACE */
 static void check_rbe_layout(void)
 {
@@ -26,6 +28,7 @@ static void check_rbe_layout(void)
     api.stdentvarssize = sizeof(stdentvars_t);
     api.extentvarssize = RBE_EXTENTVARS_SIZE;
     api.jointinfosize = sizeof(rbejointinfo_t);
+    api.enginesize = sizeof(rigidbodyengine_t);
     assert(RBE_Compatible(&api));
     assert(!RBE_Compatible(NULL));
     --api.version; assert(!RBE_Compatible(&api)); ++api.version;
@@ -34,6 +37,7 @@ static void check_rbe_layout(void)
     ++api.stdentvarssize; assert(!RBE_Compatible(&api)); --api.stdentvarssize;
     ++api.extentvarssize; assert(!RBE_Compatible(&api)); --api.extentvarssize;
     ++api.jointinfosize; assert(!RBE_Compatible(&api)); --api.jointinfosize;
+    ++api.enginesize; assert(!RBE_Compatible(&api)); --api.enginesize;
     assert(RBE_Compatible(&api));
     /* ABI 1 had two ints followed by seven function pointers. */
     struct old_rbe { int version, wedictsize; void (*callbacks[7])(void); };

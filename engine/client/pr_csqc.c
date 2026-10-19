@@ -8799,6 +8799,10 @@ qboolean CSQC_DrawView(void)
 
 			PR_RunThreads(&csqc_world);
 			World_Physics_Frame(&csqc_world);
+#ifdef USERBE
+			if (csqc_world.rbe && csqc_world.rbe->RunFrameAfterEntities)
+				csqc_world.rbe->RunFrameAfterEntities(&csqc_world, host_frametime, 800);
+#endif
 			csqc_world.physicstime += host_frametime;
 
 			//all thinks done. for consistency with the ssqc extension.

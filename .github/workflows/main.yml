@@ -94,10 +94,12 @@ jobs:
             build/qcc-tests/*.log
             build/physics-tests/**
             build/physics-humanoid/**
+            build/physics-kinematic/**
             build-sanitize/Testing/Temporary/LastTest.log
             build-sanitize/qcc-tests/*.log
             build-sanitize/physics-tests/**
             build-sanitize/physics-humanoid/**
+            build-sanitize/physics-kinematic/**
             build-sanitize/parser-tests/
             build-sanitize/package-tests/
             build/package-tests/

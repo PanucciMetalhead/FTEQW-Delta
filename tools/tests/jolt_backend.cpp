@@ -264,6 +264,76 @@ static void suspension_controls() {
     require(undamped>1 && damped<undamped*.1,"damping dissipates suspension energy");
     std::puts("JOLT_SUSPENSION_OK: rest-preserving edits, equilibrium, damping, rotated frames, validation and lifecycle");
 }
+
+static fte_jolt_state target(fte_jolt_world *w, fte_jolt_body b, float x,float y,float z,float yaw=0) {
+    auto s=state(w,b);s.position[0]=x;s.position[1]=y;s.position[2]=z;
+    s.rotation[0]=s.rotation[1]=0;s.rotation[2]=std::sin(yaw/2);s.rotation[3]=std::cos(yaw/2);return s;
+}
+static void move_to(fte_jolt_world *w,fte_jolt_body b,const fte_jolt_state &s,double dt=1.0/60,double gravity=800) {
+    require(fte_jolt_move(w,b,&s)!=0,"queue kinematic target");advance(w,1,dt,gravity);
+}
+static void kinematic_motion() {
+    // Lift a fully sleeping rider, then carry it horizontally using contact friction.
+    auto *w=world();auto deck=box(64,FTE_JOLT_KINEMATIC);deck.size[0]=deck.size[1]=192;deck.size[2]=16;deck.friction=1;
+    auto lift=add(w,deck);auto rider=box(88);rider.friction=1;auto b=add(w,rider);advance(w,180);
+    fte_jolt_enable(w,b,0);
+    for(int i=1;i<=60;i++) move_to(w,lift,target(w,lift,0,0,64+i));
+    require(std::fabs(state(w,b).position[2]-148)<1,"lift wakes and carries sleeping rider");
+    for(int i=1;i<=120;i++) move_to(w,lift,target(w,lift,i*.5f,0,124));
+    require(state(w,b).position[0]>50,"horizontal platform carries by friction");
+    auto stop=state(w,lift);advance(w,60);auto stopped=state(w,lift);
+    require(std::fabs(stopped.position[0]-stop.position[0])<.001 && stopped.velocity[0]==0,"arrived platform does not drift without a new target");
+    require(fte_jolt_remove(w,lift)!=0,"remove loaded platform");advance(w,30);
+    require(state(w,b).position[2]<120,"rider falls when its platform is removed");fte_jolt_destroy(w);
+    // A moving thin wall must hit a prop even when neither endpoint overlaps it.
+    w=world();deck=box(64,FTE_JOLT_KINEMATIC);deck.size[0]=1;deck.size[1]=128;deck.size[2]=128;deck.state.position[0]=-80;
+    lift=add(w,deck);rider=box(64);rider.size[0]=rider.size[1]=rider.size[2]=8;rider.gravity_scale=0;
+    b=add(w,rider);fte_jolt_enable(w,b,0);move_to(w,lift,target(w,lift,80,0,64),1.0/60,0);
+    require(state(w,b).position[0]>60,"fast thin pusher sweeps a sleeping small prop");
+    fte_jolt_stats stats{};fte_jolt_get_stats(w,&stats);
+    require(stats.collision_steps>stats.steps && stats.collision_steps<=stats.steps*64,"kinematic sweep sampling is adaptive and bounded");
+    require(std::fabs(state(w,lift).position[0]-80)<.001,"fast platform reaches authoritative target");fte_jolt_destroy(w);
+    // Rotation creates tangential contact velocity; it cannot be treated as a teleport.
+    w=world();deck=box(64,FTE_JOLT_KINEMATIC);deck.size[0]=128;deck.size[1]=8;deck.size[2]=32;
+    lift=add(w,deck);rider=box(64);rider.size[0]=rider.size[1]=rider.size[2]=12;rider.state.position[0]=40;rider.state.position[1]=20;rider.gravity_scale=0;
+    b=add(w,rider);
+    for(int i=1;i<=60;i++) move_to(w,lift,target(w,lift,0,0,64,i*.02f),1.0/60,0);
+    require(state(w,b).position[1]>35,"rotating geometry transfers tangential motion");fte_jolt_destroy(w);
+    w=world();lift=add(w,deck);rider=box(64);rider.size[0]=rider.size[1]=rider.size[2]=12;
+    rider.state.position[0]=40;rider.state.position[1]=40;rider.gravity_scale=0;b=add(w,rider);
+    move_to(w,lift,target(w,lift,0,0,64,1.5707963f),1.0/60,0);
+    auto crossed=state(w,b);
+    require(std::hypot(crossed.position[0]-40,crossed.position[1]-40)>5,"fast rotating bar hits a prop outside both endpoint poses");
+    fte_jolt_get_stats(w,&stats);require(stats.collision_steps>stats.steps,"rotation also requests intermediate collision samples");
+    fte_jolt_destroy(w);
+    // Kinematic triangle soup (a BSP surface) has infinite mass and needs no inertia.
+    w=world();deck=box(0,FTE_JOLT_KINEMATIC);deck.shape=FTE_JOLT_MESH;
+    const float v[]={-128,-128,0,128,-128,0,128,128,0,-128,128,0};const int t[]={0,1,2,0,2,3};
+    deck.vertices=v;deck.vertex_count=4;deck.indices=t;deck.triangle_count=2;
+    lift=add(w,deck);b=add(w,box(16));advance(w,120);
+    for(int i=1;i<=60;i++) move_to(w,lift,target(w,lift,0,0,i*.5f));
+    require(std::fabs(state(w,b).position[2]-46)<1,"moving mesh lift carries a prop");
+    // Partial calls coalesce targets without losing movement or advancing early.
+    auto before=state(w,lift),next=before;next.position[2]+=1;
+    require(fte_jolt_move(w,lift,&next)!=0,"partial target");advance(w,1,.001);
+    require(state(w,lift).position[2]==before.position[2],"no kinematic movement before fixed tick");
+    next.position[2]+=1;require(fte_jolt_move(w,lift,&next)!=0,"latest partial target replaces earlier sample");advance(w,1,1.0/120);
+    require(std::fabs(state(w,lift).position[2]-next.position[2])<.001,"pending target survives partial step");
+    auto invalid=next;invalid.position[0]=std::numeric_limits<float>::infinity();
+    require(!fte_jolt_move(w,lift,&invalid) && !fte_jolt_move(w,b,&next),"invalid target and dynamic body rejected");
+    auto *other=world();require(!fte_jolt_move(other,lift,&next),"cross-world target rejected");fte_jolt_destroy(other);
+    next.position[2]+=100;require(fte_jolt_move(w,lift,&next)!=0,"queue canceled target");
+    require(fte_jolt_set(w,lift,&before)!=0,"explicit teleport cancels target");advance(w,1);
+    require(std::fabs(state(w,lift).position[2]-before.position[2])<.001,"canceled target is not replayed");
+    fte_jolt_remove(w,lift);require(!fte_jolt_move(w,lift,&next),"removed mover handle rejected");fte_jolt_destroy(w);
+    // Identical linear trajectories at different engine rates end at the same pose.
+    float endpoints[2];int rates[]={60,144};
+    for(int k=0;k<2;k++) {w=world();deck=box(0,FTE_JOLT_KINEMATIC);lift=add(w,deck);
+        for(int i=1;i<=rates[k];i++)move_to(w,lift,target(w,lift,120.0f*i/rates[k],0,0),1.0/rates[k],0);
+        endpoints[k]=state(w,lift).position[0];fte_jolt_destroy(w);}
+    require(std::fabs(endpoints[0]-120)<.001 && std::fabs(endpoints[1]-120)<.001,"60/144 Hz target arrival agrees");
+    std::puts("JOLT_KINEMATIC_OK: lift, friction, rotation, mesh, bounded sweep, partial ticks and lifecycle");
+}
 #ifdef FTE_TEST_ODE
 static void ode_reference() {
     require(dInitODE2(0)!=0,"initialize ODE reference");auto w=dWorldCreate();dWorldSetGravity(w,0,0,-800);
@@ -277,7 +347,7 @@ static void ode_reference() {
 #endif
 int main() {
     std::printf("Jolt %s production adapter tests\n",fte_jolt_version());
-    primitives();mesh_and_ccd();lifecycle_forces_and_filters();validation_and_timestep();contacts_and_materials();constraints();dual_axis_constraints();suspension_controls();
+    primitives();mesh_and_ccd();lifecycle_forces_and_filters();validation_and_timestep();contacts_and_materials();constraints();dual_axis_constraints();suspension_controls();kinematic_motion();
 #ifdef FTE_TEST_ODE
     ode_reference();
 #endif

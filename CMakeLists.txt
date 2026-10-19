@@ -1624,6 +1624,12 @@ if(BUILD_TESTING AND TARGET fte-jolt-adapter)
                 --plugin $<TARGET_FILE:plug_jolt> --test
                 --out "${CMAKE_BINARY_DIR}/physics-humanoid/$<CONFIG>")
         set_tests_properties(jolt-humanoid PROPERTIES TIMEOUT 150)
+        add_test(NAME jolt-kinematic
+            COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/physics_kinematic.py"
+                --server $<TARGET_FILE:fteqw-sv> --qcc $<TARGET_FILE:fteqcc>
+                --plugin $<TARGET_FILE:plug_jolt>
+                --out "${CMAKE_BINARY_DIR}/physics-kinematic/$<CONFIG>")
+        set_tests_properties(jolt-kinematic PROPERTIES TIMEOUT 240)
     endif()
     add_custom_target(jolt-check-deps DEPENDS ${fte_jolt_check_deps})
 endif()

@@ -54,7 +54,7 @@ typedef struct {
     float position[3], normal[3]; /* normal pushes body2 away from body1 */
 } fte_jolt_contact;
 typedef struct {
-    unsigned bodies, active, steps, contact_overflows, joints;
+    unsigned bodies, active, steps, contact_overflows, joints, collision_steps;
     double simulated_time, dropped_time;
 } fte_jolt_stats;
 fte_jolt_world *fte_jolt_create(unsigned max_bodies, unsigned hz, unsigned max_steps);
@@ -72,6 +72,11 @@ int fte_jolt_joint_frame(fte_jolt_world *world,fte_jolt_joint joint,fte_jolt_sta
 int fte_jolt_remove(fte_jolt_world *world, fte_jolt_body body);
 int fte_jolt_get(fte_jolt_world *world, fte_jolt_body body, fte_jolt_state *state);
 int fte_jolt_set(fte_jolt_world *world, fte_jolt_body body, const fte_jolt_state *state);
+/* Queue an authoritative kinematic pose. The next advancing step interpolates
+ * to the latest target across its fixed ticks; partial steps retain the target.
+ * Velocities are derived from poses and cleared after arrival. fte_jolt_set is
+ * an explicit teleport and cancels a pending target. */
+int fte_jolt_move(fte_jolt_world *world, fte_jolt_body body, const fte_jolt_state *target);
 int fte_jolt_material(fte_jolt_world *world, fte_jolt_body body,
     float friction, float restitution, float gravity_scale);
 int fte_jolt_filter(fte_jolt_world *world, fte_jolt_body body,
