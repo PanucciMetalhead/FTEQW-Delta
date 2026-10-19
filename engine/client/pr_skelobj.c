@@ -1320,6 +1320,54 @@ static qboolean rag_animate(skelobject_t *sko, float *emat)
 	}
 	return true;
 }
+// body < 0 applies the doll's default animation mask, scaled by strength.
+static qboolean rag_setanimation(skelobject_t *sko, int body, float strength)
+{
+    int i, first = body < 0 ? 0 : body, end = body < 0 ? sko->numbodies : body+1;
+    rigidbodyengine_t *rbe = sko->world->rbe;
+    if (rbe->RagSetBodyAnimation)
+    {
+        for (i = first; i < end; i++)
+        {
+            float value = body < 0 ? sko->doll->body[i].animate * strength : strength;
+            if (value != 0 && value != 1)
+                return false;
+        }
+        for (i = first; i < end; i++)
+        {
+            float value = body < 0 ? sko->doll->body[i].animate * strength : strength;
+            if (!rbe->RagSetBodyAnimation(&sko->body[i].odebody, value))
+            {
+                while (i-- > first)
+                    rbe->RagSetBodyAnimation(&sko->body[i].odebody, sko->body[i].animstrength);
+                return false;
+            }
+        }
+    }
+    for (i = first; i < end; i++)
+        sko->body[i].animstrength = body < 0 ? sko->doll->body[i].animate * strength : strength;
+    sko->numanimated = 0;
+    for (i = 0; i < sko->numbodies; i++)
+        sko->numanimated += sko->body[i].animstrength != 0;
+    return true;
+}
+static qboolean rag_animationarg(skelobject_t *sko, const char *text, float *strength)
+{
+    if (sko->world->rbe->RagSetBodyAnimation)
+    {
+        char *end;
+        double value = strtod(text, &end);
+        if (!*text || *end || (value != 0 && value != 1))
+        {
+            Con_Printf("This physics backend requires animation strength 0 or 1.\n");
+            return false;
+        }
+        *strength = value;
+    }
+    else
+        *strength = atof(text);
+    return true;
+}
 static qboolean rag_instanciate(skelobject_t *sko, doll_t *doll, float *emat, wedict_t *ent)
 {
 	int i;
@@ -1435,6 +1483,7 @@ static qboolean rag_instanciate(skelobject_t *sko, doll_t *doll, float *emat, we
 	for (i = 0; i < sko->numbodies; i++)
 	{
 		rag_genbodymatrix(sko, i, emat, bodymat);
+		memcpy(sko->body[i].animmatrix, bodymat, sizeof(bodymat));
 		if (!sko->world->rbe->RagMatrixToBody(&sko->body[i].odebody, bodymat))
 		{
 			rag_uninstanciate(sko);
@@ -1442,6 +1491,11 @@ static qboolean rag_instanciate(skelobject_t *sko, doll_t *doll, float *emat, we
 		}
 	}
 
+	if (!rag_setanimation(sko, -1, 1))
+	{
+		rag_uninstanciate(sko);
+		return false;
+	}
 	sko->doll->numdefaultanimated = sko->numanimated;
 	return true;
 }
@@ -1608,7 +1662,10 @@ void rag_doallanimations(world_t *world)
 		{
 			if (!sko->body[j].animstrength)
 				continue;
-			sko->world->rbe->RagMatrixToBody(&sko->body[j].odebody, sko->body[j].animmatrix);
+			if (world->rbe->RagAnimateBody)
+				world->rbe->RagAnimateBody(&sko->body[j].odebody, sko->body[j].animmatrix);
+			else
+				world->rbe->RagMatrixToBody(&sko->body[j].odebody, sko->body[j].animmatrix);
 		}
 	}
 }
@@ -1767,6 +1824,9 @@ void rag_updatedeltaent(world_t *w, entity_t *ent, lerpents_t *le)
 			rag_uninstanciate(sko);
 			rag_instanciate(sko, mod->dollinfo, emat, NULL);
 		}
+		if (sko->doll && w->rbe->RagSetBodyAnimation)
+			rag_setanimation(sko, -1, !((ent->framestate.g[FS_REG].frame[0] & 0x8000) ||
+				(ent->framestate.g[FS_REG].frame[1] & 0x8000)));
 		if (sko->numanimated)
 			rag_animate(sko, emat);
 
@@ -1881,7 +1941,9 @@ void QCBUILTIN PF_skel_ragedit(pubprogfuncs_t *prinst, struct globalvars_s *pr_g
 		else if (!stricmp(cmd, "animatebody"))
 		{
 			int body;
-			float strength = atof(Cmd_Argv(2));
+			float strength;
+			if (!rag_animationarg(sko, Cmd_Argv(2), &strength))
+				return;
 			if (!sko->doll)
 			{
 				skel_copy_toabs(sko, psko?psko:sko, 0, sko->numbones);
@@ -1894,11 +1956,13 @@ void QCBUILTIN PF_skel_ragedit(pubprogfuncs_t *prinst, struct globalvars_s *pr_g
 			body = rag_finddollbody(sko->doll, Cmd_Argv(1));
 			if (body >= 0)
 			{
-				if (sko->body[body].animstrength)
-					sko->numanimated--;
-				sko->body[body].animstrength = strength;
-				if (sko->body[body].animstrength)
-					sko->numanimated++;
+				if (!rag_setanimation(sko, body, strength))
+					return;
+				if (sko->numanimated)
+				{
+					skel_copy_toabs(sko, psko?psko:sko, 0, sko->numbones);
+					rag_animate(sko, emat);
+				}
 			}
 			else
 				Con_Printf("animatebody: %s is not defined as a ragdoll body\n", Cmd_Argv(1));
@@ -1907,8 +1971,9 @@ void QCBUILTIN PF_skel_ragedit(pubprogfuncs_t *prinst, struct globalvars_s *pr_g
 		}
 		else if (!stricmp(cmd, "animate"))
 		{
-			float strength = atof(Cmd_Argv(1));
-			int i;
+			float strength;
+			if (!rag_animationarg(sko, Cmd_Argv(1), &strength))
+				return;
 			if (!sko->doll)
 			{
 				skel_copy_toabs(sko, psko?psko:sko, 0, sko->numbones);
@@ -1918,14 +1983,8 @@ void QCBUILTIN PF_skel_ragedit(pubprogfuncs_t *prinst, struct globalvars_s *pr_g
 					return;
 				}
 			}
-			sko->numanimated = 0;
-
-			for (i = 0; i < sko->numbodies; i++)
-			{
-				sko->body[i].animstrength = sko->doll->body[i].animate * strength;
-				if (sko->body[i].animstrength)
-					sko->numanimated++;
-			}
+			if (!rag_setanimation(sko, -1, strength))
+				return;
 
 			if (sko->numanimated)
 			{
@@ -1949,7 +2008,14 @@ void QCBUILTIN PF_skel_ragedit(pubprogfuncs_t *prinst, struct globalvars_s *pr_g
 				return;
 		}
 		else if (!stricmp(cmd, "cleardoll"))
+		{
+			if (!sko->doll)
+			{
+				G_FLOAT(OFS_RETURN) = 1;
+				return;
+			}
 			doll = NULL;
+		}
 		else
 		{
 			Con_Printf("PF_skel_ragedit: Unsupported command.\n");
@@ -1959,6 +2025,17 @@ void QCBUILTIN PF_skel_ragedit(pubprogfuncs_t *prinst, struct globalvars_s *pr_g
 
 	if (sko->doll != doll)
 	{
+		if (doll && sko->world->rbe->RagSetBodyAnimation)
+		{
+			int i;
+			// Reject unsupported masks before releasing an existing valid rig.
+			for (i = 0; i < doll->numbodies; i++)
+				if (doll->body[i].animate != 0 && doll->body[i].animate != 1)
+				{
+					Con_Printf("This physics backend requires .doll animate 0 or 1.\n");
+					return;
+				}
+		}
 		rag_uninstanciate(sko);
 		if (!doll)
 		{

@@ -203,6 +203,9 @@ typedef struct
 	// Optional split phase: RunFrame prepares proxies; this simulates accepted
 	// entity motion afterwards. Such backends own pushing MOVETYPE_PHYSICS.
 	void (QDECL *RunFrameAfterEntities)(struct world_s *world, double frametime, double gravity);
+	// Optional animation control. Legacy backends retain their existing matrix path.
+	qboolean (QDECL *RagSetBodyAnimation)(rbebody_t *bodyptr, float strength);
+	qboolean (QDECL *RagAnimateBody)(rbebody_t *bodyptr, float *mat);
 } rigidbodyengine_t;
 #endif
 

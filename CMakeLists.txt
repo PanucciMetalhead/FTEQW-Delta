@@ -1636,6 +1636,12 @@ if(BUILD_TESTING AND TARGET fte-jolt-adapter)
                 --plugin $<TARGET_FILE:plug_jolt>
                 --out "${CMAKE_BINARY_DIR}/physics-shapes/$<CONFIG>")
         set_tests_properties(jolt-shapes PROPERTIES TIMEOUT 150)
+        add_test(NAME jolt-mixed
+            COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/physics_mixed.py"
+                --server $<TARGET_FILE:fteqw-sv> --qcc $<TARGET_FILE:fteqcc>
+                --plugin $<TARGET_FILE:plug_jolt>
+                --out "${CMAKE_BINARY_DIR}/physics-mixed/$<CONFIG>")
+        set_tests_properties(jolt-mixed PROPERTIES TIMEOUT 150)
     endif()
     add_custom_target(jolt-check-deps DEPENDS ${fte_jolt_check_deps})
 endif()

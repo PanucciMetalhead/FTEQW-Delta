@@ -84,6 +84,10 @@ int fte_jolt_set(fte_jolt_world *world, fte_jolt_body body, const fte_jolt_state
  * Velocities are derived from poses and cleared after arrival. fte_jolt_set is
  * an explicit teleport and cancels a pending target. */
 int fte_jolt_move(fte_jolt_world *world, fte_jolt_body body, const fte_jolt_state *target);
+/* Switch dynamic/kinematic convex bodies in place. Release inherits the last
+ * completed target's velocity; an advancing idle tick clears that velocity.
+ * Static bodies and triangle meshes cannot become dynamic. */
+int fte_jolt_motion(fte_jolt_world *, fte_jolt_body, int motion);
 int fte_jolt_material(fte_jolt_world *world, fte_jolt_body body,
     float friction, float restitution, float gravity_scale);
 int fte_jolt_filter(fte_jolt_world *world, fte_jolt_body body,

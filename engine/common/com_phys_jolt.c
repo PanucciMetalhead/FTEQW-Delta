@@ -344,8 +344,24 @@ static qboolean QDECL rag_matrix_to_body(rbebody_t *slot,float *matrix) {
     if (!body || !body->handle || !body->world->rbe || !matrix_state(matrix,&state)) return qfalse;
     return fte_jolt_set(context(body->world)->simulation,body->handle,&state)?qtrue:qfalse;
 }
+static qboolean QDECL rag_set_animation(rbebody_t *slot,float strength) {
+    jolt_rag_body_t *body=(jolt_rag_body_t*)slot->body;
+    if(strength!=0 && strength!=1) {Con_Printf("Jolt animation strength must be 0 or 1.\n");return qfalse;}
+    if(!body || !body->handle || !body->world->rbe) return qfalse;
+    return fte_jolt_motion(context(body->world)->simulation,body->handle,
+        strength?FTE_JOLT_KINEMATIC:FTE_JOLT_DYNAMIC)?qtrue:qfalse;
+}
+static qboolean QDECL rag_animate_body(rbebody_t *slot,float *matrix) {
+    jolt_rag_body_t *body=(jolt_rag_body_t*)slot->body;fte_jolt_state state;
+    if(!body || !body->handle || !body->world->rbe || !matrix_state(matrix,&state)) return qfalse;
+    return fte_jolt_move(context(body->world)->simulation,body->handle,&state)?qtrue:qfalse;
+}
 static qboolean QDECL rag_create_body(world_t *world,rbebody_t *slot,rbebodyinfo_t *info,float *matrix,wedict_t *entity) {
     jolt_context_t *ctx=context(world);jolt_rag_body_t *body;fte_jolt_desc desc;float radius;
+    if(info->animate!=0 && info->animate!=1) {
+        Con_Printf("Jolt ragdoll body %s: animate must be 0 or 1.\n",info->name);return qfalse;
+    }
+    // Build all constraints while dynamic, then apply the authored animation mask.
     memset(&desc,0,sizeof(desc));desc.motion=FTE_JOLT_DYNAMIC;desc.mass=info->mass;
     desc.friction=1;desc.gravity_scale=1;
     desc.entity=entity?entity->entnum:0;desc.owner=entity?entity->v->owner:0;
@@ -525,6 +541,7 @@ static void QDECL start_world(world_t *world) {
     ctx->pub.RagMatrixFromBody=rag_matrix_from_body;ctx->pub.RagEnableJoint=rag_enable_joint;
     ctx->pub.RagCreateJoint=rag_create_joint;ctx->pub.RagDestroyBody=rag_destroy_body;ctx->pub.RagDestroyJoint=rag_destroy_joint;
     ctx->pub.RunFrame=prepare_frame;ctx->pub.RunFrameAfterEntities=run_frame;ctx->pub.PushCommand=push_command;ctx->pub.RagCreateBody=rag_create_body;
+    ctx->pub.RagSetBodyAnimation=rag_set_animation;ctx->pub.RagAnimateBody=rag_animate_body;
     world->rbe=&ctx->pub;
     Con_Printf("Jolt %s rigid-body backend initialized (120 Hz; experimental).\n",fte_jolt_version());
 }

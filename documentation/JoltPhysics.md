@@ -65,9 +65,9 @@ ctest --test-dir build/jolt -C Debug -R 'jolt-' --output-on-failure
 For a headless test build, add `-DFTE_ENGINE=OFF
 -DFTE_ENGINE_SERVER_ONLY=ON` and omit `fteqw` from the build targets.
 Multi-configuration generators put binaries under `build/jolt/Debug`; the
-plugin must remain beside the engine executable. Rigid-body plugin ABI 4 checks
+plugin must remain beside the engine executable. Rigid-body plugin ABI 5 checks
 entity, joint and backend interface layout sizes; rebuild physics plugins together with this engine.
-Older ABI 1/2/3 modules are rejected before their callbacks are used. The Jolt
+Older ABI 1/2/3/4 modules are rejected before their callbacks are used. The Jolt
 module is `fteplug_jolt.so` on
 macOS/Linux or `fteplug_jolt.dll` on Windows. Jolt is statically linked into the
 plugin; no separate Jolt shared library is required. Retain the accompanying
@@ -301,8 +301,9 @@ The `jolt-` tests are:
 | Test | Coverage |
 | --- | --- |
 | `jolt-c-boundary` | A real C17 translation unit creates/steps/destroys the C++ backend and creates/toggles/removes a joint through its C ABI. |
-| `jolt-backend` | All primitive shapes, static mesh/CCD, unit conversions, gravity, forces/torque/impulses, partial steps, sleeping/waking, owner/dimension filters, cached-contact changes, stacking, restitution/friction, invalid input, stale/cross-world handles, capacity limits, repeated worlds and fixed-step behavior at 60/144 frame rates. World/body constraints, angular/linear limits and motors, joint frames, connected collision exclusion, dependent-joint removal and repeated multi-body teardown. Suspension load/deflection, damping energy loss, arbitrary-axis forces, live spring edits preserving rest anchors, invalid edits, disabled joints and rigid-pivot restoration. Optional ODE free-fall comparison. |
+| `jolt-backend` | All primitive shapes, static mesh/CCD, unit conversions, gravity, forces/torque/impulses, partial steps, sleeping/waking, owner/dimension filters, cached-contact changes, stacking, restitution/friction, invalid input, stale/cross-world handles, capacity limits, repeated worlds and fixed-step behavior at 60/144 frame rates. World/body constraints, angular/linear limits and motors, joint frames, connected collision exclusion, dependent-joint removal and repeated multi-body teardown. Suspension load/deflection, damping energy loss, arbitrary-axis forces, live spring edits preserving rest anchors, invalid edits, disabled joints and rigid-pivot restoration. Dynamic/kinematic handoffs preserve pose, mass, inertia and joints; releases inherit driven linear/angular velocity, idle releases stop, and stale/cross-world/unsupported requests are rejected. Optional ODE free-fall comparison. |
 | `jolt-shapes` | Original MD5 models and authored compound recipes through real SSQC; hull stacks, opening preservation, scale, recipe-path rebuilds, bounded malformed-input rejection/recovery and map/plugin reload. |
+| `jolt-mixed` | Original three-bone SSQC rig: driven root, passive connected bones, prop contacts, per-body and default-mask handoffs, invalid strengths, render-pose copying, backend restart, entity reuse and map/plugin reload. |
 | `jolt-kinematic` | Original inline BSP brush and real SSQC: classic-vs-Jolt lift carrying, sleeping prop and skeletal-body transport, rotating brushes, blocked doors, deleting support, 60/120 Hz server steps, three map loads and plugin reload. |
 | `jolt-humanoid` | Original 24-bone mesh/animation and 16-body rig, actual animation changes, activation without position/orientation jumps, all-bone relative render copying, floor/stairs/slope/wall/overlap, repeated spawn/removal/animation transitions and live backend restart. No owned assets required. |
 | `jolt-engine` | Real compiled SSQC and an original synthetic BSP: absent/disabled/enabled plugin, map collision, QuakeC forces/touches, removal before/after body creation, sleeping, shape rebuilds, backend restart, plugin reload and three map loads per mode. An original MD5/.doll rig exercises bone simulation, relative render-pose copying, named joint toggling, rejected-body/joint rollback and live-rig restart/reload. QuakeC suspension updates and translated/rotated world-anchored rigs are checked before and after backend restart. Optional ODE collision/fixed-joint baseline. Ordinary toss position is compared across modes. |
@@ -329,8 +330,8 @@ complete engine shutdown leak audit or a third-party ODE library audit.
 
 Local validation on Apple Silicon/macOS passes native Debug, Release and
 ASan/UBSan adapter, ABI and engine checks against the supplied Jolt checkout and Homebrew
-ODE. The complete native Debug build passes 8/8 CTest checks; the instrumented
-build passes 11/11, including 37 standalone source-based sanitizer fixtures. The native
+ODE. The complete native Debug build passes 9/9 CTest checks; the instrumented
+build passes 12/12, including 37 standalone source-based sanitizer fixtures. The native
 Metal demo also passed client connection, joint release and map-reload checks;
 its captured poses were visually inspected. Skeleton allocation without CSQC,
 world isolation, cache reuse and native/VM ownership have dedicated sanitizer
@@ -344,7 +345,7 @@ console output for redirected Windows logs. Clang-instrumented plugins resolve s
 instrumented host. Sanitizer-enabled Jolt hosts use the C++ linker driver so
 Clang also supplies its C++ UBSan runtime (vptr cache/handlers); engine sources
 still compile as C17. Ordinary plugin builds retain strict symbol resolution.
-Further work includes additional real-mod rigs, CSQC validation, mixed animated/kinematic behavior, save/load and performance
+Further work includes additional real-mod rigs, CSQC validation, physical animation blending, save/load and performance
 checks.
 
 ## QuakeC joints and skeletal rigs
@@ -380,6 +381,73 @@ its inverse are used during simulation and bone reconstruction. `pivot bone
 coordinates. Joint `axis` and `axis2` remain reference **model-space** directions.
 Invalid rig directives/names/types reject the whole definition. Failed `doll` or
 `dollstring` loads return zero and keep an existing rig; `cleardoll` is explicit.
+
+### Mixed animation and passive bones
+
+Jolt supports a binary animation mask on `.doll` bodies: `animate 1` makes a
+body kinematic, while `animate 0` makes it dynamic. The default is 1, so set
+`animate 0` under `updatebody default` for a passive ragdoll. Override selected
+bodies to 1 for an animated root with physical followers, for example:
+
+```text
+updatebody default
+animate 0
+// Define the bodies and joints here, as in an ordinary .doll.
+updatebody pelvis
+animate 1
+```
+
+Build a **separate relative** animation skeleton, author/build its pose each
+frame, and pass it to `skel_ragupdate(actor, "", animation_skeleton)`. The actor's
+physics skeleton is absolute; copy it into a relative render skeleton as described
+above. Jolt moves driven bodies toward the sampled targets over its fixed ticks,
+with linear and angular contact velocity. Connected passive bodies remain under
+physics control and driven bodies can push independent Jolt props.
+
+Use these existing QuakeC controls on a live rig:
+
+```c
+skel_ragupdate(actor, "animatebody pelvis 0", animation_skeleton); // release this body
+skel_ragupdate(actor, "animatebody pelvis 1", animation_skeleton); // drive this body
+skel_ragupdate(actor, "animate 0", animation_skeleton);            // release all bodies
+skel_ragupdate(actor, "animate 1", animation_skeleton);            // restore .doll defaults
+```
+
+`animate 1` restores the **authored mask**, rather than driving every body.
+`animatebody` returns the number of driven bodies, so zero can be a successful
+release of the final driven body. `animate` returns 1 on success. Clearing an
+already-cleared rig also succeeds, including after backend teardown.
+
+A handoff retains body handles, constraint anchors, actual pose, mass and inertia.
+Release inherits the last completed animation move's linear/angular velocity;
+an advancing idle tick or stationary target clears that inherited motion. Pending
+targets that have not reached a physics tick do not teleport the body on release.
+Taking control holds the current pose until a target is submitted. Reacquiring a
+faraway authored pose can move it quickly and stress attached joints: align or
+transition the animation source yourself first. These are prescribed kinematic
+poses, not strength-limited motors or a smooth physical blend. They do not stop at
+walls, and large moves share the bounded sampling limits described for pushers.
+
+Jolt rejects fractional, nonfinite and malformed runtime strengths without
+changing the existing mask. Authored `.doll` strengths must also be 0 or 1; an unsupported mask is
+rejected before replacing a live rig.
+Legacy ODE/Bullet backends retain their existing animation path. The native
+client's automatic frame-high-bit ragdoll path also switches body motion modes;
+independent CSQC simulation remains a separate validation gate.
+
+Run the asset-free engine regression directly with:
+
+```sh
+python3 tools/physics_mixed.py --server build/jolt/fteqw-sv \
+  --qcc build/jolt/fteqcc --plugin build/jolt/fteplug_jolt.so \
+  --out build/mixed-check
+```
+
+To exercise the client executable's host/model path without a window, use
+`--server build/jolt/fteqw --client-host`. The fixture completes three map runs,
+including plugin reload, and retains its logs and `results.json` under the output
+folder. Windows uses `.dll`; multi-configuration builds may need `Debug/` or
+`Release/` in executable/plugin paths.
 
 Universal/hinge2 `axis` is attached to body1 and `axis2` to body2; specify
 perpendicular, normalized directions. The adapter keeps them perpendicular while
@@ -550,6 +618,6 @@ softness and joint paths, so those fragments are not used as a correctness oracl
 Bullet and ODE will be removed, including their build options, plugins, source,
 console registrations and documentation references, once Jolt passes the
 replacement gates. Remaining gates include alternate joint-interface conventions,
-mixed animated/kinematic rig interaction, independent CSQC physics, active-scene save/load,
+fractional physical animation blending, independent CSQC physics, active-scene save/load,
 and many-body CPU/bandwidth checks. ODE remains a useful comparison during that
 work. No classic player-movement or Quake 3 qagame-physics conversion is implied.

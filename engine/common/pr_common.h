@@ -749,9 +749,9 @@ typedef struct
 	void (QDECL *AngleVectors)(const vec3_t angles, vec3_t forward, vec3_t right, vec3_t up);
 #define plugrbefuncs_name "RBE"
 } rbeplugfuncs_t;
-// ABI 4 adds the physics_shape entity field. Size checks also reject
-// earlier interface requests before callbacks can be used.
-#define RBEPLUGFUNCS_VERSION 4
+// ABI 5 adds optional kinematic ragdoll animation callbacks. Size checks also
+// reject earlier interface requests before callbacks can be used.
+#define RBEPLUGFUNCS_VERSION 5
 #ifdef VM_Q1
 #define RBE_EXTENTVARS_SIZE sizeof(extentvars_t)
 #else

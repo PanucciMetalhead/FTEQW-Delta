@@ -24,7 +24,10 @@ int main(void)
         state=body.state;state.position[0]=16;
         passed=platform && fte_jolt_move(world,platform,&state) &&
             fte_jolt_step(world,1.0/60,0) && fte_jolt_get(world,platform,&state) &&
-            state.position[0]>15.99f && state.position[0]<16.01f;
+            state.position[0]>15.99f && state.position[0]<16.01f &&
+            fte_jolt_motion(world,platform,FTE_JOLT_DYNAMIC) &&
+            fte_jolt_get(world,platform,&state) && state.velocity[0]>959 &&
+            fte_jolt_motion(world,platform,FTE_JOLT_KINEMATIC);
     }
     if (passed) {
         const float points[]={-8,-8,-8, 8,-8,-8, 0,8,-8, 0,0,8};

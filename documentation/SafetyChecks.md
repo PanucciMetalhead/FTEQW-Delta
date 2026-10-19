@@ -278,7 +278,7 @@ QuakeC server/client field registration and the shared link-container macro now
 use standard `offsetof` too. The `qcfields` and `qcfields_split` fixtures compile
 the production entity declarations and registration macros, checking every
 registered offset/type/name against real allocated structures in combined and
-split VM layouts. They also exercise the production ABI 4 compatibility helper:
+split VM layouts. They also exercise the production ABI 5 compatibility helper:
 null interfaces, old/future versions and mismatched entity/joint/backend sizes are
 rejected, and the old ABI 1 interface has a different request size. Runtime
 physics assertions are unchanged; CI server watchdogs
@@ -354,3 +354,16 @@ separate local run uses the client executable in dedicated mode to exercise both
 model-extraction variants. This exposed and fixed a dedicated skeletal path that
 read renderer tangent arrays while building collision vertices. The standalone
 source-based sanitizer fixture count remains 37.
+
+
+The mixed-animation milestone adds `jolt-mixed`. An original three-bone rig runs
+through real SSQC with a kinematic root and passive connected bodies. It checks
+physical prop contacts, explicit and default-mask release/reacquisition, bounded
+joint distances, relative render-pose copying, invalid strengths, idempotent
+clearing, live backend restart, entity reuse and map/plugin reload. Adapter tests
+verify pose/handle/joint retention, authored mass and inertia after an initially
+kinematic body becomes dynamic, inherited linear/angular velocity, stopped
+releases, queued-torque cancellation and invalid/stale/cross-world transitions.
+These run in Debug, Release and ASan/UBSan configurations. Shared skeleton code
+uses optional backend callbacks; ODE/Bullet retain their existing animation path.
+The rigid-body ABI is now 5, requiring physics plugins to be rebuilt with the host.

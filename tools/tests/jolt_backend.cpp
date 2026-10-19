@@ -312,7 +312,8 @@ static void kinematic_motion() {
     w=world();deck=box(0,FTE_JOLT_KINEMATIC);deck.shape=FTE_JOLT_MESH;
     const float v[]={-128,-128,0,128,-128,0,128,128,0,-128,128,0};const int t[]={0,1,2,0,2,3};
     deck.vertices=v;deck.vertex_count=4;deck.indices=t;deck.triangle_count=2;
-    lift=add(w,deck);b=add(w,box(16));advance(w,120);
+    lift=add(w,deck);require(!fte_jolt_motion(w,lift,FTE_JOLT_DYNAMIC),"mesh cannot become dynamic");
+    b=add(w,box(16));advance(w,120);
     for(int i=1;i<=60;i++) move_to(w,lift,target(w,lift,0,0,i*.5f));
     require(std::fabs(state(w,b).position[2]-46)<1,"moving mesh lift carries a prop");
     // Partial calls coalesce targets without losing movement or advancing early.
@@ -431,9 +432,70 @@ static void ode_reference() {
     dWorldDestroy(w);dCloseODE();
 }
 #endif
+static void animation_handoff() {
+    auto *w=world();
+    auto d=box(256,FTE_JOLT_KINEMATIC);d.gravity_scale=0;
+    auto driven=add(w,d);
+    auto target=state(w,driven);target.position[0]=12;
+    target.rotation[2]=std::sin(.05f);target.rotation[3]=std::cos(.05f);
+    require(fte_jolt_move(w,driven,&target)!=0,"animated target queued");
+    advance(w,1,1.0/60,0);
+    auto before=state(w,driven);
+    require(fte_jolt_motion(w,driven,FTE_JOLT_DYNAMIC)!=0,"release animated bone");
+    auto released=state(w,driven);
+    require(std::fabs(released.position[0]-12)<.001 && std::fabs(released.rotation[2]-before.rotation[2])<1e-6,
+            "release preserves actual pose and orientation");
+    require(std::fabs(released.velocity[0]-720)<.05 && std::fabs(released.spin[2]-6)<.01,
+            "release inherits driven linear and angular velocity");
+    require(!fte_jolt_move(w,driven,&target),"released body rejects animation targets");
+    // Restore a clean pose and verify inertia was calculated for the initially
+    // kinematic box, rather than replacing it with an arbitrary unit tensor.
+    d.state.position[2]=256;require(fte_jolt_set(w,driven,&d.state)!=0,"reset released pose");
+    float impulse[]={64,0,0},torque[]={0,0,20};
+    require(fte_jolt_impulse(w,driven,impulse)!=0,"released mass accepts impulse");
+    require(std::fabs(state(w,driven).velocity[0]-32)<.001,"initially kinematic body retains authored mass");
+    require(fte_jolt_torque(w,driven,torque)!=0,"released inertia accepts torque");advance(w,1,1.0/120,0);
+    require(std::fabs(state(w,driven).spin[2]-20.0/(2.0*32*32/6)/120)<1e-6,
+            "initially kinematic body retains shape inertia");
+    require(fte_jolt_torque(w,driven,torque)!=0,"queue force before handoff");
+    require(fte_jolt_motion(w,driven,FTE_JOLT_KINEMATIC)!=0,"take animation control");
+    target=state(w,driven);target.position[0]+=5;
+    require(fte_jolt_move(w,driven,&target)!=0,"new target after handoff");advance(w,1,1.0/60,0);
+    advance(w,1,1.0/120,0); // A genuinely idle advancing tick clears release velocity.
+    require(fte_jolt_motion(w,driven,FTE_JOLT_DYNAMIC)!=0,"release stationary animation");
+    require(std::fabs(state(w,driven).velocity[0])<.001 && std::fabs(state(w,driven).spin[2])<.001,"stationary release has no old velocity or queued torque");
+    require(fte_jolt_motion(w,driven,FTE_JOLT_KINEMATIC)!=0,"take control before partial tick");
+    before=state(w,driven);target=before;target.position[0]+=512;
+    require(fte_jolt_move(w,driven,&target)!=0,"queue future target");advance(w,1,.001,0);
+    require(fte_jolt_motion(w,driven,FTE_JOLT_DYNAMIC)!=0,"release before pending target advances");
+    advance(w,1,1.0/120,0);
+    require(std::fabs(state(w,driven).position[0]-before.position[0])<.001 &&
+            std::fabs(state(w,driven).spin[2])<.001,"release cancels pending pose and stale queued torque");
+    auto fixed=add(w,box(100,FTE_JOLT_STATIC));
+    require(!fte_jolt_motion(w,fixed,FTE_JOLT_DYNAMIC) && !fte_jolt_motion(w,driven,FTE_JOLT_STATIC) &&
+            !fte_jolt_motion(w,driven,99),"unsupported motion changes rejected");
+    auto *other=world();require(!fte_jolt_motion(other,driven,FTE_JOLT_KINEMATIC),"cross-world handoff rejected");fte_jolt_destroy(other);
+    require(fte_jolt_remove(w,driven)!=0 && !fte_jolt_motion(w,driven,FTE_JOLT_KINEMATIC),"stale handoff rejected");
+    // A retained joint must work after repeated mixed / fully driven / passive transitions.
+    d=box(256);d.gravity_scale=0;auto a=add(w,d);d.state.position[2]=224;auto b=add(w,d);
+    fte_jolt_joint_desc joint{};joint.type=FTE_JOLT_FIXED;joint.body1=a;joint.body2=b;
+    auto link=fte_jolt_joint_add(w,&joint);require(link!=0,"mixed joint created");
+    for(int cycle=0;cycle<8;cycle++) {
+        require(fte_jolt_motion(w,a,FTE_JOLT_KINEMATIC)!=0,"drive parent");
+        target=state(w,a);target.position[0]+=8;require(fte_jolt_move(w,a,&target)!=0,"move parent");
+        advance(w,1,1.0/30,0);
+        require(std::fabs(state(w,b).position[0]-state(w,a).position[0])<1,"dynamic child follows driven parent through joint");
+        require(fte_jolt_motion(w,b,FTE_JOLT_KINEMATIC)!=0,"fully driven pair");advance(w,1,1.0/120,0);
+        require(fte_jolt_motion(w,a,FTE_JOLT_DYNAMIC)!=0 && fte_jolt_motion(w,b,FTE_JOLT_DYNAMIC)!=0,"release both bodies");
+        advance(w,2,1.0/120,0);
+    }
+    fte_jolt_stats stats{};fte_jolt_get_stats(w,&stats);require(stats.joints==1,"handoffs retain original constraint");
+    require(fte_jolt_joint_remove(w,link)!=0,"remove retained constraint");
+    fte_jolt_destroy(w);
+}
 int main() {
     std::printf("Jolt %s production adapter tests\n",fte_jolt_version());
-    primitives();mesh_and_ccd();lifecycle_forces_and_filters();validation_and_timestep();contacts_and_materials();constraints();dual_axis_constraints();suspension_controls();kinematic_motion();convex_and_compound();
+    primitives();mesh_and_ccd();lifecycle_forces_and_filters();validation_and_timestep();contacts_and_materials();constraints();dual_axis_constraints();suspension_controls();kinematic_motion();convex_and_compound();animation_handoff();
 #ifdef FTE_TEST_ODE
     ode_reference();
 #endif
