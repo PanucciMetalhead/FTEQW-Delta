@@ -26,7 +26,8 @@ def main():
     doll = (game / 'progs/physics-rig.doll').read_text().replace('type hinge', 'type fixed')
     doll += 'updatebody top\nanimate 1\n'
     (game / 'progs/physics-mixed.doll').write_text(doll)
-    (game / 'progs/physics-mixed-invalid.doll').write_text(doll + 'animate .5\n')
+    (game / 'progs/physics-mixed-invalid.doll').write_text(doll + 'animate 1.5\n')
+    (game / 'progs/physics-blended.doll').write_text(doll + 'animate .5\n')
     declarations = (ROOT / 'tools/tests/physics_fixture.qc').read_text().split('float simulated,phase')[0]
     (game / 'declarations.qh').write_text(declarations)
     shutil.copyfile(ROOT / 'tools/tests/physics_mixed.qc', game / 'fixture.qc')
@@ -63,7 +64,7 @@ map mixed
                         '+set', 'plug_loaddefault', '0', '+exec', 'mixed.cfg'],
                        cwd=out, env=env, stdout=log, stderr=subprocess.STDOUT, check=True, timeout=90)
     text = logpath.read_text(errors='replace')
-    if text.count('MIXED_ENGINE_OK') != 3 or re.search(
+    if text.count('MIXED_ENGINE_OK') != 3 or text.count('FRACTIONAL_ENGINE_OK') != 3 or re.search(
             r'MIXED_FAIL|AddressSanitizer|UndefinedBehaviorSanitizer|runtime error:|Jolt simulation stopped|Host_Error|Sys_Error', text):
         raise AssertionError(f'{logpath}\n{text[-7000:]}')
     (out / 'results.json').write_text(json.dumps({'status': 'passed', 'map_runs': 3}, indent=2) + '\n')

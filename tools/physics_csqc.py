@@ -131,7 +131,7 @@ map csqc
         if proc.wait(timeout=15):
             raise RuntimeError('Listen client failed: ' + str(out))
         text = check_log('listen')
-        if text.count('CSQC_PHYSICS_SHUTDOWN') != 3 or 'SSQC_ISOLATION_OK' not in text:
+        if text.count('CSQC_PHYSICS_SHUTDOWN') != 3 or text.count('CSQC_FRACTIONAL_OK') != 3 or 'SSQC_ISOLATION_OK' not in text:
             raise RuntimeError('Missing listen-world isolation/cleanup checks: ' + str(out))
         results['listen'] = {'client_world_runs': 3, 'shutdowns': 3}
         if args.client_only:
@@ -161,7 +161,7 @@ connect qw://127.0.0.1:{port}
             text = check_log('remote')
             if 'Downloading csprogsvers/' not in text or not list(remote_root.rglob('csprogsvers/*.dat')):
                 raise RuntimeError('Client did not download the fixture CSQC: ' + str(out))
-            if text.count('CSQC_PHYSICS_SHUTDOWN') != 3:
+            if text.count('CSQC_PHYSICS_SHUTDOWN') != 3 or text.count('CSQC_FRACTIONAL_OK') != 3:
                 raise RuntimeError('Missing remote cleanup checks: ' + str(out))
             if server.wait(timeout=15):
                 raise RuntimeError('Dedicated server failed: ' + str(out))
@@ -183,7 +183,7 @@ connect qw://127.0.0.1:{port}
         for host in ('listen', 'remote') if args.client_only else ('listen',):
             for run in range(1, 4):
                 hashes = []
-                for phase in ('mixed', 'released', 'restored'):
+                for phase in ('mixed', 'released', 'restored', 'blended', 'blend-released'):
                     name = f'csqc-{host}-{run}-{phase}.png'
                     files = list(out.rglob(name))
                     if len(files) != 1:

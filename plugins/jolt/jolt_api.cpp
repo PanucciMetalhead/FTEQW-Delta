@@ -134,6 +134,11 @@ struct Record {
     float radius = 0, inner_radius = 0;
     bool can_be_dynamic = false;
     JPH::Vec3 driven_velocity = JPH::Vec3::sZero(), driven_spin = JPH::Vec3::sZero();
+    float mass = 1, animation_strength = 0;
+    JPH::Vec3 center_of_mass = JPH::Vec3::sZero();
+    JPH::RVec3 animation_anchor = JPH::RVec3::sZero();
+    fte_jolt_state animation_pose{};
+    JPH::Ref<JPH::SixDOFConstraint> animation_motor = nullptr;
 };
 #include "jolt_dual_axis.h"
 
@@ -285,7 +290,8 @@ JPH::RefConst<JPH::Shape> convex_shape(fte_jolt_world *w, const float *vertices,
     if (!std::isfinite(volume) || volume <= 1e-9f || !std::isfinite(mass.mMass) ||
         mass.mMass <= 0 || !std::isfinite(shape->GetInnerRadius()) ||
         shape->GetInnerRadius() <= 0) {
-        w->fail("Convex hull requires nonzero three-dimensional volume and valid mass properties");
+        w->fail("Convex hull requires nonzero three-dimensional volume and valid "
+                "mass properties");
         return nullptr;
     }
     return shape;
@@ -499,7 +505,11 @@ void fte_jolt_destroy(fte_jolt_world *w) {
     while (!w->joints.empty())
         fte_jolt_joint_remove(w, w->joints.begin()->first);
     auto &api = w->physics.GetBodyInterface();
-    for (const auto &p : w->bodies) {
+    for (auto &p : w->bodies) {
+        if (p.second.animation_motor) {
+            w->physics.RemoveConstraint(p.second.animation_motor);
+            p.second.animation_motor = nullptr;
+        }
         api.RemoveBody(p.second.id);
         api.DestroyBody(p.second.id);
     }
@@ -563,6 +573,8 @@ fte_jolt_body fte_jolt_add(fte_jolt_world *w, const fte_jolt_desc *d) {
     w->bodies.emplace(token, Record{id, d->motion, d->entity, d->owner, d->solid_mask, d->hit_mask,
                                     d->collision_family, d->is_proxy != 0});
     auto &record = w->bodies.at(token);
+    record.mass = settings.mMassPropertiesOverride.mMass;
+    record.center_of_mass = shape->GetCenterOfMass();
     record.radius =
         shape->GetLocalBounds().GetCenter().Length() + shape->GetLocalBounds().GetExtent().Length();
     record.inner_radius = shape->GetInnerRadius();
@@ -587,6 +599,10 @@ int fte_jolt_remove(fte_jolt_world *w, fte_jolt_body body) {
     // Sleeping contacts are not necessarily revisited after their support is
     // removed; wake the local neighborhood before discarding that geometry.
     api.ActivateBodiesInAABox(bounds, JPH::BroadPhaseLayerFilter(), JPH::ObjectLayerFilter());
+    if (p->animation_motor) {
+        w->physics.RemoveConstraint(p->animation_motor);
+        p->animation_motor = nullptr;
+    }
     api.RemoveBody(p->id);
     api.DestroyBody(p->id);
     w->bodies.erase(body);
@@ -613,6 +629,30 @@ int fte_jolt_get(fte_jolt_world *w, fte_jolt_body body, fte_jolt_state *out) {
     }
     return 1;
 }
+namespace {
+bool animation_position(const fte_jolt_state &s) {
+    return std::fabs(s.position[0]) <= 10000000 && std::fabs(s.position[1]) <= 10000000 &&
+           std::fabs(s.position[2]) <= 10000000;
+}
+void motor_pose(Record &body, JPH::RVec3Arg origin, JPH::QuatArg rotation) {
+    auto com = origin + rotation * body.center_of_mass;
+    body.animation_motor->SetTargetPositionCS(JPH::Vec3(com - body.animation_anchor));
+    body.animation_motor->SetTargetOrientationBS(rotation);
+}
+JPH::Vec3 capped_velocity(JPH::Vec3Arg v, float limit) {
+    double length = std::hypot(double(v.GetX()), double(v.GetY()), double(v.GetZ()));
+    return length > limit ? v * float(limit / length) : v;
+}
+void clear_motor(fte_jolt_world *w, Record &body) {
+    if (!body.animation_motor)
+        return;
+    w->physics.RemoveConstraint(body.animation_motor);
+    body.animation_motor = nullptr;
+    body.animation_strength = 0;
+    body.has_target = false;
+    w->physics.GetBodyInterface().ActivateBody(body.id);
+}
+} // namespace
 int fte_jolt_set(fte_jolt_world *w, fte_jolt_body body, const fte_jolt_state *s) {
     if (!w)
         return 0;
@@ -621,6 +661,15 @@ int fte_jolt_set(fte_jolt_world *w, fte_jolt_body body, const fte_jolt_state *s)
     auto *p = w->find(body);
     if (!p)
         return 0;
+    if (p->animation_motor && !animation_position(*s))
+        return w->fail("Animation pose exceeds world-space motor bounds");
+    if (p->animation_motor) {
+        p->animation_pose = *s;
+        motor_pose(*p, pos(s->position), quat(s->rotation));
+        p->animation_motor->SetTargetVelocityCS(JPH::Vec3::sZero());
+        p->animation_motor->SetTargetAngularVelocityCS(JPH::Vec3::sZero());
+        p->animation_motor->ResetWarmStart();
+    }
     p->has_target = false;
     p->driven_velocity = p->driven_spin = JPH::Vec3::sZero();
     auto &api = w->physics.GetBodyInterface();
@@ -636,10 +685,10 @@ int fte_jolt_move(fte_jolt_world *w, fte_jolt_body token, const fte_jolt_state *
     if (!w)
         return 0;
     auto *body = w->find(token);
-    if (!body || body->motion != FTE_JOLT_KINEMATIC)
-        return w->fail("Kinematic target requires a live kinematic body");
-    if (!state_ok(target))
-        return w->fail("Invalid kinematic target");
+    if (!body || (body->motion != FTE_JOLT_KINEMATIC && !body->animation_motor))
+        return w->fail("Animation target requires a live driven body");
+    if (!state_ok(target) || (body->animation_motor && !animation_position(*target)))
+        return w->fail("Invalid animation target");
     body->target = *target;
     body->has_target = true;
     return 1;
@@ -652,6 +701,7 @@ int fte_jolt_motion(fte_jolt_world *w, fte_jolt_body token, int motion) {
         (motion != FTE_JOLT_KINEMATIC && motion != FTE_JOLT_DYNAMIC) ||
         (motion == FTE_JOLT_DYNAMIC && !body->can_be_dynamic))
         return w->fail("Motion changes require a live movable convex body");
+    clear_motor(w, *body);
     if (body->motion == motion)
         return 1;
     auto &api = w->physics.GetBodyInterface();
@@ -679,6 +729,56 @@ int fte_jolt_motion(fte_jolt_world *w, fte_jolt_body token, int motion) {
             entry.second.constraint->ResetWarmStart();
             api.ActivateConstraint(entry.second.constraint);
         }
+    return 1;
+}
+int fte_jolt_animate(fte_jolt_world *w, fte_jolt_body token, float strength) {
+    if (!w)
+        return 0;
+    auto *body = w->find(token);
+    if (!body || !std::isfinite(strength) || strength < 0 || strength > 1 ||
+        body->motion == FTE_JOLT_STATIC || !body->can_be_dynamic)
+        return w->fail("Animation requires a movable convex body and strength in [0,1]");
+    if (strength == 0 || strength == 1)
+        return fte_jolt_motion(w, token, strength == 1 ? FTE_JOLT_KINEMATIC : FTE_JOLT_DYNAMIC);
+    fte_jolt_state current;
+    fte_jolt_get(w, token, &current);
+    if (!animation_position(current))
+        return w->fail("Animation pose exceeds world-space motor bounds");
+    auto &api = w->physics.GetBodyInterface();
+    if (!body->animation_motor) {
+        JPH::SixDOFConstraintSettings settings;
+        settings.mSpace = JPH::EConstraintSpace::LocalToBodyCOM;
+        settings.mPosition1 = api.GetCenterOfMassPosition(body->id);
+        auto *motor = static_cast<JPH::SixDOFConstraint *>(
+            api.CreateConstraint(&settings, JPH::BodyID(), body->id));
+        if (!motor)
+            return w->fail("Could not create animation motor");
+        JPH::Ref<JPH::SixDOFConstraint> owned = motor;
+        if (!fte_jolt_motion(w, token, FTE_JOLT_DYNAMIC))
+            return 0;
+        body->animation_anchor = settings.mPosition1;
+        body->animation_motor = owned;
+        body->animation_pose = current;
+        motor_pose(*body, pos(current.position), quat(current.rotation));
+        w->physics.AddConstraint(motor);
+    }
+    if (body->animation_strength != strength) {
+        // A critically damped, mass-scaled servo. Strength controls both
+        // compliance and finite per-axis force/torque, never a rendered lerp.
+        float force = float(std::min(1e20, double(body->mass) * 256 * strength));
+        float torque = float(std::min(
+            1e20, double(body->mass) * std::max(.001, double(body->radius) * body->radius) * 128 *
+                      strength));
+        for (int i = 0; i < 6; ++i) {
+            auto axis = static_cast<JPH::SixDOFConstraint::EAxis>(i);
+            body->animation_motor->GetMotorSettings(axis) =
+                JPH::MotorSettings(6 * std::sqrt(std::max(.0001f, strength)), 1, force, torque);
+            body->animation_motor->SetMotorState(axis, JPH::EMotorState::PositionAndVelocity);
+        }
+        body->animation_strength = strength;
+        body->animation_motor->ResetWarmStart();
+        api.ActivateBody(body->id);
+    }
     return 1;
 }
 int fte_jolt_material(fte_jolt_world *w, fte_jolt_body body, float friction, float restitution,
@@ -796,10 +896,18 @@ int fte_jolt_step(fte_jolt_world *w, double dt, double gravity) {
                     std::min(sweep_distance, std::max(metres / 32, body.inner_radius * .5f));
             if (body.motion == FTE_JOLT_KINEMATIC && !body.has_target)
                 body.driven_velocity = body.driven_spin = JPH::Vec3::sZero();
+            if (body.animation_motor && !body.has_target) {
+                body.animation_motor->SetTargetVelocityCS(JPH::Vec3::sZero());
+                body.animation_motor->SetTargetAngularVelocityCS(JPH::Vec3::sZero());
+            }
             if (body.has_target) {
                 JPH::RVec3 start;
                 JPH::Quat rotation;
-                api.GetPositionAndRotation(body.id, start, rotation);
+                if (body.animation_motor) {
+                    start = pos(body.animation_pose.position);
+                    rotation = quat(body.animation_pose.rotation);
+                } else
+                    api.GetPositionAndRotation(body.id, start, rotation);
                 moves.push_back({&body, start, rotation});
             }
         }
@@ -813,6 +921,27 @@ int fte_jolt_step(fte_jolt_world *w, double dt, double gravity) {
             JPH::RVec3 current;
             JPH::Quat rotation;
             api.GetPositionAndRotation(body.id, current, rotation);
+            if (body.animation_motor) {
+                auto old_rotation = quat(body.animation_pose.rotation);
+                auto old_com =
+                    pos(body.animation_pose.position) + old_rotation * body.center_of_mass;
+                auto new_com = target + orientation * body.center_of_mass;
+                JPH::Vec3 axis;
+                float angle;
+                (orientation * old_rotation.Conjugated())
+                    .EnsureWPositive()
+                    .GetAxisAngle(axis, angle);
+                body.animation_motor->SetTargetVelocityCS(
+                    capped_velocity(JPH::Vec3(new_com - old_com) / float(w->tick), 100));
+                body.animation_motor->SetTargetAngularVelocityCS(
+                    rotation.Conjugated() * capped_velocity(axis * (angle / float(w->tick)), 32));
+                motor_pose(body, target, orientation);
+                if (JPH::Vec3(new_com - old_com).LengthSq() > 1e-12f || angle > 1e-6f)
+                    api.ActivateBody(body.id);
+                store(target, body.animation_pose.position, 1 / metres);
+                store_quat(orientation, body.animation_pose.rotation);
+                continue;
+            }
             float travel = JPH::Vec3(target - current).Length() +
                            body.radius * 2 *
                                std::acos(std::min(
@@ -842,10 +971,13 @@ int fte_jolt_step(fte_jolt_world *w, double dt, double gravity) {
     if (w->stats.steps) {
         w->forces.clear();
         for (const auto &move : moves) {
-            move.body->driven_velocity = api.GetLinearVelocity(move.body->id);
-            move.body->driven_spin = api.GetAngularVelocity(move.body->id);
             move.body->has_target = false;
-            api.SetLinearAndAngularVelocity(move.body->id, JPH::Vec3::sZero(), JPH::Vec3::sZero());
+            if (!move.body->animation_motor) {
+                move.body->driven_velocity = api.GetLinearVelocity(move.body->id);
+                move.body->driven_spin = api.GetAngularVelocity(move.body->id);
+                api.SetLinearAndAngularVelocity(move.body->id, JPH::Vec3::sZero(),
+                                                JPH::Vec3::sZero());
+            }
         }
     }
     return 1;
@@ -859,6 +991,8 @@ void fte_jolt_get_stats(const fte_jolt_world *w, fte_jolt_stats *out) {
     *out = w->stats;
     out->bodies = unsigned(w->bodies.size());
     out->joints = unsigned(w->joints.size());
+    for (const auto &entry : w->bodies)
+        out->animation_motors += bool(entry.second.animation_motor);
     out->active = w->physics.GetNumActiveBodies(JPH::EBodyType::RigidBody);
 }
 size_t fte_jolt_contacts(const fte_jolt_world *w) { return w ? w->contacts.size() : 0; }

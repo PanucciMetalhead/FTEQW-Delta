@@ -434,3 +434,24 @@ and read-error dispatch. This brings the standalone suite to 41 fixtures. The
 CSQC runner monitors the dedicated server while waiting for its client, reports
 server sanitizer errors or early exits immediately, and includes both logs on a
 connection timeout.
+
+
+Fractional ragdoll animation uses internal six-axis position/orientation motors
+on dynamic bodies, with finite mass/strength-scaled force limits. Adapter checks
+cover gravity compliance, strength and mass response, blocked-target recovery,
+quaternion sign equivalence, nonzero shape COM, small strengths, teleport rebasing,
+fixed-step convergence, retained velocity, sleeping releases, authored joints and
+motor cleanup. The C17 boundary calls the new control without exposing C++ types.
+Real SSQC checks add fractional `.doll` defaults, runtime scaling, wall contacts,
+release/reacquisition and restart. Full and client-only CSQC checks retain the
+numeric render-pose comparisons, test fractional drive/release and leave a live
+motor for native teardown across map/plugin/reconnect cycles. Optional native GPU
+runs now retain 30 images, including fractional and released poses.
+
+Local Apple Silicon validation on 2026-10-21 passed all 10 Debug tests, all 10
+Release tests and all 13 ASan/UBSan tests. The adapter and C17 boundary also passed
+against CI-pinned Jolt `1b2e77e3c6c09709e5edc79dc208459b8ff32051`. Native Metal
+validation passed both client hosts, retaining 30 captures; representative driven
+and released poses were visually inspected. The C17 guard checked 505 C
+translation units and identical gameplay assembly for movement, server physics,
+world collision and math. This milestone has not yet run Windows/Linux CI.

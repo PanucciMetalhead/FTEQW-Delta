@@ -22,7 +22,7 @@ Supported through the existing SSQC/CSQC rigid-body interface:
 - Point, fixed, hinge, slider, universal and hinge2 joints, including world anchors, limits,
   velocity motors, hinge2 linear suspension, enabling/disabling and connected-body collision exclusion.
 - Experimental `.doll` rigs: primitive bodies, pose read/write, skeletal joints,
-  passive simulation, and explicit cleanup on world/backend shutdown.
+  passive and fractional animation-driven simulation, and explicit cleanup on world/backend shutdown.
 - World creation/destruction, backend restart, plugin unload/reload and map changes.
 
 A mod must explicitly use `MOVETYPE_PHYSICS`. Loading the plugin does not convert
@@ -292,8 +292,10 @@ interpreted as a swept target; mods should remove/recreate the proxy via a map o
 backend reset when deliberately relocating geometry without interaction.
 
 The adapter's `fte_jolt_set` remains an explicit teleport that cancels a queued
-kinematic target. `fte_jolt_move` accepts only live kinematic handles; dynamic
-bodies, stale/cross-world handles and invalid target states are rejected.
+animation target. `fte_jolt_move` accepts live kinematic bodies and dynamic
+bodies with a fractional animation motor. Passive dynamic bodies, stale/cross-world
+handles and invalid target states are rejected. A teleport rebases an active motor
+to the explicit pose and clears its pending target.
 
 ## Repeatable tests
 
@@ -303,11 +305,11 @@ The `jolt-` tests are:
 
 | Test | Coverage |
 | --- | --- |
-| `jolt-c-boundary` | A real C17 translation unit creates/steps/destroys the C++ backend and creates/toggles/removes a joint through its C ABI. |
-| `jolt-backend` | All primitive shapes, static mesh/CCD, unit conversions, gravity, forces/torque/impulses, partial steps, sleeping/waking, owner/dimension filters, cached-contact changes, stacking, restitution/friction, invalid input, stale/cross-world handles, capacity limits, repeated worlds and fixed-step behavior at 60/144 frame rates. World/body constraints, angular/linear limits and motors, joint frames, connected collision exclusion, dependent-joint removal and repeated multi-body teardown. Suspension load/deflection, damping energy loss, arbitrary-axis forces, live spring edits preserving rest anchors, invalid edits, disabled joints and rigid-pivot restoration. Dynamic/kinematic handoffs preserve pose, mass, inertia and joints; releases inherit driven linear/angular velocity, idle releases stop, and stale/cross-world/unsupported requests are rejected. Optional ODE free-fall comparison. |
+| `jolt-c-boundary` | A real C17 translation unit creates/steps/destroys the C++ backend and creates/toggles/removes a joint and drives/releases a fractional motor through its C ABI. |
+| `jolt-backend` | All primitive shapes, static mesh/CCD, unit conversions, gravity, forces/torque/impulses, partial steps, sleeping/waking, owner/dimension filters, cached-contact changes, stacking, restitution/friction, invalid input, stale/cross-world handles, capacity limits, repeated worlds and fixed-step behavior at 60/144 frame rates. World/body constraints, angular/linear limits and motors, joint frames, connected collision exclusion, dependent-joint removal and repeated multi-body teardown. Suspension load/deflection, damping energy loss, arbitrary-axis forces, live spring edits preserving rest anchors, invalid edits, disabled joints and rigid-pivot restoration. Dynamic/kinematic handoffs preserve pose, mass, inertia and joints; releases inherit driven linear/angular velocity, idle releases stop, and stale/cross-world/unsupported requests are rejected. Fractional dynamic motors cover strength/mass response, gravity compliance, wall resistance and recovery, orientation/COM offsets, tiny strengths, teleport rebasing, fixed steps, retained joints and cleanup. Optional ODE free-fall comparison. |
 | `jolt-shapes` | Original MD5 models and authored compound recipes through real SSQC; hull stacks, opening preservation, scale, recipe-path rebuilds, bounded malformed-input rejection/recovery and map/plugin reload. |
-| `jolt-csqc` | Real headless full client and optional client-only executable, simultaneous independent SSQC/CSQC worlds, cross-world skeleton rejection, fixed tick globals, floor/dimension contacts, deletion from touch, queued-force cleanup, moving brushes, mixed rigs, client-only backend restart, map/plugin reload and disconnect/reconnect. No owned assets or GPU required. |
-| `jolt-mixed` | Original three-bone SSQC rig: driven root, passive connected bones, prop contacts, per-body and default-mask handoffs, invalid strengths, render-pose copying, backend restart, entity reuse and map/plugin reload. |
+| `jolt-csqc` | Real headless full client and optional client-only executable, simultaneous independent SSQC/CSQC worlds, cross-world skeleton rejection, fixed tick globals, floor/dimension contacts, deletion from touch, queued-force cleanup, moving brushes, mixed and fractional rigs, client-only backend restart, map/plugin reload and disconnect/reconnect. No owned assets or GPU required. |
+| `jolt-mixed` | Original three-bone SSQC rig: driven root, passive connected bones, prop contacts, per-body and default-mask handoffs, invalid strengths, authored fractional masks and scaling, wall resistance/recovery, render-pose copying, backend restart, entity reuse and map/plugin reload. |
 | `jolt-kinematic` | Original inline BSP brush and real SSQC: classic-vs-Jolt lift carrying, sleeping prop and skeletal-body transport, rotating brushes, blocked doors, deleting support, 60/120 Hz server steps, three map loads and plugin reload. |
 | `jolt-humanoid` | Original 24-bone mesh/animation and 16-body rig, actual animation changes, activation without position/orientation jumps, all-bone relative render copying, floor/stairs/slope/wall/overlap, repeated spawn/removal/animation transitions and live backend restart. No owned assets required. |
 | `jolt-engine` | Real compiled SSQC and an original synthetic BSP: absent/disabled/enabled plugin, map collision, QuakeC forces/touches, removal before/after body creation, sleeping, shape rebuilds, backend restart, plugin reload and three map loads per mode. An original MD5/.doll rig exercises bone simulation, relative render-pose copying, named joint toggling, rejected-body/joint rollback and live-rig restart/reload. QuakeC suspension updates and translated/rotated world-anchored rigs are checked before and after backend restart. Optional ODE collision/fixed-joint baseline. Ordinary toss position is compared across modes. |
@@ -349,8 +351,8 @@ console output for redirected Windows logs. Clang-instrumented plugins resolve s
 instrumented host. Sanitizer-enabled Jolt hosts use the C++ linker driver so
 Clang also supplies its C++ UBSan runtime (vptr cache/handlers); engine sources
 still compile as C17. Ordinary plugin builds retain strict symbol resolution.
-Further work includes additional real-mod rigs, fractional physical animation
-blending, save/load and many-body performance/bandwidth checks.
+Further work includes additional real-mod rigs, save/load and many-body
+performance/bandwidth checks.
 
 ## QuakeC joints and skeletal rigs
 
@@ -388,56 +390,80 @@ Invalid rig directives/names/types reject the whole definition. Failed `doll` or
 
 ### Mixed animation and passive bones
 
-Jolt supports a binary animation mask on `.doll` bodies: `animate 1` makes a
-body kinematic, while `animate 0` makes it dynamic. The default is 1, so set
-`animate 0` under `updatebody default` for a passive ragdoll. Override selected
-bodies to 1 for an animated root with physical followers, for example:
+Jolt accepts finite animation strengths from 0 to 1 on `.doll` bodies:
+
+| Strength | Behavior |
+| --- | --- |
+| `0` | Passive dynamic body, moved by gravity, contacts, forces and joints. |
+| Between `0` and `1` | Dynamic body guided by finite-force position and orientation motors. Contacts and joints can resist the animation target. |
+| `1` | Exact kinematic animation, preserving the earlier binary-mask behavior. |
+
+The default remains 1. Set `animate 0` under `updatebody default` for a passive
+ragdoll, then override selected bodies. For example, a compliant pelvis can guide
+physical followers:
 
 ```text
 updatebody default
 animate 0
 // Define the bodies and joints here, as in an ordinary .doll.
 updatebody pelvis
-animate 1
+animate .5
 ```
 
 Build a **separate relative** animation skeleton, author/build its pose each
 frame, and pass it to `skel_ragupdate(actor, "", animation_skeleton)`. The actor's
 physics skeleton is absolute; copy it into a relative render skeleton as described
-above. Jolt moves driven bodies toward the sampled targets over its fixed ticks,
-with linear and angular contact velocity. Connected passive bodies remain under
-physics control and driven bodies can push independent Jolt props.
+above. Simulated bodies supply the rendered pose, including displacement caused
+by collisions. Fractional strength changes the physical drive, rather than
+interpolating rendered bones through geometry.
 
-Use these existing QuakeC controls on a live rig:
+Use these QuakeC controls on a live rig:
 
 ```c
-skel_ragupdate(actor, "animatebody pelvis 0", animation_skeleton); // release this body
-skel_ragupdate(actor, "animatebody pelvis 1", animation_skeleton); // drive this body
-skel_ragupdate(actor, "animate 0", animation_skeleton);            // release all bodies
-skel_ragupdate(actor, "animate 1", animation_skeleton);            // restore .doll defaults
+skel_ragupdate(actor, "animatebody pelvis .5", animation_skeleton); // compliant control
+skel_ragupdate(actor, "animatebody pelvis 0", animation_skeleton);  // release this body
+skel_ragupdate(actor, "animatebody pelvis 1", animation_skeleton);  // exact control
+skel_ragupdate(actor, "animate .5", animation_skeleton);            // scale authored strengths
+skel_ragupdate(actor, "animate 0", animation_skeleton);             // release all bodies
+skel_ragupdate(actor, "animate 1", animation_skeleton);             // restore .doll defaults
 ```
 
-`animate 1` restores the **authored mask**, rather than driving every body.
+`animate` scales the **authored mask**. If the pelvis was authored at `.5`,
+`animate .5` sets it to `.25`, and `animate 1` restores `.5`. A body authored at
+zero stays passive under this command; use `animatebody` to control it directly.
 `animatebody` returns the number of driven bodies, so zero can be a successful
 release of the final driven body. `animate` returns 1 on success. Clearing an
 already-cleared rig also succeeds, including after backend teardown.
 
-A handoff retains body handles, constraint anchors, actual pose, mass and inertia.
-Release inherits the last completed animation move's linear/angular velocity;
-an advancing idle tick or stationary target clears that inherited motion. Pending
-targets that have not reached a physics tick do not teleport the body on release.
-Taking control holds the current pose until a target is submitted. Reacquiring a
-faraway authored pose can move it quickly and stress attached joints: align or
-transition the animation source yourself first. These are prescribed kinematic
-poses, not strength-limited motors or a smooth physical blend. They do not stop at
-walls, and large moves share the bounded sampling limits described for pushers.
+A strength change retains body handles, authored joints, anchors, actual pose,
+mass and inertia. Releasing a fractional body retains its actual physical linear
+and angular velocity and wakes a settled body. Releasing a kinematic body inherits
+its last completed animation move's velocity; an advancing idle tick or stationary
+target clears that inherited motion. Pending targets that have not reached a
+physics tick do not teleport the body on release.
 
-Jolt rejects fractional, nonfinite and malformed runtime strengths without
-changing the existing mask. Authored `.doll` strengths must also be 0 or 1; an unsupported mask is
-rejected before replacing a live rig.
-Legacy ODE/Bullet backends retain their existing animation path. The native
-client's automatic frame-high-bit ragdoll path also switches body motion modes;
-independent CSQC simulation is covered by the tests below.
+Fractional motors hold their last completed target between updates. A moving
+target is interpolated across Jolt's fixed ticks, including shortest-path rotation
+and shape center-of-mass offsets. The solver uses critically damped six-axis
+motors. Spring frequency is `6 * sqrt(max(strength, .0001))` Hz; finite force and
+torque limits scale with body mass and strength, with torque also scaled by the
+body's bounding radius. Feed-forward target velocity is bounded to 100 metres/s
+(3200 Quake units/s) and 32 radians/s. Motor poses must stay within +/-10000000
+Quake units on each world axis. These are backend defaults, not new console cvars.
+
+A weak drive can sag or fall under load. A blocked body can remain away from its
+target; removing the obstruction lets it recover. Use a strength below 1 when
+collision resistance is required. Strength 1 retains exact kinematic control,
+which can pass through walls and shares the bounded sweep sampling described for
+pushers. Moving to a distant target or changing abruptly to exact control can
+stress a rig: align or transition the animation source before reacquiring it.
+This feature does not supply a get-up animation or character balance controller.
+
+Jolt rejects nonfinite, malformed and out-of-range runtime strengths without
+changing the current mask. Authored strengths must also be finite and in `[0,1]`;
+invalid authored masks are rejected before replacing a live rig. Legacy ODE/Bullet
+backends retain their existing animation path. Independent CSQC simulation uses
+the same motor implementation and is covered by the tests below.
 
 Run the asset-free engine regression directly with:
 
@@ -607,8 +633,9 @@ python3 tools/physics_csqc.py --engine build/jolt/fteqw \
 
 Omit `--gpu` to run headlessly or `--client-only` to test just the listen host.
 The tool retains per-process logs, compiler logs and `results.json`; a GPU run
-also captures mixed, released and restored client poses for each map/connection
-cycle. Native Apple Silicon/Metal and ASan/UBSan have been exercised locally;
+also captures mixed, released, restored, fractionally driven and fractional-release
+client poses for each map/connection cycle (30 images with both client hosts).
+Native Apple Silicon/Metal and ASan/UBSan have been exercised locally;
 Windows/Linux coverage comes from headless desktop CI after publication.
 
 The collision tests also cover small props above large thin BSP floors with
@@ -701,6 +728,5 @@ softness and joint paths, so those fragments are not used as a correctness oracl
 Bullet and ODE will be removed, including their build options, plugins, source,
 console registrations and documentation references, once Jolt passes the
 replacement gates. Remaining gates include alternate joint-interface conventions,
-fractional physical animation blending, active-scene save/load,
-and many-body CPU/bandwidth checks. ODE remains a useful comparison during that
-work. No classic player-movement or Quake 3 qagame-physics conversion is implied.
+active-scene save/load and many-body CPU/bandwidth checks. ODE remains a useful
+comparison during that work. No classic player-movement or Quake 3 qagame-physics conversion is implied.

@@ -514,7 +514,9 @@ static void offset_mesh_contacts() {
             "offset mesh origin and swept kinematic contacts survive COM centering");
     fte_jolt_destroy(w);
 }
+#include "jolt_animation.h"
 int main() {
+    animation_blending();
     offset_mesh_contacts();
     std::printf("Jolt %s production adapter tests\n",fte_jolt_version());
     primitives();mesh_and_ccd();lifecycle_forces_and_filters();validation_and_timestep();contacts_and_materials();constraints();dual_axis_constraints();suspension_controls();kinematic_motion();convex_and_compound();animation_handoff();

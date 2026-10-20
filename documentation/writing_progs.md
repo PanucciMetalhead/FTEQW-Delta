@@ -680,10 +680,14 @@ absolute simulated pose into a separate relative render skeleton with
 `skel_copybones`; set the rendered entity's `.basebone = -1` to use the existing
 bone networking. Local body offsets/rotations, orientation targets and joint pivot
 offsets are supported. Jolt `.doll` bodies use `animate 1` for kinematic animation
-and `animate 0` for passive physics. Supply a separate relative animation skeleton
-to `skel_ragupdate` each frame. `animatebody name 0/1` changes one body's control;
-`animate 0/1` releases all bodies or restores the authored mask. Release retains
-pose/joints and recent driven velocity; fractional blending is unsupported.
+and `animate 0` for passive physics. Intermediate strengths use dynamic position
+and orientation motors with finite force, so contacts and joints can resist them.
+Supply a separate relative animation skeleton to `skel_ragupdate` each frame.
+`animatebody name strength` sets one body's strength in `[0,1]`; `animate strength`
+scales the authored mask, with 0 releasing it and 1 restoring its authored values.
+Release retains pose/joints and actual physical velocity (recent driven velocity
+for kinematic bodies). A strength below 1 provides collision resistance; exact
+kinematic control at 1 retains its earlier behavior.
 See [mixed rigs](JoltPhysics.md#mixed-animation-and-passive-bones) for return values,
 transition limits and a repeatable test. `cleardoll` releases a rig to resume
 authored animation; a
@@ -1024,10 +1028,10 @@ page for a symbol's exact name instead of guessing a builtin number.
 This snapshot lists **2017 distinct names** in **2131 declarations** across the four VM interfaces.
 
 <!-- Export SHA-256 hashes for reproducibility:
-nq_api.qc: 687a44bb029f5331888788ec017ff80d1f38db5aa5ac3df10713fb52ba43ca29
-qw_api.qc: 8aec65c118a6e68d3a4b75c3925dc8b0b15705372acea73652fc1b212ee6ee2a
-cs_api.qc: 832df0e4137d8931778f917de3a61c84076fd55cef90586b0af74f99e95221ae
-menu_api.qc: 13718f29783d9987c5cd4e82eb0221200101ecf14516b462c1252f7ce6e6245b
+nq_api.qc: f1f344b04c8b1585837bb22445a015573860ff1ac75beae86d357f545a632b61
+qw_api.qc: 0cb42a09fa4a6ae6a9d958ba5050224cdf57897fe61a79730520bd53e1e57101
+cs_api.qc: f416e031da0359ae468752aaf772ceae0b18611a19fad3199177b4fdd7a78d2a
+menu_api.qc: 339b1369bc783b2dcb6d1d328766915146a19724b9de83e35336fdb3ba0a8fd7
 -->
 
 ### Engine functions (builtins)
@@ -6622,7 +6626,7 @@ Part of FTE_CSQC_SKELETONOBJECTS Transforms an entire consecutive range of bones
 float(entity skelent, string dollcmd, float animskel) skel_ragupdate = #281;
 ```
 
-Part of FTE_QC_RAGDOLL_WIP Updates the skeletal object attached to the entity according to its origin and other properties. if animskel is non-zero, the ragdoll will animate towards the bone state in the animskel skeletal object, otherwise they will pick up the model's base pose which may not give nice results. If dollcmd is not set, the ragdoll will update (this should be done each frame). If the doll is updated without having a valid doll, the model's default .doll will be instanciated. commands: doll foo.doll : sets up the entity to use the named doll file dollstring TEXT : uses the doll file directly embedded within qc, with that extra prefix. cleardoll : uninstanciates the doll without destroying the skeletal object. animate 0 or 1 : disables or restores the doll default animation mask. animatebody somebody 0 or 1 : makes that body passive or animation-driven. Jolt uses kinematic targets, retains joints, and inherits recent driven velocity when released. Update animskel and call this builtin every frame. Fractional strengths are unsupported by Jolt; legacy backends may accept them. enablejoint somejoint 1 : enables (or disables) a joint. Disabling joints will allow the doll to shatter.
+Part of FTE_QC_RAGDOLL_WIP Updates the skeletal object attached to the entity according to its origin and other properties. if animskel is non-zero, the ragdoll will animate towards the bone state in the animskel skeletal object, otherwise they will pick up the model's base pose which may not give nice results. If dollcmd is not set, the ragdoll will update (this should be done each frame). If the doll is updated without having a valid doll, the model's default .doll will be instanciated. commands: doll foo.doll : sets up the entity to use the named doll file dollstring TEXT : uses the doll file directly embedded within qc, with that extra prefix. cleardoll : uninstanciates the doll without destroying the skeletal object. animate strength : scales the doll default animation mask; 0 releases it, 1 restores authored strengths. animatebody somebody strength : sets one body's animation strength. Jolt accepts finite strengths in [0,1]: 0 is passive, 1 exact kinematic control, intermediate strengths use force-limited dynamic position/orientation motors that obey contacts and joints. Update animskel and call this builtin every frame. Release retains physical velocity (recent driven velocity for kinematic control). Strength changes retain the body pose and authored joints. enablejoint somejoint 1 : enables (or disables) a joint. Disabling joints will allow the doll to shatter.
 
 #### `skel_set_bone`
 

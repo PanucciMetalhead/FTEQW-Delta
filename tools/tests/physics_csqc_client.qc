@@ -14,6 +14,7 @@ void() renderscene=#304;
 entity actor,shown,dropped,masked,recycled,lift,rider;
 float source,elapsed,phase,touches,deleted,modelid,last_x,release_z;
 float ready,views,simulation_ticks,run_id,capture_mask;
+float blend_started,soft_z;
 void(string label) capture = {
     if(cvar("csqc_fixture_capture")) localcmd(strcat("screenshot ",strcat(cvar("csqc_fixture_shared")?"csqc-listen-":"csqc-remote-",ftos(run_id),strcat("-",label,".png\n"))));
 };
@@ -62,7 +63,7 @@ void() CSQC_WorldLoaded = {
 void() StartFrame = {
     local vector top,mid,tip,draw;
     local float i;
-    if(!ready || phase==4) return;
+    if(!ready || phase==7) return;
     elapsed+=frametime;
     if(phase==2) {
         verify(physics_supported()==0,"client backend remains stopped across server ticks");
@@ -113,7 +114,22 @@ void() StartFrame = {
         verify(fabs(top_z-64)<.1,"restarted client animation target is valid");
         verify(views>0 && simulation_ticks>180,"view and physics callbacks both execute");
         capture("restored");
-        print("CSQC_PHYSICS_OK\n");phase=4;
+        verify(skel_ragupdate(actor,"animatebody top .5",source)==1,"client fractional strength accepted");
+        skel_set_bone(source,1,'80 0 96','1 0 0','0 -1 0','0 0 1');
+        blend_started=elapsed;phase=4;
+    } else if(phase==4 && elapsed>blend_started+.7) {
+        verify(fabs(top_x-80)<2 && top_z>85 && top_z<97,"client fractional motor follows target with gravity compliance");
+        verify(fabs(vlen(mid-top)-32)<2 && fabs(vlen(tip-mid)-32)<2,"client fractional rig retains joints");
+        capture("blended");soft_z=top_z;
+        verify(skel_ragupdate(actor,"animate 0",source)==1,"client fractional motors release");
+        blend_started=elapsed;phase=5;
+    } else if(phase==5 && elapsed>blend_started+.35) {
+        verify(top_z<soft_z-25,"client fractional release falls");capture("blend-released");
+        skel_set_bone(source,1,top,'1 0 0','0 -1 0','0 0 1');
+        verify(skel_ragupdate(actor,"animatebody top .5",source)==1,"client fractional motor reacquires physical pose");
+        blend_started=elapsed;phase=6;
+    } else if(phase==6 && elapsed>blend_started+.3) {
+        print("CSQC_FRACTIONAL_OK\nCSQC_PHYSICS_OK\n");phase=7;
         localcmd("csqc_next\n");
     }
 };

@@ -1330,7 +1330,7 @@ static qboolean rag_setanimation(skelobject_t *sko, int body, float strength)
         for (i = first; i < end; i++)
         {
             float value = body < 0 ? sko->doll->body[i].animate * strength : strength;
-            if (value != 0 && value != 1)
+            if (!isfinite(value) || value < 0 || value > 1)
                 return false;
         }
         for (i = first; i < end; i++)
@@ -1357,9 +1357,9 @@ static qboolean rag_animationarg(skelobject_t *sko, const char *text, float *str
     {
         char *end;
         double value = strtod(text, &end);
-        if (!*text || *end || (value != 0 && value != 1))
+        if (!*text || *end || !isfinite(value) || value < 0 || value > 1)
         {
-            Con_Printf("This physics backend requires animation strength 0 or 1.\n");
+            Con_Printf("This physics backend requires animation strength in [0,1].\n");
             return false;
         }
         *strength = value;
@@ -2030,9 +2030,9 @@ void QCBUILTIN PF_skel_ragedit(pubprogfuncs_t *prinst, struct globalvars_s *pr_g
 			int i;
 			// Reject unsupported masks before releasing an existing valid rig.
 			for (i = 0; i < doll->numbodies; i++)
-				if (doll->body[i].animate != 0 && doll->body[i].animate != 1)
+				if (!isfinite(doll->body[i].animate) || doll->body[i].animate < 0 || doll->body[i].animate > 1)
 				{
-					Con_Printf("This physics backend requires .doll animate 0 or 1.\n");
+					Con_Printf("This physics backend requires .doll animate in [0,1].\n");
 					return;
 				}
 		}

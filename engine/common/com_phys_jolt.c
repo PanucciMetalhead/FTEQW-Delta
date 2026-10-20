@@ -353,10 +353,8 @@ static qboolean QDECL rag_matrix_to_body(rbebody_t *slot,float *matrix) {
 }
 static qboolean QDECL rag_set_animation(rbebody_t *slot,float strength) {
     jolt_rag_body_t *body=(jolt_rag_body_t*)slot->body;
-    if(strength!=0 && strength!=1) {Con_Printf("Jolt animation strength must be 0 or 1.\n");return qfalse;}
     if(!body || !body->handle || !body->world->rbe) return qfalse;
-    return fte_jolt_motion(context(body->world)->simulation,body->handle,
-        strength?FTE_JOLT_KINEMATIC:FTE_JOLT_DYNAMIC)?qtrue:qfalse;
+    return fte_jolt_animate(context(body->world)->simulation,body->handle,strength)?qtrue:qfalse;
 }
 static qboolean QDECL rag_animate_body(rbebody_t *slot,float *matrix) {
     jolt_rag_body_t *body=(jolt_rag_body_t*)slot->body;fte_jolt_state state;
@@ -365,8 +363,8 @@ static qboolean QDECL rag_animate_body(rbebody_t *slot,float *matrix) {
 }
 static qboolean QDECL rag_create_body(world_t *world,rbebody_t *slot,rbebodyinfo_t *info,float *matrix,wedict_t *entity) {
     jolt_context_t *ctx=context(world);jolt_rag_body_t *body;fte_jolt_desc desc;float radius;
-    if(info->animate!=0 && info->animate!=1) {
-        Con_Printf("Jolt ragdoll body %s: animate must be 0 or 1.\n",info->name);return qfalse;
+    if(!isfinite(info->animate) || info->animate<0 || info->animate>1) {
+        Con_Printf("Jolt ragdoll body %s: animate must be in [0,1].\n",info->name);return qfalse;
     }
     // Build all constraints while dynamic, then apply the authored animation mask.
     memset(&desc,0,sizeof(desc));desc.motion=FTE_JOLT_DYNAMIC;desc.mass=info->mass;

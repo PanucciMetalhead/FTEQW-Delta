@@ -61,7 +61,7 @@ typedef struct {
     float position[3], normal[3]; /* normal pushes body2 away from body1 */
 } fte_jolt_contact;
 typedef struct {
-    unsigned bodies, active, steps, contact_overflows, joints, collision_steps;
+    unsigned bodies, active, steps, contact_overflows, joints, collision_steps, animation_motors;
     double simulated_time, dropped_time;
 } fte_jolt_stats;
 fte_jolt_world *fte_jolt_create(unsigned max_bodies, unsigned hz, unsigned max_steps);
@@ -79,13 +79,21 @@ int fte_jolt_joint_frame(fte_jolt_world *world,fte_jolt_joint joint,fte_jolt_sta
 int fte_jolt_remove(fte_jolt_world *world, fte_jolt_body body);
 int fte_jolt_get(fte_jolt_world *world, fte_jolt_body body, fte_jolt_state *state);
 int fte_jolt_set(fte_jolt_world *world, fte_jolt_body body, const fte_jolt_state *state);
-/* Queue an authoritative kinematic pose. The next advancing step interpolates
- * to the latest target across its fixed ticks; partial steps retain the target.
- * Velocities are derived from poses and cleared after arrival. fte_jolt_set is
- * an explicit teleport and cancels a pending target. */
+/* Queue an animation pose for a kinematic or fractionally driven dynamic body.
+ * The next advancing step interpolates to the latest target across its fixed
+ * ticks; partial steps retain the target. Kinematic velocities are derived from
+ * poses and cleared after arrival; fractional bodies retain physical velocity.
+ * fte_jolt_set is an explicit teleport and cancels a pending target. */
 int fte_jolt_move(fte_jolt_world *world, fte_jolt_body body, const fte_jolt_state *target);
-/* Switch dynamic/kinematic convex bodies in place. Release inherits the last
- * completed target's velocity; an advancing idle tick clears that velocity.
+/* Animation strength in [0,1]: 0 passive, 1 exact kinematic animation;
+ * intermediate values use dynamic position/orientation motors with finite force.
+ * Retains body/joint identity and pose. A fractional release retains actual
+ * physical velocity. Targets are submitted with move(), held between updates,
+ * and limited to +/-10000000 Quake units for stable world-space motors. */
+int fte_jolt_animate(fte_jolt_world *, fte_jolt_body, float strength);
+/* Switch dynamic/kinematic convex bodies in place (also disables any motor).
+ * Kinematic release inherits the last completed target's velocity; an advancing
+ * idle tick clears that velocity. Dynamic release retains physical velocity.
  * Static bodies and triangle meshes cannot become dynamic. */
 int fte_jolt_motion(fte_jolt_world *, fte_jolt_body, int motion);
 int fte_jolt_material(fte_jolt_world *world, fte_jolt_body body,
