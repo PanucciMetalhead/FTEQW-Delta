@@ -493,7 +493,29 @@ static void animation_handoff() {
     require(fte_jolt_joint_remove(w,link)!=0,"remove retained constraint");
     fte_jolt_destroy(w);
 }
+static void offset_mesh_contacts() {
+    for(float height : {0.f,992.f}) for(float width : {512.f,1024.f}) for(float x : {0.f,-240.f}) for(float size : {8.f,16.f,32.f}) {
+        auto *w=world();auto d=box(height,FTE_JOLT_STATIC);d.shape=FTE_JOLT_MESH;
+        const float v[]={-width,-width,-height,-width,width,-height,width,width,-height,width,-width,-height};
+        const int ix[]={2,1,0,3,2,0};d.vertices=v;d.vertex_count=4;d.indices=ix;d.triangle_count=2;
+        auto mesh=add(w,d);require(std::fabs(state(w,mesh).position[2]-height)<1e-5,"mesh centering preserves caller origin");
+        d=box(128);d.size[0]=d.size[1]=d.size[2]=size;d.mass=1;d.state.position[0]=x;
+        auto body=add(w,d);advance(w,120,.01);auto result=state(w,body);
+        require(std::fabs(result.position[2]-size*.5f)<.8 && std::fabs(result.velocity[2])<1,
+                "small convex lands on offset/centered mesh, on and off its diagonal");
+        fte_jolt_destroy(w);
+    }
+    auto *w=world();auto d=box(192,FTE_JOLT_KINEMATIC);d.shape=FTE_JOLT_MESH;
+    const float vertices[]={-128,-128,-128,128,-128,-128,128,128,-128,-128,128,-128};
+    const int indices[]={0,1,2,0,2,3};d.vertices=vertices;d.vertex_count=4;d.indices=indices;d.triangle_count=2;
+    auto lift=add(w,d);d=box(72);d.size[0]=d.size[1]=d.size[2]=16;auto rider=add(w,d);advance(w,120);
+    for(int i=1;i<=60;i++) move_to(w,lift,target(w,lift,0,0,192+i*.5f));
+    require(std::fabs(state(w,lift).position[2]-222)<.001 && std::fabs(state(w,rider).position[2]-102)<1,
+            "offset mesh origin and swept kinematic contacts survive COM centering");
+    fte_jolt_destroy(w);
+}
 int main() {
+    offset_mesh_contacts();
     std::printf("Jolt %s production adapter tests\n",fte_jolt_version());
     primitives();mesh_and_ccd();lifecycle_forces_and_filters();validation_and_timestep();contacts_and_materials();constraints();dual_axis_constraints();suspension_controls();kinematic_motion();convex_and_compound();animation_handoff();
 #ifdef FTE_TEST_ODE

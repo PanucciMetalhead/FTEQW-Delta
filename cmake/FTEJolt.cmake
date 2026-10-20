@@ -45,7 +45,13 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
 elseif(MSVC)
     target_compile_options(fte-jolt-adapter PRIVATE /W4)
 endif()
-add_library(plug_jolt MODULE plugins/plugin.c engine/common/com_phys_jolt.c)
+# CLIENTONLY removes VM_Q1 and combines entity field blocks. Compile a second
+# small C bridge with that layout; one module selects the strictly matching ABI.
+# The simulation/adapter remain a single shared C++ implementation.
+add_library(fte-jolt-client-glue OBJECT engine/common/com_phys_jolt.c)
+set_target_properties(fte-jolt-client-glue PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_compile_definitions(fte-jolt-client-glue PRIVATE FTEPLUGIN CLIENTONLY FTE_JOLT_CLIENT_GLUE ${FTE_LIB_DEFINES})
+add_library(plug_jolt MODULE plugins/plugin.c engine/common/com_phys_jolt.c $<TARGET_OBJECTS:fte-jolt-client-glue>)
 target_compile_definitions(plug_jolt PRIVATE FTEPLUGIN ${FTE_LIB_DEFINES})
 target_link_libraries(plug_jolt PRIVATE fte-jolt-adapter ${SYS_LIBS})
 EMBED_PLUGIN_META(jolt "Jolt Physics (experimental)" "Opt-in rigid props, point/fixed/hinge/slider/universal/hinge2 joints, and experimental skeletal rigs.")

@@ -367,3 +367,29 @@ releases, queued-torque cancellation and invalid/stale/cross-world transitions.
 These run in Debug, Release and ASan/UBSan configurations. Shared skeleton code
 uses optional backend callbacks; ODE/Bullet retain their existing animation path.
 The rigid-body ABI is now 5, requiring physics plugins to be rebuilt with the host.
+
+
+The independent-client milestone adds `jolt-csqc`, using real headless client
+executables and original QuakeC/BSP/MD5 assets. A full client holds server and
+client Jolt worlds concurrently; a client-only executable reconnects to a private
+loopback server. Both reject cross-world skeleton access and exercise fixed-tick
+`frametime`, contact callbacks that remove entities, pending-force cleanup,
+collision dimensions, brush lifts, mixed rigs, isolated backend restart and
+shutdown with live native objects. Map and plugin reloads repeat these checks.
+One module selects a strictly checked split or combined native entity layout;
+unknown layouts remain rejected. Desktop failure artifacts now retain these
+client logs and the earlier mixed-rig logs.
+
+A direct adapter regression reproduces small convex bodies falling through an
+offset thin mesh. Centering mesh triangles and preserving the caller's origin
+with a translated shape fixes that case. The regression varies floor extents,
+origins, body sizes and contact locations, checks stationary origins and verifies
+an offset kinematic mesh lift still carries a rider. Native Metal captures add
+rendered mixed/released/restored poses to the numeric headless assertions.
+
+The client-only fixture uses a separate install with no local client gamecode,
+forcing checksum-named CSQC download/completion and cache reuse on reconnect.
+ASan exposed a download-completion read of `dl->fsroot` after `DL_Abort` had freed
+the record; the handler now captures that flag before releasing the record.
+The test runner waits for sanitizer reports to finish before terminating a
+failed process, preserving useful allocation/free stacks in the retained logs.

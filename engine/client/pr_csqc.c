@@ -7335,6 +7335,7 @@ static struct {
 //	{"undefined",				PF_Fixme,					539},
 
 #ifdef USERBE
+	{"physics_supported",		PF_physics_supported,		0},
 	{"physics_enable",			PF_physics_enable,			540},
 	{"physics_addforce",		PF_physics_addforce,		541},
 	{"physics_addtorque",		PF_physics_addtorque,		542},
@@ -8761,12 +8762,12 @@ qboolean CSQC_DrawView(void)
 	}
 	else if (*csqc_world.g.physics_mode)
 	{
-#ifdef USERBE
-		if (csqc_world.rbe)
-			maxtic = mintic;	//physics engines need a fixed tick rate.
-#endif
 		while(1)
 		{
+#ifdef USERBE
+			// Gamecode can stop or restart its backend during StartFrame.
+			maxtic = csqc_world.rbe ? mintic : 0.1;
+#endif
 			host_frametime = cl.servertime - csqc_world.physicstime;
 			if (host_frametime < mintic)
 				break;
@@ -8777,6 +8778,11 @@ qboolean CSQC_DrawView(void)
 			}
 			if (host_frametime > maxtic)
 				host_frametime = maxtic;
+
+			// QuakeC and entity thinks must use the same tick as the solver, even
+			// when several physics ticks run during a single render frame.
+			if (csqcg.frametime)
+				*csqcg.frametime = host_frametime;
 
 			// let the progs know that a new frame has started
 			if (csqcg.StartFrame)

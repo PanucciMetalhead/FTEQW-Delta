@@ -1642,6 +1642,20 @@ if(BUILD_TESTING AND TARGET fte-jolt-adapter)
                 --plugin $<TARGET_FILE:plug_jolt>
                 --out "${CMAKE_BINARY_DIR}/physics-mixed/$<CONFIG>")
         set_tests_properties(jolt-mixed PROPERTIES TIMEOUT 150)
+        if(TARGET fteqw)
+            set(fte_jolt_client_args)
+            list(APPEND fte_jolt_check_deps fteqw)
+            if(TARGET fteqw-cl)
+                list(APPEND fte_jolt_check_deps fteqw-cl)
+                list(APPEND fte_jolt_client_args --client-only $<TARGET_FILE:fteqw-cl>)
+            endif()
+            add_test(NAME jolt-csqc
+                COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/physics_csqc.py"
+                    --engine $<TARGET_FILE:fteqw> --server $<TARGET_FILE:fteqw-sv>
+                    --qcc $<TARGET_FILE:fteqcc> --plugin $<TARGET_FILE:plug_jolt>
+                    ${fte_jolt_client_args} --out "${CMAKE_BINARY_DIR}/physics-csqc/$<CONFIG>")
+            set_tests_properties(jolt-csqc PROPERTIES TIMEOUT 180)
+        endif()
     endif()
     add_custom_target(jolt-check-deps DEPENDS ${fte_jolt_check_deps})
 endif()

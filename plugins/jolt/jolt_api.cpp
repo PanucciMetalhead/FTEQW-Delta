@@ -412,12 +412,27 @@ JPH::RefConst<JPH::Shape> make_shape(fte_jolt_world *w, const fte_jolt_desc &d) 
             }
             triangles.emplace_back(p[0], p[1], p[2]);
         }
+        // MeshShape keeps its supplied origin as its center of mass. Center the
+        // actual triangles, then preserve the caller's origin with a wrapper.
+        // An empty BSP extent can otherwise put a thin floor far from its COM;
+        // small convex contacts can acquire a reversed EPA normal and fall through.
+        JPH::Vec3 low = JPH::Vec3::sReplicate(FLT_MAX), high = -low;
+        for (const auto &vertex : vertices) {
+            auto point = JPH::Vec3(vertex.x, vertex.y, vertex.z);
+            low = JPH::Vec3::sMin(low, point);
+            high = JPH::Vec3::sMax(high, point);
+        }
+        auto center = (low + high) * .5f;
+        for (auto &vertex : vertices) {
+            auto point = JPH::Vec3(vertex.x, vertex.y, vertex.z) - center;
+            point.StoreFloat3(&vertex);
+        }
         auto result = JPH::MeshShapeSettings(std::move(vertices), std::move(triangles)).Create();
         if (result.HasError()) {
             w->fail(result.GetError().c_str());
             return nullptr;
         }
-        return result.Get();
+        return new JPH::RotatedTranslatedShape(center, JPH::Quat::sIdentity(), result.Get());
     }
     if (!finite3(d.size) || d.size[0] < .25f || d.size[1] < .25f || d.size[2] < .25f) {
         w->fail("Primitive body dimensions must be finite and at least 0.25 Quake "
@@ -548,7 +563,8 @@ fte_jolt_body fte_jolt_add(fte_jolt_world *w, const fte_jolt_desc *d) {
     w->bodies.emplace(token, Record{id, d->motion, d->entity, d->owner, d->solid_mask, d->hit_mask,
                                     d->collision_family, d->is_proxy != 0});
     auto &record = w->bodies.at(token);
-    record.radius = shape->GetLocalBounds().GetExtent().Length();
+    record.radius =
+        shape->GetLocalBounds().GetCenter().Length() + shape->GetLocalBounds().GetExtent().Length();
     record.inner_radius = shape->GetInnerRadius();
     record.can_be_dynamic = d->shape != FTE_JOLT_MESH;
     api.AddBody(id, d->motion ? JPH::EActivation::Activate : JPH::EActivation::DontActivate);

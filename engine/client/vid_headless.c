@@ -83,6 +83,9 @@ LRESULT CALLBACK HeadlessWndProc(HWND wnd, UINT msg, WPARAM wparam, LPARAM lpara
 static qboolean Headless_VID_Init				(rendererstate_t *info, unsigned char *palette)
 {
 	memset(&sh_config, 0, sizeof(sh_config));
+	// A null display still needs a finite viewport for client gamecode.
+	vid.width = vid.fbvwidth = vid.pixelwidth = vid.rotpixelwidth = vid.fbpwidth = info->width > 0 ? info->width : 640;
+	vid.height = vid.fbvheight = vid.pixelheight = vid.rotpixelheight = vid.fbpheight = info->height > 0 ? info->height : 480;
 
 #ifdef FTE_SDL
 		thetray = SDL_CreateTray(NULL, fs_manifest->formalname);
@@ -93,8 +96,9 @@ static qboolean Headless_VID_Init				(rendererstate_t *info, unsigned char *pale
 			SDL_SetTrayEntryCallback(entry, Headless_Restore, NULL);
 			return true;
 		}
-		Con_Printf(CON_ERROR"Headless: Unable to create system tray icon for restoring.\n");
-		return false;
+		// CI and displayless hosts need no tray; the console can restore rendering.
+		Con_Printf("Headless: system tray unavailable; console renderer controls remain available.\n");
+		return true;
 #elif defined(_WIN32)
 	//tray icon crap, so the user can still restore the game.
 	extern HWND	mainwindow;
@@ -195,6 +199,10 @@ static char	*Headless_VID_GetRGBInfo			(int *bytestride, int *truevidwidth, int 
 }
 static qboolean	Headless_SCR_UpdateScreen			(void)
 {
+#ifdef CSQC_DAT
+	// Keep client gamecode and its independent physics world alive without a GPU.
+	CSQC_DrawView();
+#endif
 	if (!cls.timedemo)
 	{
 #ifdef FTE_SDL

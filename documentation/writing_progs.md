@@ -694,7 +694,14 @@ linear suspension uses the fork-only `joint_suspension_stiffness` and
 `SuspensionDamping` directives. They require Jolt and do not affect ordinary
 player physics. Engine-controlled pushers also carry/push Jolt props and skeletal
 bodies; they retain engine movement and blocking rules for ordinary entities.
-Jolt props do not trigger automatic door rollback or crush damage. Irregular props
+Jolt props do not trigger automatic door rollback or crush damage.
+CSQC can explicitly create local physics props and rigs after `CSQC_WorldLoaded`,
+with `physics_mode = 2` and the Jolt plugin enabled locally. `physics_supported`
+queries/restarts only the calling VM's world; client and server skeleton handles
+are separate. Client simulation does not replicate or affect server players.
+CSQC `StartFrame`/think/`EndFrame` receive the actual physics tick in `frametime`;
+view callbacks retain render timing. See [independent CSQC physics](JoltPhysics.md#independent-csqc-physics)
+for setup, lifecycle rules and repeatable tests. Irregular props
 can explicitly choose `GEOMTYPE_CONVEX` for a creation-pose model hull or
 `GEOMTYPE_COMPOUND` with a `physics_shape` recipe under `progs/`. Compounds preserve
 authored gaps; one convex hull fills them. See [the shape guide](JoltPhysics.md#irregular-dynamic-props)
@@ -1017,10 +1024,10 @@ page for a symbol's exact name instead of guessing a builtin number.
 This snapshot lists **2017 distinct names** in **2131 declarations** across the four VM interfaces.
 
 <!-- Export SHA-256 hashes for reproducibility:
-nq_api.qc: 6a38c7af355b4f9bbc338606238c05dd62c5d65b968bbae1e85d74e12c50c7bc
-qw_api.qc: 9e2cdc11e279fb4ea8e66cfdfcd5b16ff14ec87ebc6ab3a732b2e7ef162dbe9e
-cs_api.qc: e5629f1b9a1bf99ccc2a6499e2040081bc9d74017ef9949842652ae5627456ce
-menu_api.qc: 8c57ced4143c0b3d2d5382187432c6c5778fa691189d4bc934f65fc42449ec79
+nq_api.qc: 687a44bb029f5331888788ec017ff80d1f38db5aa5ac3df10713fb52ba43ca29
+qw_api.qc: 8aec65c118a6e68d3a4b75c3925dc8b0b15705372acea73652fc1b212ee6ee2a
+cs_api.qc: 832df0e4137d8931778f917de3a61c84076fd55cef90586b0af74f99e95221ae
+menu_api.qc: 13718f29783d9987c5cd4e82eb0221200101ecf14516b462c1252f7ce6e6245b
 -->
 
 ### Engine functions (builtins)
@@ -5179,7 +5186,7 @@ Enable or disable the physics attached to a MOVETYPE_PHYSICS entity. Entities wh
 
 #### `physics_supported`
 
-**Scope:** NQ SSQC, QW SSQC. **Compatibility:** Unnumbered/FTE binding.
+**Scope:** NQ SSQC, QW SSQC, CSQC. **Compatibility:** Unnumbered/FTE binding.
 
 ```qc
 float(optional float forcestate) physics_supported = #0:physics_supported;

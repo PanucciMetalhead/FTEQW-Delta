@@ -6,6 +6,13 @@
 #include "pr_common.h"
 #include "../../plugins/jolt/jolt_api.h"
 
+#ifdef FTE_JOLT_CLIENT_GLUE
+#define JOLT_PLUGIN_INIT Jolt_InitClient
+#else
+qboolean Jolt_InitClient(void);
+#define JOLT_PLUGIN_INIT Plug_Init
+#endif
+
 #ifdef USERBE
 static rbeplugfuncs_t *rbeapi;
 static plugfsfuncs_t *jolt_fs;
@@ -548,10 +555,14 @@ static void QDECL start_world(world_t *world) {
 static void QDECL shutdown_plugin(void) {
     if (jolt_registered) {jolt_registered=qfalse;rbeapi->UnregisterPhysicsEngine("Jolt");}
 }
-qboolean Plug_Init(void) {
+qboolean JOLT_PLUGIN_INIT(void) {
     rbeapi=plugfuncs->GetEngineInterface(plugrbefuncs_name,sizeof(*rbeapi));
     if (!RBE_Compatible(rbeapi)) {
+#ifndef FTE_JOLT_CLIENT_GLUE
+        return Jolt_InitClient();
+#else
         Con_Printf("Jolt: incompatible rigid-body plugin interface.\n");return qfalse;
+#endif
     }
     jolt_fs=plugfuncs->GetEngineInterface(plugfsfuncs_name,sizeof(*jolt_fs));
     if(!jolt_fs) {Con_Printf("Jolt: filesystem interface unavailable.\n");return qfalse;}
@@ -565,5 +576,5 @@ qboolean Plug_Init(void) {
     return qtrue;
 }
 #else
-qboolean Plug_Init(void) {return qfalse;}
+qboolean JOLT_PLUGIN_INIT(void) {return qfalse;}
 #endif

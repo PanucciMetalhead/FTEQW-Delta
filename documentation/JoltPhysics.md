@@ -62,11 +62,14 @@ cmake --build build/jolt --target fteqw jolt-check-deps --config Debug --paralle
 ctest --test-dir build/jolt -C Debug -R 'jolt-' --output-on-failure
 ```
 
-For a headless test build, add `-DFTE_ENGINE=OFF
+For server-only physics tests, add `-DFTE_ENGINE=OFF
 -DFTE_ENGINE_SERVER_ONLY=ON` and omit `fteqw` from the build targets.
 Multi-configuration generators put binaries under `build/jolt/Debug`; the
 plugin must remain beside the engine executable. Rigid-body plugin ABI 5 checks
-entity, joint and backend interface layout sizes; rebuild physics plugins together with this engine.
+entity, joint and backend interface layout sizes; rebuild physics plugins together
+with this engine. The same module supports full, dedicated and client-only hosts.
+It contains two small C bridges for the split/combined entity-field layouts and
+selects only an exact ABI match; the Jolt solver and C++ adapter are shared.
 Older ABI 1/2/3/4 modules are rejected before their callbacks are used. The Jolt
 module is `fteplug_jolt.so` on
 macOS/Linux or `fteplug_jolt.dll` on Windows. Jolt is statically linked into the
@@ -303,6 +306,7 @@ The `jolt-` tests are:
 | `jolt-c-boundary` | A real C17 translation unit creates/steps/destroys the C++ backend and creates/toggles/removes a joint through its C ABI. |
 | `jolt-backend` | All primitive shapes, static mesh/CCD, unit conversions, gravity, forces/torque/impulses, partial steps, sleeping/waking, owner/dimension filters, cached-contact changes, stacking, restitution/friction, invalid input, stale/cross-world handles, capacity limits, repeated worlds and fixed-step behavior at 60/144 frame rates. World/body constraints, angular/linear limits and motors, joint frames, connected collision exclusion, dependent-joint removal and repeated multi-body teardown. Suspension load/deflection, damping energy loss, arbitrary-axis forces, live spring edits preserving rest anchors, invalid edits, disabled joints and rigid-pivot restoration. Dynamic/kinematic handoffs preserve pose, mass, inertia and joints; releases inherit driven linear/angular velocity, idle releases stop, and stale/cross-world/unsupported requests are rejected. Optional ODE free-fall comparison. |
 | `jolt-shapes` | Original MD5 models and authored compound recipes through real SSQC; hull stacks, opening preservation, scale, recipe-path rebuilds, bounded malformed-input rejection/recovery and map/plugin reload. |
+| `jolt-csqc` | Real headless full client and optional client-only executable, simultaneous independent SSQC/CSQC worlds, cross-world skeleton rejection, fixed tick globals, floor/dimension contacts, deletion from touch, queued-force cleanup, moving brushes, mixed rigs, client-only backend restart, map/plugin reload and disconnect/reconnect. No owned assets or GPU required. |
 | `jolt-mixed` | Original three-bone SSQC rig: driven root, passive connected bones, prop contacts, per-body and default-mask handoffs, invalid strengths, render-pose copying, backend restart, entity reuse and map/plugin reload. |
 | `jolt-kinematic` | Original inline BSP brush and real SSQC: classic-vs-Jolt lift carrying, sleeping prop and skeletal-body transport, rotating brushes, blocked doors, deleting support, 60/120 Hz server steps, three map loads and plugin reload. |
 | `jolt-humanoid` | Original 24-bone mesh/animation and 16-body rig, actual animation changes, activation without position/orientation jumps, all-bone relative render copying, floor/stairs/slope/wall/overlap, repeated spawn/removal/animation transitions and live backend restart. No owned assets required. |
@@ -330,8 +334,8 @@ complete engine shutdown leak audit or a third-party ODE library audit.
 
 Local validation on Apple Silicon/macOS passes native Debug, Release and
 ASan/UBSan adapter, ABI and engine checks against the supplied Jolt checkout and Homebrew
-ODE. The complete native Debug build passes 9/9 CTest checks; the instrumented
-build passes 12/12, including 37 standalone source-based sanitizer fixtures. The native
+ODE. The complete native Debug build passes 10/10 CTest checks; the instrumented
+build passes 13/13, including 37 standalone source-based sanitizer fixtures. The native
 Metal demo also passed client connection, joint release and map-reload checks;
 its captured poses were visually inspected. Skeleton allocation without CSQC,
 world isolation, cache reuse and native/VM ownership have dedicated sanitizer
@@ -345,8 +349,8 @@ console output for redirected Windows logs. Clang-instrumented plugins resolve s
 instrumented host. Sanitizer-enabled Jolt hosts use the C++ linker driver so
 Clang also supplies its C++ UBSan runtime (vptr cache/handlers); engine sources
 still compile as C17. Ordinary plugin builds retain strict symbol resolution.
-Further work includes additional real-mod rigs, CSQC validation, physical animation blending, save/load and performance
-checks.
+Further work includes additional real-mod rigs, fractional physical animation
+blending, save/load and many-body performance/bandwidth checks.
 
 ## QuakeC joints and skeletal rigs
 
@@ -433,7 +437,7 @@ changing the existing mask. Authored `.doll` strengths must also be 0 or 1; an u
 rejected before replacing a live rig.
 Legacy ODE/Bullet backends retain their existing animation path. The native
 client's automatic frame-high-bit ragdoll path also switches body motion modes;
-independent CSQC simulation remains a separate validation gate.
+independent CSQC simulation is covered by the tests below.
 
 Run the asset-free engine regression directly with:
 
@@ -534,6 +538,85 @@ The output skeleton uses the existing relative-pose wire format; no protocol or
 player-prediction rules are changed. The demo and engine regression fixture show
 the complete original setup in `tools/tests/physics_fixture.qc`.
 
+## Independent CSQC physics
+
+CSQC owns its own Jolt world, entities, bodies and skeleton handles. Server
+physics remains authoritative for gameplay. A CSQC prop or rig is local to that
+client: it is not automatically replicated and does not push server players or
+server props. Receiving a server's skeletal pose is a separate path from running
+a local simulation.
+
+The client must explicitly load the native plugin and opt in before connecting:
+
+```text
+plug_load jolt
+physics_jolt_enabled 1
+```
+
+Inside a CSQC mod, use `physics_mode = 2` for ordinary entity movetypes and
+prepare local bodies/rigs in `CSQC_WorldLoaded`, once the map collision model is
+available. The existing `MOVETYPE_PHYSICS`, joint entities, `physics_addforce`,
+`physics_enable` and skeleton APIs operate on this client world. Update an
+animation source and call `skel_ragupdate` from `StartFrame`; use the resulting
+relative render skeleton with `addentity` from `CSQC_UpdateView`.
+
+`physics_supported()` is now registered in CSQC as well as SSQC. Calling it with
+0 releases only that VM's world; 1 requests a new world through the loaded,
+enabled backend. Existing rigs must be instantiated again after a restart.
+The native plugin is still loaded locally; server gamecode does not download
+or enable a native module for the user.
+
+With a rigid-body backend active at tick start, the CSQC physics loop uses
+0.01-second engine ticks, with Jolt retaining its own 120 Hz accumulator.
+`frametime` in `StartFrame`, entity thinks and `EndFrame` matches the actual
+engine physics tick. View callbacks retain their render-frame interval; use
+`clframetime` when you specifically need that interval. The tick cap is checked
+again after stopping/restarting a backend. Large render stalls still have the
+existing bounded catch-up behavior; this is not a new player-prediction scheme.
+
+The null renderer now runs CSQC callbacks too, with a finite viewport and no
+requirement for a system tray. This makes real client-world tests possible on
+CI without a display. Select it with `+vid_renderer headless` on the command
+line or `vid_renderer headless; vid_restart` from the console. It does not draw
+pixels or produce screenshots.
+
+Build the optional client-only executable too for the complete comparison:
+
+```sh
+cmake -S . -B build/jolt -DFTE_ENGINE_CLIENT_ONLY=ON
+cmake --build build/jolt --target jolt-check-deps --parallel
+ctest --test-dir build/jolt -R jolt-csqc --output-on-failure
+```
+
+Existing configuration values, including the Jolt source path, are retained by
+the configure command. The CTest case is registered when `fteqw` is built; it
+also exercises `fteqw-cl` when that target is enabled. That client uses a separate
+install without local CSQC, forcing real gamecode download, completion and cache
+reuse on reconnect. A server-only build skips
+this client test. The test uses original BSP/MD5/QuakeC fixtures and a private
+loopback connection, without installed Quake assets or public servers.
+
+For a native GPU run and screenshots, use:
+
+```sh
+python3 tools/physics_csqc.py --engine build/jolt/fteqw \
+  --client-only build/jolt/fteqw-cl --server build/jolt/fteqw-sv \
+  --qcc build/jolt/fteqcc --plugin build/jolt/fteplug_jolt.so \
+  --out build/csqc-gpu --gpu
+```
+
+Omit `--gpu` to run headlessly or `--client-only` to test just the listen host.
+The tool retains per-process logs, compiler logs and `results.json`; a GPU run
+also captures mixed, released and restored client poses for each map/connection
+cycle. Native Apple Silicon/Metal and ASan/UBSan have been exercised locally;
+Windows/Linux coverage comes from headless desktop CI after publication.
+
+The collision tests also cover small props above large thin BSP floors with
+geometry far from the model origin. Mesh triangles are centered internally to
+avoid unstable contact normals, with a translated shape wrapper preserving the
+engine-visible origin. Regression checks retain static origins, kinematic lift
+motion and contacts at multiple offsets, sizes and positions.
+
 ## Interactive local demo
 
 The demo uses an original map, mesh, texture and three-bone rig. It links only
@@ -618,6 +701,6 @@ softness and joint paths, so those fragments are not used as a correctness oracl
 Bullet and ODE will be removed, including their build options, plugins, source,
 console registrations and documentation references, once Jolt passes the
 replacement gates. Remaining gates include alternate joint-interface conventions,
-fractional physical animation blending, independent CSQC physics, active-scene save/load,
+fractional physical animation blending, active-scene save/load,
 and many-body CPU/bandwidth checks. ODE remains a useful comparison during that
 work. No classic player-movement or Quake 3 qagame-physics conversion is implied.

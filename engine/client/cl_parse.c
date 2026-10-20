@@ -807,6 +807,7 @@ void CL_DownloadFinished(qdownload_t *dl)
 {
 	int i;
 	char ext[8];
+	qboolean rootdownload;
 
 	char filename[MAX_QPATH];
 	char tempname[MAX_QPATH];
@@ -814,6 +815,8 @@ void CL_DownloadFinished(qdownload_t *dl)
 	Q_strncpyz(filename, dl->localname, sizeof(filename));
 	Q_strncpyz(tempname, dl->tempname, sizeof(tempname));
 
+	// DL_Abort releases non-HTTP download records. Preserve needed metadata first.
+	rootdownload = dl->fsroot == FS_ROOT;
 	DL_Abort(dl, QDL_COMPLETED);
 
 	FS_FlushFSHashWritten(filename);
@@ -822,7 +825,7 @@ void CL_DownloadFinished(qdownload_t *dl)
 
 
 	//should probably ask the filesytem code if its a package format instead.
-	if (!strncmp(filename, "package/", 8) || !strncmp(ext, "pk4", 3) || !strncmp(ext, "pk3", 3) || !strncmp(ext, "pak", 3) || (dl->fsroot == FS_ROOT))
+	if (!strncmp(filename, "package/", 8) || !strncmp(ext, "pk4", 3) || !strncmp(ext, "pk3", 3) || !strncmp(ext, "pak", 3) || rootdownload)
 	{
 		FS_ReloadPackFiles();
 		CL_CheckServerInfo();

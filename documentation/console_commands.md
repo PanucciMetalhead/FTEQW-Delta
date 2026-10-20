@@ -22,7 +22,11 @@ QuakeC; there cannot be a fixed exhaustive list for every possible mod.
 Quake 3 Arena/baseq3 and other mods may differ from the OpenArena entries
 shown here. Build options and optional plugins can also change availability.
 The experimental Jolt plugin adds the optional `physics_jolt_enabled` setting
-listed below; it is not present until `plug_load jolt`.
+listed below; it is not present until `plug_load jolt`. Client-side QuakeC can
+also opt into an independent local Jolt world; this does not enable physics on a
+remote server. `vid_renderer headless` now continues CSQC callbacks and local
+physics without rendering or requiring a system tray; it is useful for automated
+client tests. See [the CSQC physics guide](JoltPhysics.md#independent-csqc-physics).
 The tables combine registered engine settings with on-demand gamecode
 interfaces. User-created aliases and arbitrary user-created cvars are outside
 the fixed inventory.
