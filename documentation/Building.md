@@ -15,8 +15,11 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release --parallel
 ```
 
-For just the client, append `--target fteqw` to the build command. Multi-configuration
-Windows builds place executables in `build/Release`; single-configuration Ninja
+For just the client, append `--target fteqw` to the build command.
+Windows builds copy the shared SDL3 runtime DLL beside SDL-linked clients and
+image tools, so these build outputs run without adding SDL's installation prefix
+to `PATH`. Keep that DLL beside the executable when copying it elsewhere.
+Multi-configuration Windows builds place executables in `build/Release`; single-configuration Ninja
 and Makefile builds place them directly in `build`.
 
 ```sh

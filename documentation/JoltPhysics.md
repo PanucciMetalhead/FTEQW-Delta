@@ -37,9 +37,9 @@ The world itself stays static.
 multithreaded simulation, or Jolt state serialization. Unsupported rig joints
 reject the entire rig and roll back constructed bodies/joints. There is no
 promise of ODE-identical solver response or multiplayer determinism. SSQC and
-native Metal rendering are exercised; CSQC uses the shared interface but has
-not had a separate end-to-end validation run. Save/load of an actively simulated
-scene is not part of this milestone's validation.
+native Metal rendering and independent CSQC simulation have end-to-end validation
+coverage, including full and client-only executables. Save/load of an actively
+simulated scene is not part of this milestone's validation.
 
 ## Build
 
@@ -264,8 +264,8 @@ Pushers stay under ordinary engine/QuakeC control. Jolt prepares new collision
 proxies before entity physics, then simulates after the engine accepts or rolls
 back each pusher move. This uses actual poses rather than extrapolating requested
 velocity, so a classically blocked door does not sweep through its rejected path.
-Both SSQC and CSQC call the split phases; separate CSQC gameplay validation is
-still a remaining gate.
+Both SSQC and CSQC call the split phases. The independent `jolt-csqc` regression
+checks a moving brush lift carrying a client-side Jolt body.
 
 Jolt-controlled `MOVETYPE_PHYSICS` entities are excluded from classic pusher
 translation/rotation to avoid moving them twice. Their contacts and forces are
@@ -335,7 +335,7 @@ complete engine shutdown leak audit or a third-party ODE library audit.
 Local validation on Apple Silicon/macOS passes native Debug, Release and
 ASan/UBSan adapter, ABI and engine checks against the supplied Jolt checkout and Homebrew
 ODE. The complete native Debug build passes 10/10 CTest checks; the instrumented
-build passes 13/13, including 37 standalone source-based sanitizer fixtures. The native
+build passes 13/13, including 38 standalone source-based sanitizer fixtures. The native
 Metal demo also passed client connection, joint release and map-reload checks;
 its captured poses were visually inspected. Skeleton allocation without CSQC,
 world isolation, cache reuse and native/VM ownership have dedicated sanitizer

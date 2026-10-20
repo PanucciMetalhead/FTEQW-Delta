@@ -1545,6 +1545,24 @@ IF(FTE_CSADDON AND TARGET fteqcc AND Python3_Interpreter_FOUND)
 		DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/games/quake/id1/")
 ENDIF()
 
+# Windows does not search the SDL installation prefix for runtime DLLs.
+# Keep each runnable SDL client/tool self-contained in its configuration folder.
+if(WIN32)
+    get_target_property(fte_sdl_type SDL3::SDL3 TYPE)
+    if(fte_sdl_type STREQUAL "SHARED_LIBRARY")
+        foreach(fte_sdl_host IN ITEMS fteqw fteqw-cl imgtool)
+            if(TARGET ${fte_sdl_host})
+                add_custom_command(TARGET ${fte_sdl_host} POST_BUILD
+                    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                        "$<TARGET_FILE:SDL3::SDL3>" "$<TARGET_FILE_DIR:${fte_sdl_host}>"
+                    VERBATIM)
+            endif()
+        endforeach()
+        unset(fte_sdl_host)
+    endif()
+    unset(fte_sdl_type)
+endif()
+
 # A C-only link omits Clang's C++ UBSan runtime (vptr cache/handlers), which
 # instrumented Jolt modules need at dlopen time. Source files remain C17; only
 # sanitizer-enabled plugin hosts use the C++ linker driver for complete runtimes.

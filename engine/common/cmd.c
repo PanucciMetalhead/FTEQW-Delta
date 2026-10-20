@@ -249,7 +249,8 @@ void Cmd_AddTimer(float delay, void(*callback)(int iarg, void *data), int iarg, 
 	cmdtimer_t *n = Z_Malloc(sizeof(*n) + datasize);
 	n->iarg = iarg;
 	n->callback = callback;
-	memcpy(n->data, data, datasize);
+	if (datasize)
+		memcpy(n->data, data, datasize);
 	n->data[datasize] = 0;	//just in case.
 
 	n->timer = realtime + delay;

@@ -97,8 +97,11 @@ pr_csqc_coreonerror 0
             text = check_log(name)
             if predicate(text):
                 return text
-            if proc.poll() is not None or time.monotonic() > deadline:
-                raise RuntimeError(f'Timed out or exited waiting for {name}: {out}\n{text[-5000:]}')
+            code = proc.poll()
+            if code is not None:
+                raise RuntimeError(f'{name} exited with code {code} (0x{code & 0xffffffff:08x}): {out}\n{text[-5000:]}')
+            if time.monotonic() > deadline:
+                raise RuntimeError(f'Timed out waiting for {name}: {out}\n{text[-5000:]}')
             time.sleep(.05)
 
     results = {}

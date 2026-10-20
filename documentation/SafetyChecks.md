@@ -393,3 +393,13 @@ ASan exposed a download-completion read of `dl->fsroot` after `DL_Abort` had fre
 the record; the handler now captures that flag before releasing the record.
 The test runner waits for sanitizer reports to finish before terminating a
 failed process, preserving useful allocation/free stacks in the retained logs.
+
+
+Linux client startup coverage exposed a zero-length `memcpy` with a null source
+in `Cmd_AddTimer`. Empty timer payloads now skip the copy. The `timers` source
+fixture enforces the same nonnull contract on macOS and checks empty/absent
+payloads, payload ownership, terminators, deadlines and repeated cleanup. This
+brings the standalone sanitizer suite to 38 fixtures. Windows builds copy the
+shared SDL runtime beside SDL-linked executables; the CSQC runner reports early
+process exit codes in decimal and hexadecimal to distinguish loader failures
+from timeouts.

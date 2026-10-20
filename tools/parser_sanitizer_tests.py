@@ -49,6 +49,7 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     (out / 'results.json').unlink(missing_ok=True)
     cases = {
+        'timers': [('engine/common/cmd.c', name) for name in ('Cmd_AddTimer', 'Cmd_ExecuteTimers')],
         'consoleinput': [],
         'qcfields': [],
         'qcfields_split': [],
@@ -134,6 +135,10 @@ def main():
             macro = re.search(r'^#define\s+STRUCT_FROM_LINK[^\n]+',
                               (ROOT / 'engine/common/common.h').read_text(), re.M)[0]
             template = template.replace('/* ENGINE_CONTAINER_MACRO */', macro)
+        if name == 'timers':
+            timer = re.search(r'typedef struct cmdtimer_s\s*\{.*?\} cmdtimer_t;',
+                              (ROOT / 'engine/common/cmd.c').read_text(), re.S)[0]
+            template = template.replace('/* ENGINE_TIMER_TYPE */', timer)
         if name == 'consoleinput':
             source = function('engine/client/console.c', 'Con_DrawInput')
             end = source.index('endmtext[1] = 0;') + len('endmtext[1] = 0;')
