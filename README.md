@@ -43,7 +43,9 @@ models, portable-install detection and repeatable campaign/model checks are cove
 An opt-in [Jolt rigid-body plugin](documentation/JoltPhysics.md) is available
 for QuakeC mods, including primitive/convex/compound props, six joint types and experimental
 `.doll` skeletal rigs, with hinge2 suspension controls and mixed animated/passive
-bones and fractional collision-aware animation motors for mod authors. Humanoid checks cover original test assets and an optional
+bones and fractional collision-aware animation motors for mod authors. An optional
+legacy point-anchor mode supports older FTE/ODE joint definitions. Humanoid checks
+cover original test assets and an optional
 owned remaster soldier. Engine-controlled brush lifts, doors and rotating geometry
 interact with Jolt props and rigs; classic movement stays in the engine.
 Independent client-side QuakeC worlds are covered by original headless fixtures

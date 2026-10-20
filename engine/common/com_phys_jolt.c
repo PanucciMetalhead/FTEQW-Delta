@@ -16,7 +16,7 @@ qboolean Jolt_InitClient(void);
 #ifdef USERBE
 static rbeplugfuncs_t *rbeapi;
 static plugfsfuncs_t *jolt_fs;
-static cvar_t *enabled, *mesh_pitch;
+static cvar_t *enabled, *mesh_pitch, *point_anchor2;
 static qboolean jolt_registered;
 typedef struct jolt_rag_body_s {
     struct jolt_rag_body_s *next;
@@ -259,7 +259,7 @@ static void sync_entity(world_t *world,wedict_t *ed) {
 typedef struct {
     fte_jolt_world *simulation;
     fte_jolt_joint handle;
-    fte_jolt_joint_desc settings;
+    fte_jolt_joint_desc settings, requested;
     int enemy,aiment;
 } jolt_joint_t;
 static void joint_free(rbejoint_t *slot) {
@@ -294,6 +294,10 @@ static void sync_joint(world_t *world,wedict_t *ed) {
         if (joint) remove_joint(world,ed);return;
     }
     VectorCopy(ed->v->origin,desc.anchor);
+    if(type==JOINTTYPE_POINT && point_anchor2->value!=0) {
+        desc.point_mode=FTE_JOLT_POINT_LEGACY;
+        VectorCopy(ed->v->velocity,desc.anchor2);
+    }
     rbeapi->AngleVectors(ed->v->angles,desc.axis,right,up);
     VectorCopy(up,desc.axis2);
     if(type==JOINTTYPE_HINGE2) {
@@ -317,9 +321,10 @@ static void sync_joint(world_t *world,wedict_t *ed) {
     }
     desc.suspension_stiffness=ed->xv->joint_suspension_stiffness;
     desc.suspension_damping=ed->xv->joint_suspension_damping;
+    if (joint && !memcmp(&desc,&joint->requested,sizeof(desc))) return;
     if (joint && enemy==joint->enemy && aiment==joint->aiment) {
         fte_jolt_joint_desc changed=joint->settings;
-        if (!memcmp(&desc,&changed,sizeof(desc))) return;
+        if (!memcmp(&desc,&changed,sizeof(desc))) {joint->requested=desc;return;}
         changed.suspension_stiffness=desc.suspension_stiffness;
         changed.suspension_damping=desc.suspension_damping;
         if(type==JOINTTYPE_HINGE2 && joint->handle && !memcmp(&desc,&changed,sizeof(desc))) {
@@ -327,14 +332,27 @@ static void sync_joint(world_t *world,wedict_t *ed) {
             // currently compressed body. Cache rejected requests to avoid spam.
             if(!fte_jolt_joint_suspension(ctx->simulation,joint->handle,desc.suspension_stiffness,desc.suspension_damping))
                 Con_Printf("Jolt suspension entity %i rejected: %s\n",ed->entnum,fte_jolt_error(ctx->simulation));
-            joint->settings=desc;return;
+            else joint->settings=desc;
+            joint->requested=desc;return;
         }
     }
-    remove_joint(world,ed);joint=(jolt_joint_t*)calloc(1,sizeof(*joint));if (!joint) {ctx->failed=qtrue;return;}
-    ed->rbe.joint.joint=joint;ed->rbe.joint_type=type;
-    joint->simulation=ctx->simulation;joint->settings=desc;joint->enemy=enemy;joint->aiment=aiment;
-    joint->handle=fte_jolt_joint_add(ctx->simulation,&desc);
-    if (!joint->handle) Con_Printf("Jolt joint entity %i rejected: %s\n",ed->entnum,fte_jolt_error(ctx->simulation));
+    // Validate/create a replacement before releasing a live joint. In particular,
+    // malformed point-anchor edits must not detach a previously valid rig.
+    if (!joint) {
+        joint=(jolt_joint_t*)calloc(1,sizeof(*joint));if (!joint) {ctx->failed=qtrue;return;}
+        ed->rbe.joint.joint=joint;joint->simulation=ctx->simulation;
+    }
+    joint->requested=desc;
+    {
+        fte_jolt_joint replacement=fte_jolt_joint_add(ctx->simulation,&desc);
+        if (!replacement) {
+            Con_Printf("Jolt joint entity %i rejected: %s\n",ed->entnum,fte_jolt_error(ctx->simulation));return;
+        }
+        if(joint->handle) fte_jolt_joint_remove(ctx->simulation,joint->handle);
+        joint->handle=replacement;
+    }
+    ed->rbe.joint_type=type;
+    joint->settings=desc;joint->enemy=enemy;joint->aiment=aiment;
 }
 static void identity_matrix(float *matrix) {memset(matrix,0,12*sizeof(*matrix));matrix[0]=matrix[5]=matrix[10]=1;}
 static qboolean matrix_state(const float *matrix,fte_jolt_state *state) {
@@ -565,6 +583,8 @@ qboolean JOLT_PLUGIN_INIT(void) {
     jolt_fs=plugfuncs->GetEngineInterface(plugfsfuncs_name,sizeof(*jolt_fs));
     if(!jolt_fs) {Con_Printf("Jolt: filesystem interface unavailable.\n");return qfalse;}
     enabled=cvarfuncs->GetNVFDG("physics_jolt_enabled","0",0,"Enable experimental Jolt rigid props before loading a map. Classic movement is unchanged.","Jolt Physics");
+    point_anchor2=cvarfuncs->GetNVFDG("physics_jolt_pointanchor2","0",0,
+        "Use legacy ODE point-joint .velocity anchors. Body2-local COM offsets for two bodies; world coordinates on the world side for world joints. Set before map load; changes rebuild point joints. Does not affect .doll joints.","Jolt Physics");
     mesh_pitch=cvarfuncs->GetNVFDG("r_meshpitch","1",0,NULL,NULL);
     if (!rbeapi->RegisterPhysicsEngine("Jolt",start_world)) {
         Con_Printf("Jolt: another physics plugin is active; unload it before loading Jolt.\n");return qfalse;

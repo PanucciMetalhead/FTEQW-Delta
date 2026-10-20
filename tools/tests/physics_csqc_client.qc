@@ -1,5 +1,6 @@
 // Original CSQC side: no authoritative entities or player-physics code.
 #include "declarations.qh"
+#include "physics_pointanchors.qh"
 float physics_mode;
 void(string s) print=#339;
 float(float skel) skel_get_numbones=#265;
@@ -21,6 +22,7 @@ void(string label) capture = {
 void(float ok,string what) verify = {
     if(!ok) {print("CSQC_PHYSICS_FAIL: ");print(what);print("\n");error(what);}
 };
+void(string text) pa_report = {print(text);};
 void() contact = {touches+=1;};
 void() remove_contact = {deleted+=1;remove(self);};
 entity(vector at) prop = {
@@ -58,6 +60,7 @@ void() CSQC_WorldLoaded = {
     lift=spawn();setmodel(lift,"*1");lift.solid=4;lift.movetype=7;lift.nextthink=1000;
     setorigin(lift,'240 0 64');lift.velocity='0 0 24';
     rider=prop('240 0 80');
+    pa_start(1);
     ready=1;
 };
 void() StartFrame = {
@@ -88,6 +91,7 @@ void() StartFrame = {
         verify(vlen(draw-skel_get_boneabs(actor.skeletonindex,i))<.05,"client render pose matches physics");
     }
     if(phase==0) {
+        if(elapsed>.8 && pa_j1!=world) {pa_initial();pa_drop();pa_j1=world;}
         if(elapsed>.6 && capture_mask==0) {capture_mask=1;capture("mixed");}
         if(elapsed>.1) {
             verify(fabs(top_x-last_x)<.15 && fabs(top_z-64)<.1,"client driven root follows target");
@@ -107,6 +111,7 @@ void() StartFrame = {
         if(elapsed>1.2 && capture_mask==1) {capture_mask=2;capture("released");}
         if(elapsed<=1.4) return;
         verify(top_z<release_z-40,"released client rig falls");
+        pa_dropped(240);print("CSQC_POINT_ANCHORS_OK\n");
         // Shutting down this world must not stop the listen server's Jolt world.
         verify(physics_supported(0)==0,"client backend stops independently");
         phase=2;

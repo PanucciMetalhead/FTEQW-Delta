@@ -1,0 +1,42 @@
+// Shared original SSQC/CSQC geometry and lifetime checks.
+.float jointgroup;
+entity pa_first,pa_second,pa_rotated,pa_static,pa_recycled,pa_j1,pa_j2,pa_j3;
+float pa_mode;
+void(string text) pa_report;
+void(float ok,string text) pa_check = {
+    if(!ok) {pa_report("POINT_ANCHOR_FAIL: ");pa_report(text);pa_report("\n");localcmd("quit force\n");error(text);}
+};
+entity(vector at,float move) pa_prop = {
+    local entity e=spawn();e.classname="point_anchor_prop";
+    e.movetype=move;e.solid=32;e.geomtype=1;e.mass=1;
+    setsize(e,'-8 -8 -8','8 8 8');setorigin(e,at);return e;
+};
+void(float legacy) pa_start = {
+    pa_mode=legacy;
+    pa_first=pa_prop('0 600 256',32);
+    pa_j1=spawn();pa_j1.jointtype=1;pa_j1.enemy=pa_first;pa_j1.jointgroup=42;
+    setorigin(pa_j1,pa_first.origin);pa_j1.velocity='40 600 256';
+    pa_second=pa_prop('200 600 256',32);
+    pa_j2=spawn();pa_j2.jointtype=1;pa_j2.aiment=pa_second;pa_j2.jointgroup=42;
+    setorigin(pa_j2,pa_second.origin);pa_j2.velocity='240 600 256';
+    // The point on body2 is rotated and offset from its edict origin and COM.
+    pa_static=pa_prop('400 600 256',0);
+    pa_rotated=pa_prop('400 552 256',32);pa_rotated.angles='0 90 0';
+    pa_rotated.gravity=.000001;setsize(pa_rotated,'0 -8 -8','32 8 8');
+    pa_j3=spawn();pa_j3.jointtype=1;pa_j3.enemy=pa_static;pa_j3.aiment=pa_rotated;
+    pa_j3.jointgroup=16777215;setorigin(pa_j3,pa_static.origin);pa_j3.velocity='32 0 0';
+};
+void() pa_initial = {
+    pa_check(vlen(pa_first.origin-[pa_mode?40:0,600,256])<.1,"body-first world anchor");
+    pa_check(vlen(pa_second.origin-[pa_mode?240:200,600,256])<.1,"world-first reversed anchor");
+    pa_check(vlen(pa_rotated.origin-'400 552 256')<.1,"rotated local COM offset stays aligned");
+};
+void() pa_drop = {
+    remove(pa_j1);remove(pa_j3);remove(pa_rotated);
+    pa_recycled=pa_prop('400 552 256',32);
+};
+void(float expected_x) pa_dropped = {
+    pa_check(pa_first.origin_z<225,"deleting grouped joint releases only its body");
+    pa_check(vlen(pa_second.origin-[expected_x,600,256])<.2,"other joint in same group stays constrained");
+    pa_check(pa_recycled.origin_z<225,"recycled body has no orphan joint");
+};

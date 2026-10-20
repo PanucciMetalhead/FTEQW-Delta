@@ -1636,6 +1636,12 @@ if(BUILD_TESTING AND TARGET fte-jolt-adapter)
                 --jolt-plugin $<TARGET_FILE:plug_jolt> ${fte_jolt_ode_args}
                 --out "${CMAKE_BINARY_DIR}/physics-tests/$<CONFIG>")
         set_tests_properties(jolt-engine PROPERTIES TIMEOUT 300)
+        add_test(NAME jolt-pointanchors
+            COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/physics_pointanchors.py"
+                --server $<TARGET_FILE:fteqw-sv> --qcc $<TARGET_FILE:fteqcc>
+                --plugin $<TARGET_FILE:plug_jolt>
+                --out "${CMAKE_BINARY_DIR}/physics-pointanchors/$<CONFIG>")
+        set_tests_properties(jolt-pointanchors PROPERTIES TIMEOUT 150)
         add_test(NAME jolt-humanoid
             COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/physics_humanoid.py"
                 --server $<TARGET_FILE:fteqw-sv> --qcc $<TARGET_FILE:fteqcc>

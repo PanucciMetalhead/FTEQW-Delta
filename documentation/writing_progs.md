@@ -699,6 +699,12 @@ linear suspension uses the fork-only `joint_suspension_stiffness` and
 player physics. Engine-controlled pushers also carry/push Jolt props and skeletal
 bodies; they retain engine movement and blocking rules for ordinary entities.
 Jolt props do not trigger automatic door rollback or crush damage.
+
+For older entity point-joint definitions, see [legacy anchors and joint groups](JoltPhysics.md#legacy-point-anchors-and-joint-groups).
+`physics_jolt_pointanchor2 1` opts into the ODE `.velocity` anchor convention;
+its default 0 retains shared `.origin` pivots. `.jointgroup` is an allocation
+hint, not a collision filter.
+
 CSQC can explicitly create local physics props and rigs after `CSQC_WorldLoaded`,
 with `physics_mode = 2` and the Jolt plugin enabled locally. `physics_supported`
 queries/restarts only the calling VM's world; client and server skeleton handles
@@ -1028,10 +1034,10 @@ page for a symbol's exact name instead of guessing a builtin number.
 This snapshot lists **2017 distinct names** in **2131 declarations** across the four VM interfaces.
 
 <!-- Export SHA-256 hashes for reproducibility:
-nq_api.qc: f1f344b04c8b1585837bb22445a015573860ff1ac75beae86d357f545a632b61
-qw_api.qc: 0cb42a09fa4a6ae6a9d958ba5050224cdf57897fe61a79730520bd53e1e57101
-cs_api.qc: f416e031da0359ae468752aaf772ceae0b18611a19fad3199177b4fdd7a78d2a
-menu_api.qc: 339b1369bc783b2dcb6d1d328766915146a19724b9de83e35336fdb3ba0a8fd7
+nq_api.qc: 268864e17ba0e51203cd835dc07049a2f22f8876e3e0aedcd171e6a85dc2ec2b
+qw_api.qc: 4c50612a18a5d20a03bf206d9cd6fe3a1d74229424939feb81008d0b8d5ebb80
+cs_api.qc: 4dd42e46d26dc3c1105ccef1de5dfd8e9dbcb24caaaa1ec7df871e024d664fc6
+menu_api.qc: 2205a1928fa1e99c3d8c034ffa161a50b4a812f14efa4d9437dc33c4dd857501
 -->
 
 ### Engine functions (builtins)
@@ -11908,7 +11914,7 @@ FTEQW Delta only. Hinge2 linear spring stiffness in mass per second squared (Qua
 .float jointgroup;
 ```
 
-Rigid-body joint type/group selection; requires a compatible physics backend and related entity setup.
+Legacy ODE joint-allocation hint. Jolt keeps entity/world ownership and ignores the numeric label; it is not a collision group or bulk-delete command.
 
 #### `jointtype`
 
@@ -11918,7 +11924,7 @@ Rigid-body joint type/group selection; requires a compatible physics backend and
 .float jointtype;
 ```
 
-Rigid-body joint type/group selection; requires a compatible physics backend and related entity setup.
+Rigid-body joint selector: -1 fixed, 1 point, 2 hinge, 3 slider, 4 universal, 5 hinge2. Use a separate entity with enemy/aiment body references. Jolt point pivots use origin by default; physics_jolt_pointanchor2 enables legacy velocity anchors.
 
 #### `lastruntime`
 

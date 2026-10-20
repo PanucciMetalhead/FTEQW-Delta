@@ -1013,6 +1013,15 @@ fte_jolt_joint fte_jolt_joint_add(fte_jolt_world *w, const fte_jolt_joint_desc *
         w->fail("Invalid joint settings or joint capacity exceeded");
         return 0;
     }
+    if (d->point_mode < FTE_JOLT_POINT_SHARED || d->point_mode > FTE_JOLT_POINT_LEGACY ||
+        (d->type != FTE_JOLT_POINT && d->point_mode != FTE_JOLT_POINT_SHARED) ||
+        (d->point_mode && (!finite3(d->anchor2) ||
+            std::fabs(d->anchor[0]) > 10000000 || std::fabs(d->anchor[1]) > 10000000 ||
+            std::fabs(d->anchor[2]) > 10000000 || std::fabs(d->anchor2[0]) > 10000000 ||
+            std::fabs(d->anchor2[1]) > 10000000 || std::fabs(d->anchor2[2]) > 10000000))) {
+        w->fail("Invalid point-anchor mode or coordinates");
+        return 0;
+    }
     if (!suspension_ok(d->suspension_stiffness, d->suspension_damping) ||
         (d->type != FTE_JOLT_HINGE2 &&
          (d->suspension_stiffness != 0 || d->suspension_damping != 0))) {
@@ -1043,6 +1052,30 @@ fte_jolt_joint fte_jolt_joint_add(fte_jolt_world *w, const fte_jolt_joint_desc *
     if (d->type == FTE_JOLT_POINT) {
         JPH::PointConstraintSettings settings;
         settings.mPoint1 = settings.mPoint2 = pos(d->anchor);
+        if (d->point_mode == FTE_JOLT_POINT_WORLD)
+            settings.mPoint2 = pos(d->anchor2);
+        else if (d->point_mode == FTE_JOLT_POINT_LEGACY) {
+            // ODE attaches a sole body as internal body1, even if the caller
+            // supplied it second. SetBallAnchor2 writes internal anchor2 directly.
+            if (!a)
+                settings.mPoint1 = pos(d->anchor2);
+            else if (!b)
+                settings.mPoint2 = pos(d->anchor2);
+            else
+                settings.mPoint2 = api.GetCenterOfMassPosition(id2) +
+                                   api.GetRotation(id2) * vec(d->anchor2, metres);
+        }
+        if (d->point_mode) {
+            auto bounded = [](JPH::RVec3Arg p) {
+                return std::fabs(p.GetX()) <= 10000000 * metres &&
+                       std::fabs(p.GetY()) <= 10000000 * metres &&
+                       std::fabs(p.GetZ()) <= 10000000 * metres;
+            };
+            if (!bounded(settings.mPoint1) || !bounded(settings.mPoint2)) {
+                w->fail("Transformed point anchor exceeds world-space bounds");
+                return 0;
+            }
+        }
         constraint = api.CreateConstraint(&settings, id1, id2);
     } else if (d->type == FTE_JOLT_FIXED) {
         JPH::FixedConstraintSettings settings;
@@ -1186,6 +1219,19 @@ int fte_jolt_joint_enable(fte_jolt_world *w, fte_jolt_joint token, int enabled) 
         return w->fail("Invalid or stale joint handle");
     it->second.constraint->SetEnabled(enabled != 0);
     w->physics.GetBodyInterface().ActivateConstraint(it->second.constraint);
+    return 1;
+}
+int fte_jolt_joint_anchors(fte_jolt_world *w, fte_jolt_joint token, float *point1, float *point2) {
+    if (!w || !point1 || !point2)
+        return 0;
+    auto it = w->joints.find(token);
+    if (it == w->joints.end())
+        return w->fail("Invalid or stale joint handle");
+    auto *c = it->second.constraint.GetPtr();
+    auto a = c->GetBody1()->GetCenterOfMassTransform() * c->GetConstraintToBody1Matrix();
+    auto b = c->GetBody2()->GetCenterOfMassTransform() * c->GetConstraintToBody2Matrix();
+    store(a.GetTranslation(), point1, 1 / metres);
+    store(b.GetTranslation(), point2, 1 / metres);
     return 1;
 }
 int fte_jolt_joint_frame(fte_jolt_world *w, fte_jolt_joint token, fte_jolt_state *out) {

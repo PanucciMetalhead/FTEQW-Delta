@@ -455,3 +455,23 @@ validation passed both client hosts, retaining 30 captures; representative drive
 and released poses were visually inspected. The C17 guard checked 505 C
 translation units and identical gameplay assembly for movement, server physics,
 world collision and math. This milestone has not yet run Windows/Linux CI.
+
+Legacy point-anchor coverage compares caller-ordered geometry with Homebrew ODE
+for two rotated bodies and both world/body orderings. Adapter tests cover shared
+defaults, independent world anchors, shape COM offsets, finite/bounded coordinates,
+invalid modes, convergence, stale/cross-world handles and dependent-joint cleanup.
+A C17 caller submits and queries explicit anchors. `jolt-pointanchors` compiles
+original SSQC, runs both modes across three map loads each, and checks grouped
+labels, individual deletion, edict reuse, rejected-edit preservation and recovery.
+Only the deliberately injected invalid edit is permitted in its logs; unchanged
+requests must report it once per map. Full and client-only CSQC worlds exercise
+the same geometry and grouped cleanup across reload/reconnect cycles.
+
+Local Apple Silicon validation on 2026-10-21 passed all 11 Debug tests, all 11
+Release tests and all 14 ASan/UBSan tests. Adapter/C17 boundary checks also passed
+against CI-pinned Jolt `1b2e77e3c6c09709e5edc79dc208459b8ff32051`. The C17 guard
+checked 505 C translation units and identical movement, server-physics, collision
+and math assembly. The generated QuakeC reference was refreshed and checked
+against fresh engine exports. Windows/Linux CI remains to be run after publication.
+ODE/Bullet remain while save/load, real-mod acceptance and many-body
+performance/bandwidth validation are completed.

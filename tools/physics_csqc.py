@@ -18,7 +18,7 @@ import time
 from physics_integration import ROOT, write_rig
 from physics_kinematic import brush_map
 
-ERROR = re.compile(r'CSQC_PHYSICS_FAIL|AddressSanitizer:|UndefinedBehaviorSanitizer:|runtime error:|Host_Error|Host_EndGame|Sys_Error|Jolt simulation stopped|Jolt entity .* rejected|Jolt ragdoll .* rejected|GPU.*Validation Error|csqc error')
+ERROR = re.compile(r'CSQC_PHYSICS_FAIL|POINT_ANCHOR_FAIL|AddressSanitizer:|UndefinedBehaviorSanitizer:|runtime error:|Host_Error|Host_EndGame|Sys_Error|Jolt simulation stopped|Jolt entity .* rejected|Jolt ragdoll .* rejected|GPU.*Validation Error|csqc error')
 
 
 def main():
@@ -37,6 +37,7 @@ def main():
     doll = (game / 'progs/physics-rig.doll').read_text().replace('type hinge', 'type fixed')
     (game / 'progs/physics-csqc.doll').write_text(doll + 'updatebody top\nanimate 1\n')
     (game / 'declarations.qh').write_text((ROOT / 'tools/tests/physics_fixture.qc').read_text().split('float simulated,phase')[0])
+    shutil.copyfile(ROOT / 'tools/tests/physics_pointanchors.qh', game / 'physics_pointanchors.qh')
     env = dict(os.environ, ASAN_OPTIONS='detect_leaks=0', UBSAN_OPTIONS='halt_on_error=1:print_stacktrace=1')
     for side, target in [('server', 'progs.dat'), ('client', 'csprogs.dat')]:
         shutil.copyfile(ROOT / f'tools/tests/physics_csqc_{side}.qc', game / f'{side}.qc')
@@ -49,6 +50,7 @@ cfg_save_auto 0
 plug_loaddefault 0
 plug_load jolt
 physics_jolt_enabled 1
+physics_jolt_pointanchor2 1
 sv_public 0
 sv_port_ipv6 ""
 sv_port_tcp ""
@@ -131,7 +133,9 @@ map csqc
         if proc.wait(timeout=15):
             raise RuntimeError('Listen client failed: ' + str(out))
         text = check_log('listen')
-        if text.count('CSQC_PHYSICS_SHUTDOWN') != 3 or text.count('CSQC_FRACTIONAL_OK') != 3 or 'SSQC_ISOLATION_OK' not in text:
+        if (any(text.count(marker) != 3 for marker in
+                ('CSQC_PHYSICS_SHUTDOWN', 'CSQC_FRACTIONAL_OK', 'CSQC_POINT_ANCHORS_OK'))
+                or 'SSQC_ISOLATION_OK' not in text):
             raise RuntimeError('Missing listen-world isolation/cleanup checks: ' + str(out))
         results['listen'] = {'client_world_runs': 3, 'shutdowns': 3}
         if args.client_only:
@@ -161,7 +165,8 @@ connect qw://127.0.0.1:{port}
             text = check_log('remote')
             if 'Downloading csprogsvers/' not in text or not list(remote_root.rglob('csprogsvers/*.dat')):
                 raise RuntimeError('Client did not download the fixture CSQC: ' + str(out))
-            if text.count('CSQC_PHYSICS_SHUTDOWN') != 3 or text.count('CSQC_FRACTIONAL_OK') != 3:
+            if any(text.count(marker) != 3 for marker in
+                   ('CSQC_PHYSICS_SHUTDOWN', 'CSQC_FRACTIONAL_OK', 'CSQC_POINT_ANCHORS_OK')):
                 raise RuntimeError('Missing remote cleanup checks: ' + str(out))
             if server.wait(timeout=15):
                 raise RuntimeError('Dedicated server failed: ' + str(out))

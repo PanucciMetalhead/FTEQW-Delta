@@ -19,7 +19,7 @@ Supported through the existing SSQC/CSQC rigid-body interface:
   orientation, linear/angular velocity, forces, torque and sleeping/waking.
 - Owner and collision-dimension filtering; QuakeC contact callbacks deferred
   until simulation finishes, with entity removal/reuse checks.
-- Point, fixed, hinge, slider, universal and hinge2 joints, including world anchors, limits,
+- Point, fixed, hinge, slider, universal and hinge2 joints, including shared/legacy point anchors, world anchors, limits,
   velocity motors, hinge2 linear suspension, enabling/disabling and connected-body collision exclusion.
 - Experimental `.doll` rigs: primitive bodies, pose read/write, skeletal joints,
   passive and fractional animation-driven simulation, and explicit cleanup on world/backend shutdown.
@@ -306,9 +306,10 @@ The `jolt-` tests are:
 | Test | Coverage |
 | --- | --- |
 | `jolt-c-boundary` | A real C17 translation unit creates/steps/destroys the C++ backend and creates/toggles/removes a joint and drives/releases a fractional motor through its C ABI. |
-| `jolt-backend` | All primitive shapes, static mesh/CCD, unit conversions, gravity, forces/torque/impulses, partial steps, sleeping/waking, owner/dimension filters, cached-contact changes, stacking, restitution/friction, invalid input, stale/cross-world handles, capacity limits, repeated worlds and fixed-step behavior at 60/144 frame rates. World/body constraints, angular/linear limits and motors, joint frames, connected collision exclusion, dependent-joint removal and repeated multi-body teardown. Suspension load/deflection, damping energy loss, arbitrary-axis forces, live spring edits preserving rest anchors, invalid edits, disabled joints and rigid-pivot restoration. Dynamic/kinematic handoffs preserve pose, mass, inertia and joints; releases inherit driven linear/angular velocity, idle releases stop, and stale/cross-world/unsupported requests are rejected. Fractional dynamic motors cover strength/mass response, gravity compliance, wall resistance and recovery, orientation/COM offsets, tiny strengths, teleport rebasing, fixed steps, retained joints and cleanup. Optional ODE free-fall comparison. |
+| `jolt-backend` | All primitive shapes, static mesh/CCD, unit conversions, gravity, forces/torque/impulses, partial steps, sleeping/waking, owner/dimension filters, cached-contact changes, stacking, restitution/friction, invalid input, stale/cross-world handles, capacity limits, repeated worlds and fixed-step behavior at 60/144 frame rates. World/body constraints, angular/linear limits and motors, joint frames, connected collision exclusion, dependent-joint removal and repeated multi-body teardown. Suspension load/deflection, damping energy loss, arbitrary-axis forces, live spring edits preserving rest anchors, invalid edits, disabled joints and rigid-pivot restoration. Dynamic/kinematic handoffs preserve pose, mass, inertia and joints; releases inherit driven linear/angular velocity, idle releases stop, and stale/cross-world/unsupported requests are rejected. Fractional dynamic motors cover strength/mass response, gravity compliance, wall resistance and recovery, orientation/COM offsets, tiny strengths, teleport rebasing, fixed steps, retained joints and cleanup. Independent point anchors, reverse ordering, bounds, shape COM, point queries and removal; optional real ODE anchor-geometry and free-fall comparisons. |
+| `jolt-pointanchors` | Real SSQC in default and legacy modes: both world/body orderings, rotated body-local COM offsets, rejected edit preservation/recovery, numeric group labels, individual deletion, edict reuse and map/plugin reload. |
 | `jolt-shapes` | Original MD5 models and authored compound recipes through real SSQC; hull stacks, opening preservation, scale, recipe-path rebuilds, bounded malformed-input rejection/recovery and map/plugin reload. |
-| `jolt-csqc` | Real headless full client and optional client-only executable, simultaneous independent SSQC/CSQC worlds, cross-world skeleton rejection, fixed tick globals, floor/dimension contacts, deletion from touch, queued-force cleanup, moving brushes, mixed and fractional rigs, client-only backend restart, map/plugin reload and disconnect/reconnect. No owned assets or GPU required. |
+| `jolt-csqc` | Real headless full client and optional client-only executable, simultaneous independent SSQC/CSQC worlds, cross-world skeleton rejection, fixed tick globals, floor/dimension contacts, deletion from touch, queued-force cleanup, moving brushes, legacy point anchors/grouped cleanup, mixed and fractional rigs, client-only backend restart, map/plugin reload and disconnect/reconnect. No owned assets or GPU required. |
 | `jolt-mixed` | Original three-bone SSQC rig: driven root, passive connected bones, prop contacts, per-body and default-mask handoffs, invalid strengths, authored fractional masks and scaling, wall resistance/recovery, render-pose copying, backend restart, entity reuse and map/plugin reload. |
 | `jolt-kinematic` | Original inline BSP brush and real SSQC: classic-vs-Jolt lift carrying, sleeping prop and skeletal-body transport, rotating brushes, blocked doors, deleting support, 60/120 Hz server steps, three map loads and plugin reload. |
 | `jolt-humanoid` | Original 24-bone mesh/animation and 16-body rig, actual animation changes, activation without position/orientation jumps, all-bone relative render copying, floor/stairs/slope/wall/overlap, repeated spawn/removal/animation transitions and live backend restart. No owned assets required. |
@@ -336,8 +337,8 @@ complete engine shutdown leak audit or a third-party ODE library audit.
 
 Local validation on Apple Silicon/macOS passes native Debug, Release and
 ASan/UBSan adapter, ABI and engine checks against the supplied Jolt checkout and Homebrew
-ODE. The complete native Debug build passes 10/10 CTest checks; the instrumented
-build passes 13/13, including 41 standalone source-based sanitizer fixtures. The native
+ODE. The complete native Debug and Release builds pass 11/11 CTest checks each;
+the instrumented build passes 14/14, including 41 standalone source-based sanitizer fixtures. The native
 Metal demo also passed client connection, joint release and map-reload checks;
 its captured poses were visually inspected. Skeleton allocation without CSQC,
 world isolation, cache reuse and native/VM ownership have dedicated sanitizer
@@ -371,8 +372,8 @@ radians; slider distances use Quake units. `.doll` rigs use `LoStop`/`HiStop`,
 `FMax` and `Vel`. `Vel2`, `FMax2`, `LoStop2`, `HiStop2`, `ERP2` and `CFM2` configure
 the second angular axis of universal/hinge2 rigs. ODE ERP/CFM limit softness is converted using
 `k = ERP / (h * CFM)` and `c = (1 - ERP) / CFM`, with `h = 1/120`. This does not
-make the solvers identical. Point joints currently use one shared world pivot;
-ODE's alternate second-anchor convention and joint groups are not implemented.
+make the solvers identical. Point joints use one shared world pivot by default. An opt-in legacy
+second-anchor convention is described below.
 
 For a passive `.doll`, set `animate 0` in the body defaults. Body dimensions
 retain the old format's conventions: boxes use full extents; spheres use the
@@ -387,6 +388,81 @@ its inverse are used during simulation and bone reconstruction. `pivot bone
 coordinates. Joint `axis` and `axis2` remain reference **model-space** directions.
 Invalid rig directives/names/types reject the whole definition. Failed `doll` or
 `dollstring` loads return zero and keep an existing rig; `cleardoll` is explicit.
+
+### Legacy point anchors and joint groups
+
+Keep `physics_jolt_pointanchor2 0` (the default) for existing Jolt content: a
+point joint uses `.origin` as the same initial world-space pivot on both bodies.
+The joint entity's `.velocity` has no anchor meaning in this mode.
+
+For older FTE/ODE mods that author a separate second anchor, set this after
+loading the plugin and **before loading the map**, on each host simulating it:
+
+```text
+plug_load jolt
+physics_jolt_enabled 1
+physics_jolt_pointanchor2 1
+map yourmap
+```
+
+This non-archived plugin cvar applies to entity point joints (`.jointtype = 1`)
+in SSQC and independent CSQC worlds. It does not change `.doll` joints or other
+joint types. Switching it live rebuilds point joints around their current body
+poses; configure it before map load for predictable initialization. Client settings
+do not change a remote server's physics.
+
+Legacy anchor meanings depend on which sides have bodies:
+
+| `.enemy` (body 1) | `.aiment` (body 2) | `.origin` | `.velocity` |
+| --- | --- | --- | --- |
+| Body | Body | Initial world-space point on body 1 | Offset in body 2's local axes from its physics center of mass |
+| Body | World | Initial world-space point on body 1 | World-space point on the world side |
+| World | Body | Initial world-space point on body 2 | World-space point on the world side |
+
+Use an explicit `world` reference for a world anchor; other references resolve
+to Jolt colliders, including static and kinematic colliders.
+The world-first case follows ODE's internal reversal of the body order.
+A zero `.velocity` remains a valid explicit anchor; it is not treated as an
+omitted value. For example, with `.enemy = prop` and `.aiment = world`, placing
+both `.origin` and `.velocity` at `prop.origin` anchors its center without an
+initial correction, assuming a centered collision shape. Unequal initial points
+make the solver pull them together, which can cause an abrupt correction.
+
+The adapter converts local offsets using the body's rotation and actual shape
+center of mass. Explicit coordinates and transformed world points are bounded
+to +/-10000000 Quake units per axis. Invalid edits retain a live joint and log
+one rejection for an unchanged request; valid edits can subsequently replace it.
+Setting `.jointtype` to zero still removes the joint explicitly.
+
+The retained `.jointgroup` field is an ODE allocation hint, not a collision group
+or an instruction to weld bodies together. Jolt accepts it without interpreting
+numbers as native pointers or allocating an ODE-style group. Constraints remain
+owned by their joint entity and world: deleting one joint does not delete its
+peers with the same label, removing a body removes dependent constraints, and
+map/backend teardown cleans up all remaining constraints. There is no QuakeC
+bulk group-destruction API to emulate. Use `.dimension_solid`/`.dimension_hit` for
+collision filtering, rather than `.jointgroup`.
+
+The anchor mapping was checked against [ODE's ball-joint implementation](https://github.com/odedevs/ode/blob/master/ode/src/joints/ball.cpp)
+and against the locally installed ODE library. This verifies anchor geometry,
+not identical trajectories or solver damping. The adapter's zero-initialized
+`FTE_JOLT_POINT_SHARED` mode remains compatible; `FTE_JOLT_POINT_WORLD` also
+accepts two explicit world-space points, while `FTE_JOLT_POINT_LEGACY` implements
+the table above. `fte_jolt_joint_anchors` reports both current world-space points
+in caller body order for validation without exposing C++ objects.
+
+Run the original, asset-free regression with:
+
+```sh
+python3 tools/physics_pointanchors.py --server build/jolt/fteqw-sv \
+  --qcc build/jolt/fteqcc --plugin build/jolt/fteplug_jolt.so \
+  --out build/point-anchor-check
+```
+
+It checks both modes over three map loads each, including plugin reload, rotated
+asymmetric collision bounds, rejected/valid edits, grouped-joint deletion and
+edict reuse. The CSQC fixture independently exercises legacy anchors and grouped
+cleanup in full and client-only hosts.
 
 ### Mixed animation and passive bones
 
@@ -727,6 +803,6 @@ softness and joint paths, so those fragments are not used as a correctness oracl
 
 Bullet and ODE will be removed, including their build options, plugins, source,
 console registrations and documentation references, once Jolt passes the
-replacement gates. Remaining gates include alternate joint-interface conventions,
-active-scene save/load and many-body CPU/bandwidth checks. ODE remains a useful
+replacement gates. Remaining gates include active-scene save/load, additional real-mod rigs and
+many-body CPU/bandwidth checks. ODE remains a useful
 comparison during that work. No classic player-movement or Quake 3 qagame-physics conversion is implied.

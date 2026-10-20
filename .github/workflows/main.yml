@@ -98,6 +98,7 @@ jobs:
             build/physics-shapes/**
             build/physics-mixed/**
             build/physics-csqc/**
+            build/physics-pointanchors/**
             build-sanitize/Testing/Temporary/LastTest.log
             build-sanitize/qcc-tests/*.log
             build-sanitize/physics-tests/**
@@ -106,6 +107,7 @@ jobs:
             build-sanitize/physics-shapes/**
             build-sanitize/physics-mixed/**
             build-sanitize/physics-csqc/**
+            build-sanitize/physics-pointanchors/**
             build-sanitize/parser-tests/
             build-sanitize/package-tests/
             build/package-tests/

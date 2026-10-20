@@ -13,6 +13,7 @@ typedef struct fte_jolt_world fte_jolt_world;
 typedef uint64_t fte_jolt_body;
 typedef uint64_t fte_jolt_joint;
 enum { FTE_JOLT_FIXED=-1, FTE_JOLT_POINT=1, FTE_JOLT_HINGE=2, FTE_JOLT_SLIDER=3, FTE_JOLT_UNIVERSAL=4, FTE_JOLT_HINGE2=5 };
+enum { FTE_JOLT_POINT_SHARED=0, FTE_JOLT_POINT_WORLD=1, FTE_JOLT_POINT_LEGACY=2 };
 /* A zero body handle anchors that side to the world. Limits contain zero;
  * hinge limits/velocity use radians, slider limits/velocity use Quake units.
  * Connected bodies do not collide, even while their constraint is disabled. */
@@ -27,6 +28,14 @@ typedef struct {
      * Zero suspension stiffness/damping keeps the anchor rigid. */
     float axis2[3],lower2,upper2,max_force2,velocity2,stiffness2,damping2;
     float suspension_stiffness,suspension_damping;
+    /* Point only: SHARED uses anchor for both world-space points (default).
+     * WORLD supplies two independent world-space points. LEGACY matches FTE's
+     * ODE SetBallAnchor/SetBallAnchor2 calls: anchor2 is body2-local COM offset
+     * when both bodies exist, otherwise world-space on the world side. With
+     * body1=world, anchor remains the point on body2 (ODE's reversed ordering).
+     * Explicit points must remain within +/-10000000 Quake units. */
+    int point_mode;
+    float anchor2[3];
 } fte_jolt_joint_desc;
 enum { FTE_JOLT_STATIC, FTE_JOLT_KINEMATIC, FTE_JOLT_DYNAMIC };
 enum {
@@ -75,6 +84,8 @@ fte_jolt_joint fte_jolt_joint_add(fte_jolt_world *world,const fte_jolt_joint_des
 int fte_jolt_joint_suspension(fte_jolt_world *world,fte_jolt_joint joint,float stiffness,float damping);
 int fte_jolt_joint_remove(fte_jolt_world *world,fte_jolt_joint joint);
 int fte_jolt_joint_enable(fte_jolt_world *world,fte_jolt_joint joint,int enabled);
+/* Read current world-space points in caller body1/body2 order. */
+int fte_jolt_joint_anchors(fte_jolt_world *world,fte_jolt_joint joint,float point1[3],float point2[3]);
 int fte_jolt_joint_frame(fte_jolt_world *world,fte_jolt_joint joint,fte_jolt_state *frame);
 int fte_jolt_remove(fte_jolt_world *world, fte_jolt_body body);
 int fte_jolt_get(fte_jolt_world *world, fte_jolt_body body, fte_jolt_state *state);

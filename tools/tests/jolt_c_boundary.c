@@ -19,6 +19,16 @@ int main(void)
         passed=joint && fte_jolt_joint_enable(world,joint,0) && fte_jolt_joint_remove(world,joint);
     }
     if (passed) {
+        fte_jolt_joint_desc settings={0};float p1[3],p2[3];
+        settings.type=FTE_JOLT_POINT;settings.body1=handle;
+        settings.point_mode=FTE_JOLT_POINT_LEGACY;
+        settings.anchor[2]=state.position[2];settings.anchor2[0]=16;
+        settings.anchor2[2]=state.position[2];
+        fte_jolt_joint joint=fte_jolt_joint_add(world,&settings);
+        passed=joint && fte_jolt_joint_anchors(world,joint,p1,p2) && p2[0]==16 &&
+            fte_jolt_joint_remove(world,joint);
+    }
+    if (passed) {
         fte_jolt_stats stats={0};
         passed=fte_jolt_animate(world,handle,.5f) && fte_jolt_get(world,handle,&state);
         state.position[0]=8;

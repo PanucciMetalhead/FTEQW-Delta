@@ -515,7 +515,9 @@ static void offset_mesh_contacts() {
     fte_jolt_destroy(w);
 }
 #include "jolt_animation.h"
+#include "jolt_pointanchors.h"
 int main() {
+    point_anchors();
     animation_blending();
     offset_mesh_contacts();
     std::printf("Jolt %s production adapter tests\n",fte_jolt_version());

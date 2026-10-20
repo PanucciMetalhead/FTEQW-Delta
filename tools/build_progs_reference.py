@@ -325,7 +325,8 @@ noise noise1 noise2 noise3: Conventional per-entity sound-path fields; precache 
 pmove_flags: Movement/prediction flags for the corresponding physics path; keep client/server interpretation consistent.
 geomtype: Rigid-body geometry selector from GEOMTYPE_*; requires an available physics backend.
 friction erp: Rigid-body surface friction/error reduction parameters; meaning and availability depend on the physics backend.
-jointtype jointgroup: Rigid-body joint type/group selection; requires a compatible physics backend and related entity setup.
+jointtype: Rigid-body joint selector: -1 fixed, 1 point, 2 hinge, 3 slider, 4 universal, 5 hinge2. Use a separate entity with enemy/aiment body references. Jolt point pivots use origin by default; physics_jolt_pointanchor2 enables legacy velocity anchors.
+jointgroup: Legacy ODE joint-allocation hint. Jolt keeps entity/world ownership and ignores the numeric label; it is not a collision group or bulk-delete command.
 mass: Rigid-body mass; not a replacement for ordinary MOVETYPE_WALK player movement rules.
 bouncefactor bouncestop: Rigid-body restitution and stopping threshold parameters; backend dependent.
 damp_linear damp_angular max_angular: Rigid-body linear/angular damping and angular-speed limit; backend dependent.
