@@ -4158,8 +4158,8 @@ static void FTENET_Datagram_Close(ftenet_generic_connection_t *con)
 #ifdef HAVE_EPOLL
 static void FTENET_Datagram_Polled(epollctx_t *ctx, unsigned int events)
 {
-	ftenet_generic_connection_t *con = NULL;
-	con = (ftenet_generic_connection_t *)((qbyte*)ctx - ((qbyte*)&con->epoll-(qbyte*)con));
+	ftenet_generic_connection_t *con = STRUCT_FROM_LINK(ctx, ftenet_generic_connection_t, epoll);
+	(void)events;
 	while (con->GetPacket(con))
 	{
 		net_from.connum = con->connum;
@@ -7318,9 +7318,9 @@ void FTENET_TCP_ICEResponse(ftenet_connections_t *col, int type, const char *cid
 #ifdef HAVE_EPOLL
 static void FTENET_TCP_Polled(epollctx_t *ctx, unsigned int events)
 {
-	ftenet_tcp_stream_t *st = NULL;
+	ftenet_tcp_stream_t *st = STRUCT_FROM_LINK(ctx, ftenet_tcp_stream_t, epoll);
 	const char *err;
-	st = (ftenet_tcp_stream_t *)((qbyte*)ctx - ((qbyte*)&st->epoll-(qbyte*)st));
+	(void)events;
 
 	err = FTENET_TCP_ReadStream(st->con, st);
 	if (err)

@@ -49,6 +49,7 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     (out / 'results.json').unlink(missing_ok=True)
     cases = {
+        'epoll': [('engine/common/net_wins.c', name) for name in ('FTENET_Datagram_Polled', 'FTENET_TCP_Polled')],
         'rulesets': [('engine/client/valid.c', name) for name in ('Ruleset_SortRuleCB', 'Ruleset_SortFileCB')],
         'consoleoutput': [('engine/server/sv_sys_win.c', 'Sys_Printf')],
         'timers': [('engine/common/cmd.c', name) for name in ('Cmd_AddTimer', 'Cmd_ExecuteTimers')],
@@ -134,6 +135,10 @@ def main():
             source = function('engine/client/pr_csqc.c', 'CSQC_InitFields')
             source = source[source.index('#define comfieldfloat'):source.index('PR_RegisterFieldVar(csqcprogs, ev_void')]
             template = template.replace('/* ENGINE_CSQC_REGISTRATION */', source)
+            macro = re.search(r'^#define\s+STRUCT_FROM_LINK[^\n]+',
+                              (ROOT / 'engine/common/common.h').read_text(), re.M)[0]
+            template = template.replace('/* ENGINE_CONTAINER_MACRO */', macro)
+        if name == 'epoll':
             macro = re.search(r'^#define\s+STRUCT_FROM_LINK[^\n]+',
                               (ROOT / 'engine/common/common.h').read_text(), re.M)[0]
             template = template.replace('/* ENGINE_CONTAINER_MACRO */', macro)

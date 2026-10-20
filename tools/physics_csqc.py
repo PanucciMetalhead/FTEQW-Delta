@@ -83,25 +83,30 @@ pr_csqc_coreonerror 0
             raise RuntimeError(f'Engine failure in {out / (name + ".log")}\n{text[-5000:]}')
         return text
 
-    def wait_for(proc, name, predicate, timeout=70):
+    def wait_for(proc, name, predicate, timeout=70, watch=()):
         deadline = time.monotonic() + timeout
+        observed = [(proc, name), *watch]
         while True:
-            # Let the runtime finish symbolizing a failure before cleanup sends
-            # SIGTERM. Otherwise the useful allocation/free stack can be lost.
-            partial = (out / f'{name}.log').read_text(errors='replace')
-            if ERROR.search(partial):
-                try:
-                    proc.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    pass
-            text = check_log(name)
-            if predicate(text):
-                return text
-            code = proc.poll()
-            if code is not None:
-                raise RuntimeError(f'{name} exited with code {code} (0x{code & 0xffffffff:08x}): {out}\n{text[-5000:]}')
+            texts = {}
+            for peer, peer_name in observed:
+                # Let the runtime finish symbolizing a failure before cleanup
+                # sends SIGTERM, including failures in the other process.
+                partial = (out / f'{peer_name}.log').read_text(errors='replace')
+                if ERROR.search(partial):
+                    try:
+                        peer.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        pass
+                texts[peer_name] = check_log(peer_name)
+            if predicate(texts[name]):
+                return texts[name]
+            for peer, peer_name in observed:
+                code = peer.poll()
+                if code is not None:
+                    raise RuntimeError(f'{peer_name} exited with code {code} (0x{code & 0xffffffff:08x}): {out}\n{texts[peer_name][-5000:]}')
             if time.monotonic() > deadline:
-                raise RuntimeError(f'Timed out waiting for {name}: {out}\n{text[-5000:]}')
+                details = '\n'.join(f'{label}:\n{body[-5000:]}' for label, body in texts.items())
+                raise RuntimeError(f'Timed out waiting for {name}: {out}\n{details}')
             time.sleep(.05)
 
     results = {}
@@ -150,7 +155,7 @@ connect qw://127.0.0.1:{port}
             shutil.copyfile(args.plugin.resolve(), remote_root / args.plugin.name)
             (remote_root / 'id1/remote.cfg').write_text(cfg)
             client = start(args.client_only, 'remote.cfg', 'remote', mode, remote_root)
-            wait_for(client, 'remote', lambda s: s.count('CSQC_PHYSICS_OK') == 3)
+            wait_for(client, 'remote', lambda s: s.count('CSQC_PHYSICS_OK') == 3, watch=[(server, 'server')])
             if client.wait(timeout=15):
                 raise RuntimeError('Remote client failed: ' + str(out))
             text = check_log('remote')

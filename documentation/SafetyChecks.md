@@ -423,3 +423,14 @@ The real `jolt-csqc` test then reproduces Linux's empty initial CSQC entity-tabl
 clear locally. That clear now skips an absent table; allocated tables retain the
 same reset behavior. The stronger instrumentation supplements the source fixtures
 and keeps future zero-length null-pointer regressions visible on macOS too.
+
+
+Linux loopback coverage also exercises the UDP epoll callback. Its embedded
+context recovery, and the matching TCP path, now use `STRUCT_FROM_LINK` with
+standard `offsetof` instead of taking a member address through a null pointer.
+The `epoll` source fixture runs both production callbacks on all hosts under
+ASan/UBSan, checking context recovery, packet draining/routing, stream flushing
+and read-error dispatch. This brings the standalone suite to 41 fixtures. The
+CSQC runner monitors the dedicated server while waiting for its client, reports
+server sanitizer errors or early exits immediately, and includes both logs on a
+connection timeout.
