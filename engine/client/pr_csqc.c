@@ -8223,7 +8223,8 @@ qboolean CSQC_Init (qboolean anycsqc, const char *csprogsname, unsigned int chec
 			csqc_world.worldmodel = Mod_ForName("", MLV_SILENT); 
 		csqc_worldchanged = false;
 
-		memset(csqcent, 0, sizeof(*csqcent)*maxcsqcentities);	//clear the server->csqc entity translations.
+		if (maxcsqcentities)
+			memset(csqcent, 0, sizeof(*csqcent)*maxcsqcentities);	//clear the server->csqc entity translations.
 
 		if (csqc_isdarkplaces)
 			CSQC_FindGlobals(true);

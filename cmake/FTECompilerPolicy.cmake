@@ -44,4 +44,10 @@ if(FTE_SANITIZERS)
     endif()
     add_compile_options(-fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer)
     add_link_options(-fsanitize=address,undefined -fno-sanitize-recover=undefined)
+    # Darwin omits glibc's nonnull contracts for zero-length libc operations.
+    # Make native C sanitizer runs check the same preconditions on both hosts.
+    if(APPLE)
+        add_compile_options("$<$<COMPILE_LANGUAGE:C>:-include>"
+            "$<$<COMPILE_LANGUAGE:C>:${CMAKE_CURRENT_LIST_DIR}/FTESanitizerContracts.h>")
+    endif()
 endif()

@@ -414,3 +414,12 @@ a redirected descriptor and verifies that short messages arrive before process
 shutdown. Windows servers now flush stdout after each printed message. The CSQC
 fixture uses its own post-map readiness marker because the engine's usual map
 startup message is conditional. The source sanitizer suite now has 40 fixtures.
+
+
+macOS C sanitizer builds now redeclare the `memcpy`, `memmove`, `memset`, `memcmp`
+and `qsort` nonnull contracts that glibc already exposes. This adds checks to the
+actual engine and tools without replacing libc or affecting ordinary builds.
+The real `jolt-csqc` test then reproduces Linux's empty initial CSQC entity-table
+clear locally. That clear now skips an absent table; allocated tables retain the
+same reset behavior. The stronger instrumentation supplements the source fixtures
+and keeps future zero-length null-pointer regressions visible on macOS too.
