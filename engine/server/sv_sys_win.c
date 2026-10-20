@@ -1259,6 +1259,8 @@ void Sys_Printf (char *fmt, ...)
 		vprintf (fmt,argptr);
 		va_end (argptr);
 	}
+	// Redirected server logs must be visible while the process is running.
+	fflush(stdout);
 }
 
 /*

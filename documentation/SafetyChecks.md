@@ -399,7 +399,18 @@ Linux client startup coverage exposed a zero-length `memcpy` with a null source
 in `Cmd_AddTimer`. Empty timer payloads now skip the copy. The `timers` source
 fixture enforces the same nonnull contract on macOS and checks empty/absent
 payloads, payload ownership, terminators, deadlines and repeated cleanup. This
-brings the standalone sanitizer suite to 38 fixtures. Windows builds copy the
+brings the standalone sanitizer suite to 38 fixtures at that milestone. Windows builds copy the
 shared SDL runtime beside SDL-linked executables; the CSQC runner reports early
 process exit codes in decimal and hexadecimal to distinguish loader failures
 from timeouts.
+
+
+Further native CI coverage found empty ruleset file-hash lists reaching `qsort`;
+rule and file lists now sort only when they contain multiple entries. The
+`rulesets` fixture executes the actual sorting block and comparators with empty,
+single-entry and multiple-entry lists, enforcing libc's nonnull contract on all
+hosts. The `consoleoutput` fixture executes the Windows server formatter against
+a redirected descriptor and verifies that short messages arrive before process
+shutdown. Windows servers now flush stdout after each printed message. The CSQC
+fixture uses its own post-map readiness marker because the engine's usual map
+startup message is conditional. The source sanitizer suite now has 40 fixtures.

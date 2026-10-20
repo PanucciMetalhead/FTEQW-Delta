@@ -49,6 +49,8 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     (out / 'results.json').unlink(missing_ok=True)
     cases = {
+        'rulesets': [('engine/client/valid.c', name) for name in ('Ruleset_SortRuleCB', 'Ruleset_SortFileCB')],
+        'consoleoutput': [('engine/server/sv_sys_win.c', 'Sys_Printf')],
         'timers': [('engine/common/cmd.c', name) for name in ('Cmd_AddTimer', 'Cmd_ExecuteTimers')],
         'consoleinput': [],
         'qcfields': [],
@@ -135,6 +137,15 @@ def main():
             macro = re.search(r'^#define\s+STRUCT_FROM_LINK[^\n]+',
                               (ROOT / 'engine/common/common.h').read_text(), re.M)[0]
             template = template.replace('/* ENGINE_CONTAINER_MACRO */', macro)
+        if name == 'rulesets':
+            source = (ROOT / 'engine/client/valid.c').read_text()
+            first = source.index('typedef struct {')
+            last = source.index('} ruleset_t;', first) + len('} ruleset_t;')
+            template = template.replace('/* ENGINE_RULESET_TYPES */', source[first:last])
+            source = function('engine/client/valid.c', 'Ruleset_Parse')
+            first = source.index('//sort it for consistency')
+            last = source.index('hashfunc = &hash_sha1;', first)
+            template = template.replace('/* ENGINE_RULESET_SORT */', source[first:last])
         if name == 'timers':
             timer = re.search(r'typedef struct cmdtimer_s\s*\{.*?\} cmdtimer_t;',
                               (ROOT / 'engine/common/cmd.c').read_text(), re.S)[0]

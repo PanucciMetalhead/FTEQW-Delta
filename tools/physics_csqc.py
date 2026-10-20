@@ -132,10 +132,10 @@ map csqc
         if args.client_only:
             with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
                 sock.bind(('127.0.0.1', 0)); port = sock.getsockname()[1]
-            cfg = common + f'sv_port 127.0.0.1:{port}\nmaxclients 1\nset csqc_fixture_shared 0\nmap csqc\n'
+            cfg = common + f'sv_port 127.0.0.1:{port}\nmaxclients 1\nset csqc_fixture_shared 0\nmap csqc\necho CSQC_SERVER_READY\n'
             (game / 'server.cfg').write_text(cfg)
             server = start(args.server, 'server.cfg', 'server', ['-ip', '127.0.0.1', '-port', str(port)])
-            wait_for(server, 'server', lambda s: 'Server spawned.' in s, 20)
+            wait_for(server, 'server', lambda s: 'CSQC_SERVER_READY' in s, 20)
             cfg = common + f"""set csqc_fixture_shared 0
 alias csqc_done "cmd csqc_fixture_done;defer .3 quit force"
 alias csqc_cycle2 "alias csqc_next csqc_done;disconnect;plug_close jolt;plug_load jolt;defer .2 connect qw://127.0.0.1:{port}"
