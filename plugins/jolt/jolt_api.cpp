@@ -1277,13 +1277,14 @@ void fte_jolt_axes(const float *q, float *forward, float *left, float *up) {
     store(matrix.GetAxisZ(), up);
 }
 
-int fte_jolt_runtime_get(fte_jolt_world *w, fte_jolt_body token, fte_jolt_runtime *out) {
+static int read_runtime(fte_jolt_world *w, fte_jolt_body token, fte_jolt_runtime *out,
+                        bool skeletal) {
     if (!w || !out)
         return 0;
     auto *body = w->find(token);
     if (!body)
         return 0;
-    if (body->animation_motor)
+    if (body->animation_motor && !skeletal)
         return w->fail("Entity snapshots do not support skeletal animation motors");
     *out = {};
     if (!fte_jolt_get(w, token, &out->state))
@@ -1296,6 +1297,88 @@ int fte_jolt_runtime_get(fte_jolt_world *w, fte_jolt_body token, fte_jolt_runtim
     out->active = w->physics.GetBodyInterface().IsActive(body->id);
     store(body->driven_velocity, out->driven_velocity, 1 / metres);
     store(body->driven_spin, out->driven_spin);
+    return 1;
+}
+int fte_jolt_runtime_get(fte_jolt_world *w, fte_jolt_body token, fte_jolt_runtime *out) {
+    return read_runtime(w, token, out, false);
+}
+static bool rig_checkpoint_velocity_ok(const fte_jolt_rig_runtime *saved) {
+    const auto &in = saved->runtime;
+    if (!finite3(in.driven_velocity) || !finite3(in.driven_spin) ||
+        !finite3(saved->motor_velocity) || !finite3(saved->motor_spin))
+        return false;
+    for (int axis = 0; axis < 3; ++axis) {
+        if (std::fabs(in.state.velocity[axis]) > 10000000 ||
+            std::fabs(in.state.spin[axis]) > 10000000 ||
+            std::fabs(in.target.velocity[axis]) > 10000000 ||
+            std::fabs(in.target.spin[axis]) > 10000000 ||
+            std::fabs(saved->animation_pose.velocity[axis]) > 10000000 ||
+            std::fabs(saved->animation_pose.spin[axis]) > 10000000 ||
+            std::fabs(in.driven_velocity[axis]) > 10000000 ||
+            std::fabs(in.driven_spin[axis]) > 10000000 ||
+            std::fabs(saved->motor_velocity[axis]) > 101 || std::fabs(saved->motor_spin[axis]) > 33)
+            return false;
+    }
+    return true;
+}
+int fte_jolt_rig_runtime_get(fte_jolt_world *w, fte_jolt_body token, fte_jolt_rig_runtime *out) {
+    if (!out || !w)
+        return 0;
+    *out = {};
+    auto *body = w->find(token);
+    if (!body || !body->can_be_dynamic || !read_runtime(w, token, &out->runtime, true))
+        return 0;
+    out->strength = body->animation_motor                ? body->animation_strength
+                    : body->motion == FTE_JOLT_KINEMATIC ? 1
+                                                         : 0;
+    out->animation_pose = body->animation_motor ? body->animation_pose : out->runtime.state;
+    if (!state_ok(&out->animation_pose) || !animation_position(out->animation_pose))
+        return w->fail("Invalid skeletal animation checkpoint");
+    if (body->animation_motor) {
+        store(body->animation_motor->GetTargetVelocityCS(), out->motor_velocity);
+        store(body->animation_motor->GetTargetAngularVelocityCS(), out->motor_spin);
+    }
+    if (!rig_checkpoint_velocity_ok(out))
+        return w->fail("Skeletal runtime velocity exceeds checkpoint bounds");
+    return 1;
+}
+int fte_jolt_rig_runtime_set(fte_jolt_world *w, fte_jolt_body token,
+                             const fte_jolt_rig_runtime *saved) {
+    if (!w || !saved)
+        return 0;
+    auto *body = w->find(token);
+    const auto &in = saved->runtime;
+    if (!body || !body->can_be_dynamic || !std::isfinite(saved->strength) || saved->strength < 0 ||
+        saved->strength > 1 || !state_ok(&in.state) || !state_ok(&in.target) ||
+        !state_ok(&saved->animation_pose) || !animation_position(in.state) ||
+        !animation_position(in.target) || !animation_position(saved->animation_pose) ||
+        !finite3(in.driven_velocity) || !finite3(in.driven_spin) ||
+        !finite3(saved->motor_velocity) || !finite3(saved->motor_spin) ||
+        (in.has_target != 0 && in.has_target != 1) || (in.active != 0 && in.active != 1) ||
+        (in.has_target && saved->strength == 0))
+        return w->fail("Invalid skeletal runtime checkpoint");
+    if (!rig_checkpoint_velocity_ok(saved))
+        return w->fail("Skeletal runtime velocity exceeds checkpoint bounds");
+    if (!fte_jolt_animate(w, token, 0) || !fte_jolt_set(w, token, &in.state) ||
+        !fte_jolt_animate(w, token, saved->strength))
+        return 0;
+    body->target = in.target;
+    body->has_target = in.has_target != 0;
+    body->driven_velocity = vec(in.driven_velocity, metres);
+    body->driven_spin = vec(in.driven_spin);
+    if (body->animation_motor) {
+        body->animation_pose = saved->animation_pose;
+        motor_pose(*body, pos(saved->animation_pose.position),
+                   quat(saved->animation_pose.rotation));
+        body->animation_motor->SetTargetVelocityCS(vec(saved->motor_velocity));
+        body->animation_motor->SetTargetAngularVelocityCS(vec(saved->motor_spin));
+        body->animation_motor->ResetWarmStart();
+    }
+    auto &api = w->physics.GetBodyInterface();
+    if (in.active)
+        api.ActivateBody(body->id);
+    else
+        api.DeactivateBody(body->id);
     return 1;
 }
 int fte_jolt_runtime_set(fte_jolt_world *w, fte_jolt_body token, const fte_jolt_runtime *in) {
@@ -1321,6 +1404,19 @@ int fte_jolt_runtime_set(fte_jolt_world *w, fte_jolt_body token, const fte_jolt_
         else
             api.DeactivateBody(body->id);
     }
+    return 1;
+}
+int fte_jolt_runtime_activation(fte_jolt_world *w, fte_jolt_body token, int active) {
+    if (!w)
+        return 0;
+    auto *body = w->find(token);
+    if (!body || body->motion == FTE_JOLT_STATIC || (active != 0 && active != 1))
+        return w->fail("Invalid movable-body checkpoint activation");
+    auto &api = w->physics.GetBodyInterface();
+    if (active)
+        api.ActivateBody(body->id);
+    else
+        api.DeactivateBody(body->id);
     return 1;
 }
 int fte_jolt_clock_get(fte_jolt_world *w, double *remainder, double *simulated) {

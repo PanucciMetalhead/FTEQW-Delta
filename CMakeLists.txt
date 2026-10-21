@@ -1646,6 +1646,12 @@ if(BUILD_TESTING AND TARGET fte-jolt-adapter)
                 --plugin $<TARGET_FILE:plug_jolt>
                 --out "${CMAKE_BINARY_DIR}/physics-save/$<CONFIG>" ${fte_jolt_save_client_args})
         set_tests_properties(jolt-save PROPERTIES TIMEOUT 180)
+        add_test(NAME jolt-rig-save
+            COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/physics_save.py"
+                --server $<TARGET_FILE:fteqw-sv> --qcc $<TARGET_FILE:fteqcc>
+                --plugin $<TARGET_FILE:plug_jolt> --skeletal
+                --out "${CMAKE_BINARY_DIR}/physics-rig-save/$<CONFIG>" ${fte_jolt_save_client_args})
+        set_tests_properties(jolt-rig-save PROPERTIES TIMEOUT 300)
         add_test(NAME jolt-pointanchors
             COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/physics_pointanchors.py"
                 --server $<TARGET_FILE:fteqw-sv> --qcc $<TARGET_FILE:fteqcc>

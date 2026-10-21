@@ -705,13 +705,18 @@ For older entity point-joint definitions, see [legacy anchors and joint groups](
 its default 0 retains shared `.origin` pivots. `.jointgroup` is an allocation
 hint, not a collision filter.
 
-Ordinary SSQC `save` / `load` now retain Jolt entity props, sleep state and
-entity-joint reference frames in native FTE saves and extended legacy `.sav`
-files. Use the same enabled backend, point-anchor mode and collision assets on
-load. Live skeletal rigs and pending physics commands/forces refuse saving;
-let queued work reach a tick, or clear a `.doll` before saving for now. A mod's
-`SV_PerformSave` format and independent CSQC worlds remain its responsibility.
-See [saving entity scenes](JoltPhysics.md#saving-entity-scenes) for limits and tests.
+Ordinary SSQC `save` / `load` retain Jolt props and live `.doll` rigs, skeleton
+poses and handles, shared animation sources, passive/exact/fractional controls,
+velocity/spin, sleep and original joint reference frames in native FTE saves and
+extended legacy `.sav` files. File and inline rig definitions are embedded in
+the checkpoint, preserving named body/joint edits. Use the same enabled backend,
+point-anchor mode and compatible collision/skeletal models on load. Pending
+physics commands/forces or invalid/unbound rig resources refuse saving; let queued
+work reach a tick first. Relative/absolute matrix skeletons are supported; transient
+raw `skel_mmap` pointers should be reacquired after load. A mod's `SV_PerformSave`
+format and independent CSQC worlds remain its responsibility.
+See [saving entity scenes](JoltPhysics.md#saving-entity-scenes) and
+[skeletal resources](JoltPhysics.md#skeletal-resources-and-live-rigs) for limits and tests.
 
 CSQC can explicitly create local physics props and rigs after `CSQC_WorldLoaded`,
 with `physics_mode = 2` and the Jolt plugin enabled locally. `physics_supported`

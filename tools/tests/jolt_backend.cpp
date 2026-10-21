@@ -517,7 +517,9 @@ static void offset_mesh_contacts() {
 #include "jolt_animation.h"
 #include "jolt_pointanchors.h"
 #include "jolt_checkpoint.h"
+#include "jolt_rig_checkpoint.h"
 int main() {
+    skeletal_checkpoints();
     entity_checkpoints();
     point_anchors();
     animation_blending();

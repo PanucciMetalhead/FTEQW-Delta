@@ -85,8 +85,18 @@ typedef struct {
     fte_jolt_state reference1,reference2;
     int enabled;
 } fte_jolt_joint_checkpoint;
+/* Skeletal bodies also retain the servo's accepted target and animation mask. */
+typedef struct {
+    fte_jolt_runtime runtime;
+    fte_jolt_state animation_pose;
+    float strength, motor_velocity[3], motor_spin[3];
+} fte_jolt_rig_runtime;
+int fte_jolt_rig_runtime_get(fte_jolt_world *,fte_jolt_body,fte_jolt_rig_runtime *);
+int fte_jolt_rig_runtime_set(fte_jolt_world *,fte_jolt_body,const fte_jolt_rig_runtime *);
 int fte_jolt_runtime_get(fte_jolt_world *,fte_jolt_body,fte_jolt_runtime *);
 int fte_jolt_runtime_set(fte_jolt_world *,fte_jolt_body,const fte_jolt_runtime *);
+/* Apply activation after restoring every connected body's motion type. */
+int fte_jolt_runtime_activation(fte_jolt_world *,fte_jolt_body,int active);
 int fte_jolt_clock_get(fte_jolt_world *,double *remainder,double *simulated);
 int fte_jolt_clock_set(fte_jolt_world *,double remainder,double simulated);
 int fte_jolt_joint_checkpoint_get(fte_jolt_world *,fte_jolt_joint,fte_jolt_joint_checkpoint *);

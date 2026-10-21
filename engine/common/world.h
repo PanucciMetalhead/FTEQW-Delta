@@ -183,6 +183,19 @@ typedef struct
 } laggedentinfo_t;
 
 #ifdef USERBE
+/* Borrowed skeleton view for backend persistence. Native slots are never serialized. */
+typedef struct {
+    rbebody_t odebody;
+    float animstrength, animmatrix[12], boneoffset[12], inverseboneoffset[12];
+} rbeskelbody_t;
+typedef struct {
+    int id, modelindex, type, numbones, animsource, entity, numbodies, numjoints;
+    const float *bonematrix;
+    const char *definition;
+    rbeskelbody_t *body;
+    rbejoint_t *joint;
+    const rbejointinfo_t *jointinfo;
+} rbeskel_t;
 typedef struct
 {
 	void (QDECL *End)(struct world_s *world);

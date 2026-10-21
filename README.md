@@ -45,8 +45,8 @@ for QuakeC mods, including primitive/convex/compound props, six joint types and 
 `.doll` skeletal rigs, with hinge2 suspension controls and mixed animated/passive
 bones and fractional collision-aware animation motors for mod authors. An optional
 legacy point-anchor mode supports older FTE/ODE joint definitions. Native and
-extended legacy saves preserve entity props and joint reference frames; live
-skeletal rig persistence remains in progress. Humanoid checks
+extended legacy saves preserve props, live rigs, skeleton poses, animation
+controls and original joint reference frames. Humanoid checks
 cover original test assets and an optional
 owned remaster soldier. Engine-controlled brush lifts, doors and rotating geometry
 interact with Jolt props and rigs; classic movement stays in the engine.

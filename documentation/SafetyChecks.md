@@ -278,7 +278,7 @@ QuakeC server/client field registration and the shared link-container macro now
 use standard `offsetof` too. The `qcfields` and `qcfields_split` fixtures compile
 the production entity declarations and registration macros, checking every
 registered offset/type/name against real allocated structures in combined and
-split VM layouts. They also exercise the production ABI 6 compatibility helper:
+split VM layouts. They also exercise the production ABI 7 compatibility helper:
 null interfaces, old/future versions and mismatched entity/joint/backend sizes are
 rejected, and the old ABI 1 interface has a different request size. Runtime
 physics assertions are unchanged; CI server watchdogs
@@ -479,6 +479,9 @@ performance/bandwidth validation are completed.
 
 ## Jolt entity-scene persistence
 
+This section records the entity-only milestone. The skeletal follow-up below
+supersedes its live-rig save refusal.
+
 Native FTE saves and legacy extended `.sav` files now contain a versioned,
 bounded numeric physics block. The decoder stages records, validates entity
 bindings and finite values, and reconstructs colliders from mod-owned assets.
@@ -547,3 +550,72 @@ sanitizer fixtures, the instrumented engine startup test and instrumented
 native/legacy save loading. A separate Clang 23 `-fsanitize=function` run on macOS
 reproduced the exact CI diagnostic with the original callback and passed with
 the corrected signature. The full Linux check remains subject to the new CI run.
+
+
+## Jolt skeletal persistence
+
+Physics save format 2 adds world-owned skeleton poses and IDs, shared animation
+sources, authored file/inline rig definitions, per-body animation strengths and
+next matrices, current physical runtime, original constraint frames and enabled
+flags. Fractional motors retain their accepted target pose and target velocities.
+The engine recreates VM-owned storage rather than restoring native pointers;
+exact numeric handles keep references in QuakeC globals valid. Required IDs
+owned by another world's active or cached resources reject loading.
+
+The overall 16 MiB input/15 MiB output caps still apply. Additional bounds are
+1,024 skeletons, 32,768 bones, 1 MiB per definition and 2 MiB of definitions total.
+Counts are checked before definition parsing/allocation. Models, bone counts,
+entity/source relationships, poses, animation masks and servo values are checked;
+failed partial restoration cleans up its new world's resources. The engine's
+rigid-body plugin interface is ABI 7; older modules must be rebuilt. Existing
+version-1 entity checkpoints remain readable in both native and legacy formats.
+
+`jolt-rig-save` exercises seven original skeletons: passive, exact/fractional,
+detached and suspended rigs, a shared animation source and a render-copy object.
+Both native FTE and legacy `.sav` paths include repeated and fresh-process loads.
+Bodies must resume falling, soft motors remain blocked then recover after wall
+removal, disabled joints stay disabled, suspension retains its original rest
+frame, names remain editable and release/backend restart remain safe. Each
+format rejects 41 malformed physics blocks and a missing backend. The additional
+cases cover skeleton counts/duplicates, models/bone counts, owner/source IDs,
+nonfinite poses, definition size/hex/NUL/counts/mass/shape/reference poses, masks,
+activation flags, quaternions, servo velocities, joint types and enabled flags.
+
+The new `skelcheckpoint` source fixture executes production model validation and
+VM allocation with exact IDs. It checks copied poses, numeric/type/count bounds,
+live and cached foreign-world protection, own-world reset and repeated cleanup.
+The standalone suite now contains 45 fixtures. Adapter tests compare fresh-world
+continuation for passive, exact and fractional modes, pending targets and partial
+ticks, saved momentum, sleeping bodies and rejected runtime edits. The ordinary
+entity fixture also loads a version-1 snapshot in each format and confirms
+invalid ownership still refuses overwriting an existing checkpoint.
+
+Local Apple Silicon validation on 2026-10-22 passed 13/13 Debug, 13/13 Release
+and 16/16 ASan/UBSan CTest checks. Adapter and C17 boundary tests also passed with
+CI-pinned Jolt `1b2e77e3c6c09709e5edc79dc208459b8ff32051`. The C17 guard checked
+505 C units and identical classic movement, server physics, world collision and
+math assembly. This milestone leaves classic movement and Q3 gamecode physics
+unchanged. New Windows/Linux CI checks remain to run after publication.
+
+Independent CSQC simulation and custom `SV_PerformSave` formats remain outside
+SSQC save ownership. Transient `skel_mmap` pointers need to be reacquired by mod
+code after loading. Solver/contact warm-start data is rebuilt, so checkpoints
+continue simulation rather than providing bit-exact replay. ODE/Bullet remain
+until real-mod acceptance and many-body performance/bandwidth gates are complete.
+
+
+The final ownership review also added explicit main-thread cache registration
+for restored and inline definitions. Cleanup unlinks cached definitions safely;
+worker-loaded model defaults keep their separate model ownership. The
+`skeldefinitions` fixture executes production text copying, registration,
+freeing and flushing with counted native/string allocations, checking active
+references, model-owned definitions, duplicate registration, invalid input and
+repeated cleanup. A connected-body regression proves that a kinematic handoff
+can wake an earlier restored neighbor; activation flags are now applied after
+all motion types and motors, preserving saved sleep state across the whole rig.
+
+Checkpoint capture applies the same velocity bounds as restoration. An adapter
+regression submits a valid but extreme one-tick kinematic target, confirms its
+release velocity exceeds save limits and checks that saving refuses that state
+before serialization. After an idle tick clears the release velocity, capture
+and restore succeed again. This does not clamp or change simulation behavior.

@@ -23,7 +23,7 @@ Supported through the existing SSQC/CSQC rigid-body interface:
   velocity motors, hinge2 linear suspension, enabling/disabling and connected-body collision exclusion.
 - Experimental `.doll` rigs: primitive bodies, pose read/write, skeletal joints,
   passive and fractional animation-driven simulation, and explicit cleanup on world/backend shutdown.
-- Native and extended legacy saves of SSQC entity props and their joints, including sleep state and original constraint frames.
+- Native and extended legacy saves of SSQC props, joints, skeletal poses and live rigs, including animation masks/targets, sleep state and original constraint frames.
 - World creation/destruction, backend restart, plugin unload/reload and map changes.
 
 A mod must explicitly use `MOVETYPE_PHYSICS`. Loading the plugin does not convert
@@ -35,12 +35,12 @@ Other ordinary solids keep static proxies, refreshed from their QuakeC poses.
 The world itself stays static.
 
 **Not implemented:** freely simulated concave triangle soup, automatic convex decomposition,
-multithreaded simulation, or persistence of live skeletal rigs. Unsupported rig joints
+or multithreaded simulation. Unsupported rig joints
 reject the entire rig and roll back constructed bodies/joints. There is no
 promise of ODE-identical solver response or multiplayer determinism. SSQC and
 native Metal rendering and independent CSQC simulation have end-to-end validation
-coverage, including full and client-only executables. Entity-scene save/load is
-covered separately below; skeletal resource persistence remains a replacement gate.
+coverage, including full and client-only executables. Save/load of props and live
+skeletal rigs is covered separately below.
 
 ## Build
 
@@ -66,12 +66,12 @@ ctest --test-dir build/jolt -C Debug -R 'jolt-' --output-on-failure
 For server-only physics tests, add `-DFTE_ENGINE=OFF
 -DFTE_ENGINE_SERVER_ONLY=ON` and omit `fteqw` from the build targets.
 Multi-configuration generators put binaries under `build/jolt/Debug`; the
-plugin must remain beside the engine executable. Rigid-body plugin ABI 6 checks
+plugin must remain beside the engine executable. Rigid-body plugin ABI 7 checks
 entity, joint and backend interface layout sizes; rebuild physics plugins together
 with this engine. The same module supports full, dedicated and client-only hosts.
 It contains two small C bridges for the split/combined entity-field layouts and
 selects only an exact ABI match; the Jolt solver and C++ adapter are shared.
-Older ABI 1/2/3/4/5 modules are rejected before their callbacks are used. The Jolt
+Older ABI 1/2/3/4/5/6 modules are rejected before their callbacks are used. The Jolt
 module is `fteplug_jolt.so` on
 macOS/Linux or `fteplug_jolt.dll` on Windows. Jolt is statically linked into the
 plugin; no separate Jolt shared library is required. Retain the accompanying
@@ -307,8 +307,9 @@ The `jolt-` tests are:
 | Test | Coverage |
 | --- | --- |
 | `jolt-c-boundary` | A real C17 translation unit creates/steps/destroys the C++ backend and creates/toggles/removes a joint and drives/releases a fractional motor through its C ABI. |
-| `jolt-backend` | All primitive shapes, static mesh/CCD, unit conversions, gravity, forces/torque/impulses, partial steps, sleeping/waking, owner/dimension filters, cached-contact changes, stacking, restitution/friction, invalid input, stale/cross-world handles, capacity limits, repeated worlds and fixed-step behavior at 60/144 frame rates. World/body constraints, angular/linear limits and motors, joint frames, connected collision exclusion, dependent-joint removal and repeated multi-body teardown. Suspension load/deflection, damping energy loss, arbitrary-axis forces, live spring edits preserving rest anchors, invalid edits, disabled joints and rigid-pivot restoration. Dynamic/kinematic handoffs preserve pose, mass, inertia and joints; releases inherit driven linear/angular velocity, idle releases stop, and stale/cross-world/unsupported requests are rejected. Fractional dynamic motors cover strength/mass response, gravity compliance, wall resistance and recovery, orientation/COM offsets, tiny strengths, teleport rebasing, fixed steps, retained joints and cleanup. Independent point anchors, reverse ordering, bounds, shape COM, point queries and removal; optional real ODE anchor-geometry and free-fall comparisons. Runtime/clock and joint-reference checkpoints, fresh-world handle remapping, sleep, disabled constraints, pending kinematic targets and queued-force refusal. |
-| `jolt-save` | Real native level caches and extended legacy `.sav` files, repeated and fresh-process loading of falling/spinning props, sleeping bodies, model-derived hulls, a motor slider, compressed suspension and legacy world point anchors. Fractional joint coordinates preserve reference frames after wake-up. Unsupported live-rig saves leave the previous checkpoint intact. Both formats reject 18 malformed physics blocks and missing backends. Adapter tests separately cover pending kinematic targets and partial fixed ticks. |
+| `jolt-backend` | All primitive shapes, static mesh/CCD, unit conversions, gravity, forces/torque/impulses, partial steps, sleeping/waking, owner/dimension filters, cached-contact changes, stacking, restitution/friction, invalid input, stale/cross-world handles, capacity limits, repeated worlds and fixed-step behavior at 60/144 frame rates. World/body constraints, angular/linear limits and motors, joint frames, connected collision exclusion, dependent-joint removal and repeated multi-body teardown. Suspension load/deflection, damping energy loss, arbitrary-axis forces, live spring edits preserving rest anchors, invalid edits, disabled joints and rigid-pivot restoration. Dynamic/kinematic handoffs preserve pose, mass, inertia and joints; releases inherit driven linear/angular velocity, idle releases stop, and stale/cross-world/unsupported requests are rejected. Fractional dynamic motors cover strength/mass response, gravity compliance, wall resistance and recovery, orientation/COM offsets, tiny strengths, teleport rebasing, fixed steps, retained joints and cleanup. Independent point anchors, reverse ordering, bounds, shape COM, point queries and removal; optional real ODE anchor-geometry and free-fall comparisons. Runtime/clock and joint-reference checkpoints, fresh-world handle remapping, sleep, disabled constraints, pending kinematic targets and queued-force refusal. Skeletal checkpoints compare continued passive, exact and fractional motion in fresh worlds, including servo targets/velocities, partial ticks, sleep and malformed runtime data. |
+| `jolt-save` | Real native level caches and extended legacy `.sav` files, repeated and fresh-process loading of falling/spinning props, sleeping bodies, model-derived hulls, a motor slider, compressed suspension and legacy world point anchors. Fractional joint coordinates preserve reference frames after wake-up. Unbound-rig saves leave the previous checkpoint intact; version-1 entity snapshots remain readable. Both formats reject 18 malformed physics blocks and missing backends. Adapter tests separately cover pending kinematic targets and partial fixed ticks. |
+| `jolt-rig-save` | Original passive, exact/fractional driven, detached and suspended rigs; shared animation source and render-copy skeletons; file and inline definitions; native/legacy saves and fresh-process loading. Restored bodies fall with momentum, motors stay blocked then recover, disabled joints remain disabled, suspension keeps its world rest frame, names remain editable, and release/backend restart remain safe. Both formats reject 41 malformed blocks and missing backends. |
 | `jolt-pointanchors` | Real SSQC in default and legacy modes: both world/body orderings, rotated body-local COM offsets, rejected edit preservation/recovery, numeric group labels, individual deletion, edict reuse and map/plugin reload. |
 | `jolt-shapes` | Original MD5 models and authored compound recipes through real SSQC; hull stacks, opening preservation, scale, recipe-path rebuilds, bounded malformed-input rejection/recovery and map/plugin reload. |
 | `jolt-csqc` | Real headless full client and optional client-only executable, simultaneous independent SSQC/CSQC worlds, cross-world skeleton rejection, fixed tick globals, floor/dimension contacts, deletion from touch, queued-force cleanup, moving brushes, legacy point anchors/grouped cleanup, mixed and fractional rigs, client-only backend restart, map/plugin reload and disconnect/reconnect. No owned assets or GPU required. |
@@ -327,8 +328,10 @@ failures and sanitizer diagnostics. Fixture deadlines accumulate actual physics
 and server catch-up timewarps therefore cannot advance a test's physics clock.
 The ODE collision baseline has a separate bounded settling deadline because
 its default damping differs from Jolt's; collision bounds remain identical.
-Each server process has a separate 60-second wall-clock watchdog; the complete
-CTest case allows 300 seconds for all modes on slower/shared runners.
+`jolt-engine` gives each server process a 60-second wall-clock watchdog and
+allows 300 seconds for the whole case on slower/shared runners. Save/load
+subprocesses allow 75 seconds; the skeletal legacy batch allows 180 seconds,
+within its 300-second CTest limit.
 
 For ASan/UBSan, configure another single-configuration Debug build with
 `-DFTE_SANITIZERS=ON`, then build `jolt-check-deps` and run the same tests.
@@ -339,8 +342,8 @@ complete engine shutdown leak audit or a third-party ODE library audit.
 
 Local validation on Apple Silicon/macOS passes native Debug, Release and
 ASan/UBSan adapter, ABI and engine checks against the supplied Jolt checkout and Homebrew
-ODE. The complete native Debug and Release builds pass 12/12 CTest checks each;
-the instrumented build passes 15/15, including 43 standalone source-based sanitizer fixtures. The native
+ODE. The complete native Debug and Release builds pass 13/13 CTest checks each;
+the instrumented build passes 16/16, including 45 standalone source-based sanitizer fixtures. The native
 Metal demo also passed client connection, joint release and map-reload checks;
 its captured poses were visually inspected. Skeleton allocation without CSQC,
 world isolation, cache reuse and native/VM ownership have dedicated sanitizer
@@ -354,7 +357,7 @@ console output for redirected Windows logs. Clang-instrumented plugins resolve s
 instrumented host. Sanitizer-enabled Jolt hosts use the C++ linker driver so
 Clang also supplies its C++ UBSan runtime (vptr cache/handlers); engine sources
 still compile as C17. Ordinary plugin builds retain strict symbol resolution.
-Further work includes skeletal rig save/load, additional real-mod rigs and many-body
+Further work includes additional real-mod acceptance and many-body
 performance/bandwidth checks.
 
 ## Saving entity scenes
@@ -376,17 +379,15 @@ pending transform/velocity edits on the next tick. Geometry is reconstructed
 from the restored entities and the mod's assets; native pointers, Jolt handles
 and opaque Jolt replay data are never stored.
 
-Save preflight refuses scenes with live skeletal rigs, pending physics commands
-or forces, or collision-shape changes that have not reached a physics tick.
+Save preflight refuses pending physics commands/forces, collision-shape changes
+that have not reached a physics tick, and invalid or unbound skeletal resources.
 These refusals occur before opening an ordinary save for writing, leaving an
 existing checkpoint intact. Let queued work reach a physics tick and try again.
-A live `.doll` must be cleared before saving for now; preserving its VM-owned
-skeleton, animation state and simulated bones is a separate milestone. The
-mod-owned `SV_PerformSave` format remains the mod's responsibility. Server saves
-do not capture an independent CSQC physics world.
+The mod-owned `SV_PerformSave` format remains the mod's responsibility. Server
+saves do not capture an independent CSQC physics world.
 
 The numeric block is versioned and bounded: at most 16 MiB on input, 15 MiB on
-output, 8,192 bodies and 16,384 joints. Entity bindings, finite numbers, flags,
+output, 8,192 bodies and 16,384 joints across props and rigs. Entity bindings, finite numbers, flags,
 quaternions, primitive sizes, mass/scale ranges and clock values are checked.
 Malformed or mismatched physics state fails the load instead of silently
 falling back to a different solver. Older saves without a physics block retain
@@ -397,9 +398,60 @@ is continuation of a scene rather than a bit-exact simulation replay.
 The asset-free `jolt-save` test covers both formats, repeated loading and a new
 engine process. It checks original joint limits/rest frames after explicitly
 waking the restored bodies, retained spin and sleep, and refusal to overwrite a
-checkpoint while a skeletal rig is active. Logs and `results.json` are written
+checkpoint while a live rig is detached from its owning entity. Logs and `results.json` are written
 under the build's `physics-save/` directory. Each format also exercises 18
 malformed blocks and a missing backend; ASan/UBSan runs the same cases.
+
+### Skeletal resources and live rigs
+
+A checkpoint now includes every active SSQC relative/absolute matrix skeleton,
+including shared animation sources and render copies, and each live `.doll`
+instance. The engine retains the authored definition when a rig is created and
+embeds it as bounded hex text in the save. File-loaded and `dollstring` rigs use
+the same path. Named body/joint controls therefore remain available after
+loading without depending on changes to an external `.doll` file. The original
+skeletal models must still be available and compatible.
+
+Restoration reserves each saved skeleton's exact numeric ID, so handles stored
+in QuakeC globals and entity fields continue to work. All poses are restored
+before rig instances, followed by physical bodies, original joint frames and
+animation controls. Each body retains its current pose, velocity/spin, sleep,
+passive/exact/fractional mask, accepted servo pose, servo velocity and pending
+target. Shared animation-source relationships and the engine's next animation
+matrices are restored too. Loading refuses an ID owned by another world's live
+or cached skeleton; it never steals client-world allocations.
+
+Additional limits are 1,024 skeletons, 32,768 total bones, 1 MiB of definition
+text per rig and 2 MiB of definition text in total, within the overall save-size
+cap. The loader bounds definition counts before parsing, validates models/bone
+counts and entity/source bindings, and checks runtime numbers before passing
+them to Jolt. Partial restores release the new world's resources on failure.
+Restored and inline definitions have main-thread cache ownership and are freed
+on world cleanup; worker-loaded default definitions remain model-owned.
+Relative and absolute matrix representations are supported; other skeletal
+representations are rejected. Transient raw pointers obtained through
+`skel_mmap` should be reacquired by mod code after loading.
+
+Current physics blocks use version 2. Version-1 entity-only checkpoints still
+load; `jolt-save` explicitly exercises both old native and legacy files.
+`jolt-rig-save` adds repeated/fresh-process live-rig loading and 41 malformed
+cases in each format, including bad skeleton counts/IDs, sources, models, bone
+poses, encoded definitions, masses/shapes, animation masks, quaternions, servo
+velocities and joint flags. The `skelcheckpoint` source sanitizer fixture checks
+exact IDs, copied VM allocations, input bounds, independent-world ownership and
+cleanup. The adapter checks continuation with all three animation modes.
+
+For a manual check in an SSQC mod or physics demo that creates a rig, use the
+ordinary console commands:
+
+```text
+save rigcheck
+load rigcheck
+```
+
+Move or release a body after saving, then load and confirm the earlier pose and
+control mode return. Continue play to check contacts and joint behavior; loading
+does not restore contact caches or guarantee bit-exact replay.
 
 ## QuakeC joints and skeletal rigs
 
@@ -849,6 +901,6 @@ softness and joint paths, so those fragments are not used as a correctness oracl
 
 Bullet and ODE will be removed, including their build options, plugins, source,
 console registrations and documentation references, once Jolt passes the
-replacement gates. Remaining gates include skeletal rig save/load, additional real-mod rigs and
+replacement gates. Remaining gates include additional real-mod acceptance and
 many-body CPU/bandwidth checks. ODE remains a useful
 comparison during that work. No classic player-movement or Quake 3 qagame-physics conversion is implied.

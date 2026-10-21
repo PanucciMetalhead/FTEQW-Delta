@@ -64,6 +64,12 @@ def main():
                         ('Bones_To_PosQuat4','GenMatrixPosQuat4Scale','QuaternionSlerp')] +
                        [('engine/client/pr_skelobj.c', name) for name in
                         ('skel_reset','skel_dodelete','skel_create','skel_get','rag_removedeltaent','rag_lerpdeltaent')],
+        'skeldefinitions': [('engine/client/pr_skelobj.c', name) for name in
+                            ('rag_createdollfromstring','rag_cachedoll','rag_freedoll','rag_flushdolls')],
+        'skelcheckpoint': [('engine/client/pr_skelobj.c', name) for name in
+                           ('skel_reset','skel_dodelete','skel_create','skel_get')] +
+                          [('engine/client/pr_skel_save.h', name) for name in
+                           ('skel_checkpoint_matrices','skel_checkpoint_model','skel_checkpoint_allocate')],
         'skeleton': [('engine/client/pr_skelobj.c', name) for name in
                      ('skel_reset', 'skel_dodelete', 'skel_create', 'skel_get')],
         'messages': [('engine/common/common.c', name) for name in
@@ -171,10 +177,15 @@ def main():
             start = source.index('//clear out any old state.')
             end = source.index('if (!*mod->publicname)', start)
             template = template.replace('/* ENGINE_MODEL_RESET */', source[start:end])
-        if name in ('skeleton','skelnetwork'):
+        if name in ('skeleton','skelnetwork','skelcheckpoint'):
             struct = re.search(r'typedef struct skelobject_s\s*\{.*?\} skelobject_t;',
                                (ROOT / 'engine/client/pr_skelobj.c').read_text(), re.S)[0]
             template = template.replace('/* ENGINE_SKEL_TYPE */', struct)
+        if name == 'skelcheckpoint':
+            source = (ROOT / 'engine/common/world.h').read_text()
+            first = source.index('typedef struct', source.index('/* Borrowed skeleton view'))
+            last = source.index('} rbeskel_t;', first) + len('} rbeskel_t;')
+            template = template.replace('/* ENGINE_SKEL_VIEW */', source[first:last])
         if name == 'viewangles':
             macro = re.search(r'^#define ANGLE2SHORT[^\n]+',
                               (ROOT / 'engine/common/protocol.h').read_text(), re.M)[0]

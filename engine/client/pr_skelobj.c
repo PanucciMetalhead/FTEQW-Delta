@@ -47,6 +47,8 @@ qc must build the skeletal object still, which fills the skeletal object from th
 typedef struct doll_s
 {
 	char *name;
+    char *definition; /* Original authored text, retained for portable checkpoints. */
+    qboolean registered; /* Main-thread cache ownership; model-owned dolls stay separate. */
 	int uses;
 	model_t *model;
 	struct doll_s *next;
@@ -68,18 +70,7 @@ typedef struct doll_s
 	} *bone;
 } doll_t;
 
-typedef struct
-{
-	rbebody_t odebody;
-
-//	int ownerent;	/*multiple of 12*/
-//	int flags;
-
-//	float moment[12];
-	float animstrength;
-	float animmatrix[12];
-	float boneoffset[12], inverseboneoffset[12];
-} body_t;
+typedef rbeskelbody_t body_t;
 #endif
 
 /*this is the skeletal object*/
@@ -351,8 +342,10 @@ static dollcreatectx_t *rag_createdoll(model_t *mod, const char *fname, int numb
 	ctx->defjoint.CFM2 = 1e-5;
 
 	ctx->d = BZ_Malloc(sizeof(*ctx->d));
-	ctx->d->next = dolllist;
+	ctx->d->next = NULL;
+    ctx->d->registered = false;
 	ctx->d->name = strdup(fname);
+    ctx->d->definition = NULL;
 	ctx->d->model = mod;
 	ctx->d->refanim = -1;	//skin pose.
 	ctx->d->numbodies = 0;
@@ -676,6 +669,7 @@ static doll_t *rag_finishdoll(dollcreatectx_t *ctx)
 doll_t *rag_createdollfromstring(model_t *mod, const char *fname, int numbones, const char *file)
 {
 	int linenum = 0;
+    const char *definition = file;
 	dollcreatectx_t *ctx;
 	ctx = rag_createdoll(mod, fname, numbones);
 	if (!ctx)
@@ -690,9 +684,22 @@ doll_t *rag_createdollfromstring(model_t *mod, const char *fname, int numbones, 
 			if (!ctx->errors++)
 				Con_Printf("^[Directive \"%s\" not understood or invalid\\edit\\%s:%i^]\n", Cmd_Argv(0), ctx->d->name, linenum);
 	}
-	return rag_finishdoll(ctx);
+	{
+        doll_t *d = rag_finishdoll(ctx);
+        if (d) d->definition = strdup(definition);
+        return d;
+    }
 }
 
+static void rag_cachedoll(doll_t *d)
+{
+    if (d && !d->registered)
+    {
+        d->next = dolllist;
+        dolllist = d;
+        d->registered = true;
+    }
+}
 static doll_t *rag_loaddoll(model_t *mod, char *fname, int numbones)
 {
 	doll_t *d;
@@ -700,7 +707,7 @@ static doll_t *rag_loaddoll(model_t *mod, char *fname, int numbones)
 
 	for (d = dolllist; d; d = d->next)
 	{
-		if (d->model == mod)
+		if (*fname && d->model == mod)
 			if (!strcmp(d->name, fname))
 				return d;
 	}
@@ -717,16 +724,24 @@ static doll_t *rag_loaddoll(model_t *mod, char *fname, int numbones)
 	d = rag_createdollfromstring(mod, fname, numbones, fptr);
 	FS_FreeFile(fptr);
 
-	if (d)
-	{
-		d->next = dolllist;
-		dolllist = d;
-	}
+    rag_cachedoll(d);
 	return d;
 }
 void rag_freedoll(doll_t *doll)
 {
 	int i;
+    if (doll->registered)
+    {
+        doll_t **link = &dolllist;
+        while (*link && *link != doll)
+            link = &(*link)->next;
+        if (*link) *link = doll->next;
+        doll->registered = false;
+    }
+    if (doll->model && doll->model->dollinfo == doll)
+    {
+        doll->model->dollinfo = NULL;
+    }
 	if (doll->uses)
 	{
 		for (i = 0; i < numskelobjectsused; i++)
@@ -743,6 +758,7 @@ void rag_freedoll(doll_t *doll)
 	BZ_Free(doll->body);
 	BZ_Free(doll->joint);
 	free(doll->name);
+    free(doll->definition);
 	BZ_Free(doll);
 }
 
@@ -1384,6 +1400,7 @@ static qboolean rag_instanciate(skelobject_t *sko, doll_t *doll, float *emat, we
 	sko->body = BZ_Malloc(sizeof(*sko->body) * sko->numbodies);
 	memset(sko->body, 0, sizeof(*sko->body) * sko->numbodies);
 	sko->doll = doll;
+    sko->entity = ent;
 	doll->uses++;
 	sko->numanimated = 0;
 
@@ -1506,6 +1523,7 @@ void CLQ1_DrawLine(shader_t *shader, vec3_t v1, vec3_t v2, float r, float g, flo
 static void rag_derive(skelobject_t *sko, skelobject_t *asko, float *emat)
 {
 	doll_t *doll = sko->doll;
+    sko->animsource = asko;
 	float *bmat = sko->bonematrix;
 	float *amat = asko?asko->bonematrix:NULL;
 	int numbones;
@@ -2004,6 +2022,7 @@ void QCBUILTIN PF_skel_ragedit(pubprogfuncs_t *prinst, struct globalvars_s *pr_g
 		else if (!stricmp(cmd, "dollstring"))
 		{
 			doll = sko->model?rag_createdollfromstring(sko->model, "", sko->numbones, ragname):NULL;
+            rag_cachedoll(doll);
 			if (!doll)
 				return;
 		}
@@ -2074,6 +2093,10 @@ void QCBUILTIN PF_skel_ragedit(pubprogfuncs_t *prinst, struct globalvars_s *pr_g
 	G_FLOAT(OFS_RETURN) = 1;
 #endif
 }
+
+#ifdef RAGDOLL
+#include "pr_skel_save.h"
+#endif
 
 //float(float modelindex) skel_create (FTE_CSQC_SKELETONOBJECTS)
 void QCBUILTIN PF_skel_create (pubprogfuncs_t *prinst, struct globalvars_s *pr_globals)

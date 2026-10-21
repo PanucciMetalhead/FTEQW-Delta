@@ -79,11 +79,12 @@ static qboolean js_body_current(world_t *world,wedict_t *ed,jolt_entity_t *b) {
        (!equal3(b->mins,ed->v->mins) || !equal3(b->maxs,ed->v->maxs))) return qfalse;
     return qtrue;
 }
+static qboolean js_save_skeletons(world_t *,jolt_output_t *,jolt_line_t *);
 static qboolean QDECL save_entities(world_t *world,qboolean(QDECL *write)(void *,const char *,size_t),void *user) {
     jolt_context_t *ctx=context(world);jolt_output_t out={write,user,0};jolt_line_t line={{0},0,qtrue};
     unsigned i,nb=0,nj=0;double remainder,simulated;
-    if(world->num_edicts>1048576 || ctx->failed || ctx->rag_bodies || ctx->commands || !fte_jolt_clock_get(ctx->simulation,&remainder,&simulated)) {
-        Con_Printf("Jolt: saving requires a healthy entity scene without live skeletal rigs or pending physics commands/forces.\n");return qfalse;
+    if(world->num_edicts>1048576 || ctx->failed || ctx->commands || !fte_jolt_clock_get(ctx->simulation,&remainder,&simulated)) {
+        Con_Printf("Jolt: saving requires a healthy entity scene without pending physics commands/forces.\n");return qfalse;
     }
     for(i=0;i<world->num_edicts;i++) {
         wedict_t *ed=WEDICT_NUM_PB(world->progs,i);jolt_entity_t *body; jolt_joint_t *joint;
@@ -97,7 +98,7 @@ static qboolean QDECL save_entities(world_t *world,qboolean(QDECL *write)(void *
         if(body && body->handle) ++nb;
         if(joint && joint->handle) ++nj;
     }
-    js_add(&line,"jolt_entities 1 %d\nclock %.17g %.17g\ncounts %u %u\n",point_anchor2->value!=0,remainder,simulated,nb,nj);
+    js_add(&line,"jolt_entities 2 %d\nclock %.17g %.17g\ncounts %u %u\n",point_anchor2->value!=0,remainder,simulated,nb,nj);
     if(!js_emit(&out,&line)) return qfalse;
     for(i=0;i<world->num_edicts;i++) {
         wedict_t *ed=WEDICT_NUM_PB(world->progs,i);jolt_entity_t *body;fte_jolt_runtime state;int j;
@@ -142,6 +143,7 @@ static qboolean QDECL save_entities(world_t *world,qboolean(QDECL *write)(void *
          for(j=0;j<2;j++) js_add(&line," %.9g",(double)spring[j]);}
         js_add(&line,"\n");if(!js_emit(&out,&line)) return qfalse;
     }
+    if(!js_save_skeletons(world,&out,&line))return qfalse;
     js_add(&line,"end\n");return js_emit(&out,&line);
 }
 typedef struct {const char *at,*end;} jolt_reader_t;
@@ -172,6 +174,7 @@ static qboolean js_readstate(jolt_reader_t *r,fte_jolt_state *s) {
     for(i=0;i<4;i++)for(j=0;j<sizes[i];j++) if(!js_float(r,&parts[i][j])) return qfalse;
     return qtrue;
 }
+#include "com_phys_jolt_skel_save.h"
 typedef struct {int entity,shape,motion,model;fte_jolt_runtime runtime;float remembered[4][3],qc[6][3],attributes[9];} jolt_saved_body_t;
 typedef struct {int entity,enemy,aiment;fte_jolt_joint_checkpoint checkpoint;float qc[4][3],spring[2];} jolt_saved_joint_t;
 static qboolean QDECL load_entities(world_t *world,const char *data,size_t length) {
@@ -179,9 +182,9 @@ static qboolean QDECL load_entities(world_t *world,const char *data,size_t lengt
     if(!data || !length || length>0x1000000) return qfalse;
     r.at=data;r.end=data+length;
     jolt_saved_body_t *bodies=NULL;jolt_saved_joint_t *joints=NULL;unsigned char *seen=NULL;
-    int version,mode,nb,nj,i,j;double remainder,simulated;qboolean ok=qfalse;
+    int version,mode,nb,nj,i,j,ns=0;jolt_saved_skel_t *skels=NULL;double remainder,simulated;qboolean ok=qfalse;
     if(length>0x1000000 || world->num_edicts>1048576 || !world->num_edicts ||
-       !js_key(&r,"jolt_entities") || !js_int(&r,&version,1,1) || !js_int(&r,&mode,0,1) || mode!=(point_anchor2->value!=0) || !js_key(&r,"clock") ||
+       !js_key(&r,"jolt_entities") || !js_int(&r,&version,1,2) || !js_int(&r,&mode,0,1) || mode!=(point_anchor2->value!=0) || !js_key(&r,"clock") ||
        !js_double(&r,&remainder) || !js_double(&r,&simulated) || remainder<0 || remainder>=1.0/120 || simulated<0 ||
        !js_key(&r,"counts") || !js_int(&r,&nb,0,8192) || !js_int(&r,&nj,0,16384)) return qfalse;
     bodies=(jolt_saved_body_t*)calloc(nb?nb:1,sizeof(*bodies));
@@ -218,6 +221,7 @@ static qboolean QDECL load_entities(world_t *world,const char *data,size_t lengt
          for(j=0;j<2;j++)if(!js_float(&r,&s->spring[j])) goto done;
          if(!js_joint_values(parts,s->spring)) goto done;}
     }
+    if(version>=2 && !js_read_skeletons(world,&r,&skels,&ns,nb,nj))goto done;
     if(!js_key(&r,"end")) goto done;
     while(r.at<r.end && (unsigned char)*r.at<=32) ++r.at;
     if(r.at!=r.end) goto done;
@@ -226,6 +230,12 @@ static qboolean QDECL load_entities(world_t *world,const char *data,size_t lengt
         for(k=0;k<6;k++)parts[k]=bodies[i].qc[k];
         for(k=0;k<9;k++)attributes[k]=&bodies[i].attributes[k];
         if(!js_entity_values(bodies[i].shape,parts,attributes)) goto done;
+    }
+    for(i=0;i<ns;i++)if(skels[i].view.numbodies) {
+        wedict_t *ed=WEDICT_NUM_PB(world->progs,skels[i].view.entity);int k;
+        float *parts[]={ed->v->origin,ed->v->angles,ed->v->velocity,ed->v->avelocity};
+        for(k=0;k<4;k++)for(j=0;j<3;j++)parts[k][j]=skels[i].owner[k][j];
+        rbeapi->LinkEdict(world,ed,qfalse);
     }
     /* Preserve full float precision and distinguish pending QC edits from the
      * last synchronized transform. Ordinary QC entity text uses fewer digits. */
@@ -272,11 +282,13 @@ static qboolean QDECL load_entities(world_t *world,const char *data,size_t lengt
         wedict_t *ed=WEDICT_NUM_PB(world->progs,bodies[i].entity);jolt_entity_t *body=(jolt_entity_t*)ed->rbe.body.body;
         if(!fte_jolt_runtime_set(ctx->simulation,body->handle,&bodies[i].runtime)) goto done;
     }
+    if(!js_restore_skeletons(world,skels,ns))goto done;
     if(!fte_jolt_clock_set(ctx->simulation,remainder,simulated)) goto done;
     world->rbe_hasphysicsents=qtrue;ok=qtrue;
     Con_Printf("Jolt entity scene restored (%d bodies, %d joints).\n",nb,nj);
 done:
-    free(bodies);free(joints);free(seen);return ok;
+    if(!ok && rbeapi->SkelCheckpointClear)rbeapi->SkelCheckpointClear(world);
+    js_free_skeletons(skels,ns);free(bodies);free(joints);free(seen);return ok;
 }
 #undef JS_JOINT_FLOATS
 #undef JS_ENTITY_ATTRS

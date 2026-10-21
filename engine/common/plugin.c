@@ -2342,7 +2342,12 @@ static void *QDECL PlugBI_GetEngineInterface(const char *interfacename, size_t s
 			World_LinkEdict,
 
 			VectorAngles,
-			AngleVectors
+			AngleVectors,
+#ifdef RAGDOLL
+            skel_checkpoint_get, skel_checkpoint_restore, skel_reset
+#else
+            NULL, NULL, NULL
+#endif
 		};
 		if (structsize == sizeof(funcs))
 			return &funcs;

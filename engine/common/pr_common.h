@@ -341,6 +341,10 @@ void QCBUILTIN PF_setattachment(pubprogfuncs_t *prinst, struct globalvars_s *pr_
 	void skel_lookup(world_t *prinst, int skelidx, framestate_t *fte_restrict out);
 	void skel_dodelete(world_t *world);
 	void skel_reset(world_t *world);
+#ifdef RAGDOLL
+    qboolean QDECL skel_checkpoint_get(world_t *,int,rbeskel_t *);
+    qboolean QDECL skel_checkpoint_restore(world_t *,const rbeskel_t *,qboolean rig);
+#endif
 	void skel_reload(void);
 	void skel_updateentbounds(world_t *w, wedict_t *ent);
 #endif
@@ -747,11 +751,14 @@ typedef struct
 
 	void (QDECL *VectorAngles)(const float *forward, const float *up, float *result, qboolean meshpitch);
 	void (QDECL *AngleVectors)(const vec3_t angles, vec3_t forward, vec3_t right, vec3_t up);
+    qboolean (QDECL *SkelCheckpointGet)(world_t *,int,rbeskel_t *);
+    qboolean (QDECL *SkelCheckpointRestore)(world_t *,const rbeskel_t *,qboolean rig);
+    void (QDECL *SkelCheckpointClear)(world_t *);
 #define plugrbefuncs_name "RBE"
 } rbeplugfuncs_t;
-// ABI 6 adds optional bounded entity-scene save/load callbacks. Size checks also
+// ABI 7 adds world-owned skeleton checkpoint services. Size checks also
 // reject earlier interface requests before callbacks can be used.
-#define RBEPLUGFUNCS_VERSION 6
+#define RBEPLUGFUNCS_VERSION 7
 #ifdef VM_Q1
 #define RBE_EXTENTVARS_SIZE sizeof(extentvars_t)
 #else

@@ -1,5 +1,5 @@
 #include "declarations.qh"
-float elapsed,phase,resume_time,restheight;
+float elapsed,phase,resume_time,restheight,blocked_skeleton;
 entity falling,slider,sliderjoint,suspension,springjoint,sleeping,actor,pointbody,pointjoint,hull,unlimited,freejoint;
 void(float ok,string text) verify = {
     if(!ok) {dprint("SAVE_PHYSICS_FAIL: ");dprint(text);dprint("\n");localcmd("quit force\n");error(text);}
@@ -52,10 +52,12 @@ void() StartFrame = {
         verify(vlen(sleeping.origin-[600,0,restheight])<.02,"sleep remains stable after loading");
         actor=spawn();setmodel(actor,"progs/physics-rig.md5mesh");setorigin(actor,'0 600 256');
         actor.skeletonindex=skel_create(actor.modelindex);skel_build(actor.skeletonindex,actor,actor.modelindex,0,0,0);
-        verify(skel_ragupdate(actor,"doll progs/physics-rig.doll",0)==1,"create unsupported rig for save refusal");
+        verify(skel_ragupdate(actor,"doll progs/physics-rig.doll",0)==1,"create rig with invalid ownership for save refusal");
+        blocked_skeleton=actor.skeletonindex;actor.skeletonindex=0;
         phase=3;localcmd("save physics-resume-a\nset checkpoint_refused 1\n");
     } else if(phase==3 && cvar("checkpoint_refused")==1) {
-        verify(skel_ragupdate(actor,"cleardoll",0)==1,"clear rig after refused save");remove(actor);
+        actor.skeletonindex=blocked_skeleton;
+        verify(skel_ragupdate(actor,"cleardoll",0)==1,"clear unbound rig after refused save");remove(actor);
         phase=4;localcmd("save physics-resume-b\ndefer .3 resume_load_b\n");
     } else if(phase==4 && cvar("checkpoint_loaded")==2) {physics_enable(slider,1);physics_enable(suspension,1);physics_enable(pointbody,1);resume_time=time;phase=5;}
     else if(phase==5 && time>resume_time+.4) {
