@@ -143,6 +143,25 @@ Validation covered loading this module with the arm64 engine in dedicated mode,
 starting `base1`, running server frames, and shutting down cleanly. It does not
 establish full campaign, savegame, mission-pack, or mod compatibility.
 
+### Quake II Enhanced (2023 rerelease) limitation
+
+Local Quake II Enhanced gameplay is currently unsupported. The gamecode recipe
+above builds the original Quake II rules and does not enable the Enhanced
+edition's gameplay changes, updated AI, or establish compatibility with its
+Quake II 64 and Call of the Machine campaigns.
+
+The fork retains upstream support code for the Enhanced network protocol
+(version 2023), including `connectq2e`. Treat this as partial protocol
+compatibility: Enhanced networking has not been validated in this fork, and
+these code paths do not provide full Enhanced-edition support.
+
+The local server still uses the original version 3 game API. The Enhanced
+edition introduces different game interfaces, a client-game module, and 40 Hz
+game logic; see [id Software's rerelease gamecode documentation](https://github.com/id-Software/quake2-rerelease-dll#readme).
+Recompiling or renaming its game DLL for the engine's OS and CPU is insufficient.
+Full support requires additional engine integration and compatibility testing.
+Use the original Quake II data and matching classic gamecode for the setup above.
+
 ## OpenArena and the Quake 3 plugin
 
 OpenArena requires the Quake 3 compatibility plugin. Build both targets and
