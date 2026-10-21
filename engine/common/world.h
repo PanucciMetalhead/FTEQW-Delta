@@ -206,6 +206,9 @@ typedef struct
 	// Optional animation control. Legacy backends retain their existing matrix path.
 	qboolean (QDECL *RagSetBodyAnimation)(rbebody_t *bodyptr, float strength);
 	qboolean (QDECL *RagAnimateBody)(rbebody_t *bodyptr, float *mat);
+    /* Optional bounded text persistence. NULL write is a save preflight. */
+    qboolean (QDECL *SaveEntityState)(struct world_s *,qboolean(QDECL *write)(void *,const char *,size_t),void *);
+    qboolean (QDECL *LoadEntityState)(struct world_s *,const char *,size_t);
 } rigidbodyengine_t;
 #endif
 
@@ -274,6 +277,7 @@ struct world_s
 #ifdef USERBE
 	qboolean rbe_hasphysicsents;
 	rigidbodyengine_t *rbe;
+	char *rbe_savedstate;
 #endif
 
 #if defined(Q2SERVER) || !defined(USEAREAGRID)
@@ -318,6 +322,10 @@ void QDECL World_ReleaseCollisionMesh(wedict_t *ed);
 
 void World_Destroy (world_t *w);
 void World_RBE_Start(world_t *world);
+qboolean World_RBE_CanSave(world_t *world);
+void World_RBE_SaveGame(vfsfile_t *f, world_t *world);
+const char *World_RBE_LoadGame(world_t *world,const char *text);
+qboolean World_RBE_FinishLoad(world_t *world);
 void World_RBE_Shutdown(world_t *world);
 
 

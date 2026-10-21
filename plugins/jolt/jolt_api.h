@@ -73,6 +73,26 @@ typedef struct {
     unsigned bodies, active, steps, contact_overflows, joints, collision_steps, animation_motors;
     double simulated_time, dropped_time;
 } fte_jolt_stats;
+/* Portable entity-scene continuation data. No native Jolt IDs or replay blobs.
+ * Fractional skeletal motors require the separate rig persistence path. */
+typedef struct {
+    fte_jolt_state state,target;
+    float driven_velocity[3],driven_spin[3];
+    int has_target,active;
+} fte_jolt_runtime;
+typedef struct {
+    fte_jolt_joint_desc settings;
+    fte_jolt_state reference1,reference2;
+    int enabled;
+} fte_jolt_joint_checkpoint;
+int fte_jolt_runtime_get(fte_jolt_world *,fte_jolt_body,fte_jolt_runtime *);
+int fte_jolt_runtime_set(fte_jolt_world *,fte_jolt_body,const fte_jolt_runtime *);
+int fte_jolt_clock_get(fte_jolt_world *,double *remainder,double *simulated);
+int fte_jolt_clock_set(fte_jolt_world *,double remainder,double simulated);
+int fte_jolt_joint_checkpoint_get(fte_jolt_world *,fte_jolt_joint,fte_jolt_joint_checkpoint *);
+/* Caller remaps settings.body1/body2 to the newly reconstructed bodies first.
+ * Recreates original local frames without moving the bodies' current poses. */
+fte_jolt_joint fte_jolt_joint_checkpoint_add(fte_jolt_world *,const fte_jolt_joint_checkpoint *);
 fte_jolt_world *fte_jolt_create(unsigned max_bodies, unsigned hz, unsigned max_steps);
 void fte_jolt_destroy(fte_jolt_world *world);
 const char *fte_jolt_error(const fte_jolt_world *world);

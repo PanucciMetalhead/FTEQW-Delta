@@ -146,6 +146,7 @@ struct JointRecord {
     JPH::Ref<JPH::TwoBodyConstraint> constraint;
     fte_jolt_body body1, body2;
     int type;
+    fte_jolt_joint_checkpoint checkpoint{};
 };
 struct Force {
     fte_jolt_body token;
@@ -1166,6 +1167,13 @@ fte_jolt_joint fte_jolt_joint_add(fte_jolt_world *w, const fte_jolt_joint_desc *
     }
     fte_jolt_joint token = next_token.fetch_add(1);
     w->joints.emplace(token, JointRecord{constraint, d->body1, d->body2, d->type});
+    auto &saved = w->joints.at(token).checkpoint;
+    saved.settings = *d;
+    saved.reference1.rotation[3] = saved.reference2.rotation[3] = 1;
+    if (a)
+        fte_jolt_get(w, d->body1, &saved.reference1);
+    if (b)
+        fte_jolt_get(w, d->body2, &saved.reference2);
     if (d->body1 && d->body2)
         ++w->connected[std::minmax(d->body1, d->body2)];
     w->physics.AddConstraint(constraint);
@@ -1187,6 +1195,8 @@ int fte_jolt_joint_suspension(fte_jolt_world *w, fte_jolt_joint token, float sti
         return w->fail("Invalid hinge2 suspension settings");
     static_cast<DualAxisConstraint *>(it->second.constraint.GetPtr())
         ->SetSuspension(stiffness, damping);
+    it->second.checkpoint.settings.suspension_stiffness = stiffness;
+    it->second.checkpoint.settings.suspension_damping = damping;
     w->physics.GetBodyInterface().ActivateConstraint(it->second.constraint);
     return 1;
 }
@@ -1266,4 +1276,123 @@ void fte_jolt_axes(const float *q, float *forward, float *left, float *up) {
     store(matrix.GetAxisY(), left);
     store(matrix.GetAxisZ(), up);
 }
+
+int fte_jolt_runtime_get(fte_jolt_world *w, fte_jolt_body token, fte_jolt_runtime *out) {
+    if (!w || !out)
+        return 0;
+    auto *body = w->find(token);
+    if (!body)
+        return 0;
+    if (body->animation_motor)
+        return w->fail("Entity snapshots do not support skeletal animation motors");
+    *out = {};
+    if (!fte_jolt_get(w, token, &out->state))
+        return 0;
+    out->target = body->has_target ? body->target : out->state;
+    out->has_target = body->has_target;
+    if (!state_ok(&out->state) || !state_ok(&out->target) || !animation_position(out->state) ||
+        !animation_position(out->target))
+        return w->fail("Entity runtime exceeds snapshot bounds");
+    out->active = w->physics.GetBodyInterface().IsActive(body->id);
+    store(body->driven_velocity, out->driven_velocity, 1 / metres);
+    store(body->driven_spin, out->driven_spin);
+    return 1;
+}
+int fte_jolt_runtime_set(fte_jolt_world *w, fte_jolt_body token, const fte_jolt_runtime *in) {
+    if (!w || !in)
+        return 0;
+    auto *body = w->find(token);
+    if (!body || body->animation_motor || !state_ok(&in->state) || !state_ok(&in->target) ||
+        !finite3(in->driven_velocity) || !finite3(in->driven_spin) ||
+        (in->has_target != 0 && in->has_target != 1) || (in->active != 0 && in->active != 1) ||
+        (in->has_target && body->motion != FTE_JOLT_KINEMATIC) || !animation_position(in->state) ||
+        !animation_position(in->target))
+        return w->fail("Invalid entity runtime snapshot");
+    if (!fte_jolt_set(w, token, &in->state))
+        return 0;
+    body->target = in->target;
+    body->has_target = in->has_target != 0;
+    body->driven_velocity = vec(in->driven_velocity, metres);
+    body->driven_spin = vec(in->driven_spin);
+    if (body->motion != FTE_JOLT_STATIC) {
+        auto &api = w->physics.GetBodyInterface();
+        if (in->active)
+            api.ActivateBody(body->id);
+        else
+            api.DeactivateBody(body->id);
+    }
+    return 1;
+}
+int fte_jolt_clock_get(fte_jolt_world *w, double *remainder, double *simulated) {
+    if (!w || !remainder || !simulated)
+        return 0;
+    if (!w->forces.empty())
+        return w->fail("Save after queued physics forces reach a fixed tick");
+    *remainder = w->accumulator;
+    *simulated = w->stats.simulated_time;
+    return 1;
+}
+int fte_jolt_clock_set(fte_jolt_world *w, double remainder, double simulated) {
+    if (!w)
+        return 0;
+    if (!std::isfinite(remainder) || remainder < 0 || remainder >= w->tick ||
+        !std::isfinite(simulated) || simulated < 0 || !w->forces.empty())
+        return w->fail("Invalid fixed-step clock snapshot");
+    w->accumulator = remainder;
+    w->stats.simulated_time = simulated;
+    return 1;
+}
+int fte_jolt_joint_checkpoint_get(fte_jolt_world *w, fte_jolt_joint token,
+                                  fte_jolt_joint_checkpoint *out) {
+    if (!w || !out)
+        return 0;
+    auto it = w->joints.find(token);
+    if (it == w->joints.end())
+        return w->fail("Invalid or stale joint handle");
+    *out = it->second.checkpoint;
+    if (!state_ok(&out->reference1) || !state_ok(&out->reference2) ||
+        !animation_position(out->reference1) || !animation_position(out->reference2))
+        return w->fail("Joint reference exceeds snapshot bounds");
+    out->enabled = it->second.constraint->GetEnabled();
+    return 1;
+}
+fte_jolt_joint fte_jolt_joint_checkpoint_add(fte_jolt_world *w,
+                                             const fte_jolt_joint_checkpoint *saved) {
+    if (!w || !saved)
+        return 0;
+    if (!state_ok(&saved->reference1) || !state_ok(&saved->reference2) ||
+        !animation_position(saved->reference1) || !animation_position(saved->reference2) ||
+        (saved->enabled != 0 && saved->enabled != 1)) {
+        w->fail("Invalid joint reference snapshot");
+        return 0;
+    }
+    const auto &d = saved->settings;
+    Record *a = d.body1 ? w->find(d.body1) : nullptr, *b = d.body2 ? w->find(d.body2) : nullptr;
+    if ((d.body1 && !a) || (d.body2 && !b) || (a && a == b))
+        return 0;
+    auto &api = w->physics.GetBodyInterface();
+    JPH::RVec3 p1, p2;
+    JPH::Quat q1, q2;
+    if (a) {
+        api.GetPositionAndRotation(a->id, p1, q1);
+        api.SetPositionAndRotation(a->id, pos(saved->reference1.position),
+                                   quat(saved->reference1.rotation),
+                                   JPH::EActivation::DontActivate);
+    }
+    if (b) {
+        api.GetPositionAndRotation(b->id, p2, q2);
+        api.SetPositionAndRotation(b->id, pos(saved->reference2.position),
+                                   quat(saved->reference2.rotation),
+                                   JPH::EActivation::DontActivate);
+    }
+    auto joint = fte_jolt_joint_add(w, &d);
+    if (a)
+        api.SetPositionAndRotation(a->id, p1, q1, JPH::EActivation::DontActivate);
+    if (b)
+        api.SetPositionAndRotation(b->id, p2, q2, JPH::EActivation::DontActivate);
+    if (joint)
+        fte_jolt_joint_enable(w, joint, saved->enabled);
+    return joint;
+}
+
 }

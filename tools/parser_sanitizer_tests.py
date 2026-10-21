@@ -52,6 +52,7 @@ def main():
         'epoll': [('engine/common/net_wins.c', name) for name in ('FTENET_Datagram_Polled', 'FTENET_TCP_Polled')],
         'rulesets': [('engine/client/valid.c', name) for name in ('Ruleset_SortRuleCB', 'Ruleset_SortFileCB')],
         'consoleoutput': [('engine/server/sv_sys_win.c', 'Sys_Printf')],
+        'workers': [('engine/common/common.c', 'COM_DestroyWorkerThread')],
         'timers': [('engine/common/cmd.c', name) for name in ('Cmd_AddTimer', 'Cmd_ExecuteTimers')],
         'consoleinput': [],
         'qcfields': [],

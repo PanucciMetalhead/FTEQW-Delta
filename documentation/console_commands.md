@@ -487,7 +487,7 @@ Jump to [input actions](#held-input-actions), [menus](#built-in-menu-entry-point
 | `listmaps` | Both | Displays a list of installed maps. |
 | `listskins` | Client | **Q1 target:** Displays a list of every installed or downloaded QuakeWorld player skin. |
 | `listskyboxes` | Client | Displays a list of available custom skyboxes that can be set with r_skybox, type or click an entry. |
-| `load` | Both | **Q1 target:** Loads an existing saved game. Quake 3/OpenArena qagame does not implement this engine saved-game state format. |
+| `load` | Both | **Q1 target:** Loads an existing saved game. Jolt entity checkpoints require the matching enabled plugin, point-anchor mode and collision assets; malformed/mismatched physics state rejects loading. See [entity saves](JoltPhysics.md#saving-entity-scenes). Quake 3/OpenArena qagame does not implement this engine saved-game state format. |
 | `loaddeferred` | Client | **Q3:** Load player models whose loading was deferred by cgame. |
 | `loadfont` | Client | Load/register a font for scripted menus or HUD use; accepts a font identifier and font parameters. |
 | `loadgame` | Both | **Q1 target:** Loads an existing saved game. Quake 3/OpenArena qagame does not implement this engine saved-game state format. |
@@ -664,10 +664,10 @@ Jump to [input actions](#held-input-actions), [menus](#built-in-menu-entry-point
 
 | Command | Where | Definition / game notes |
 | --- | --- | --- |
-| `save` | Both | **Q1 target:** Saves the game to the named location. Quake 3/OpenArena qagame does not implement this engine saved-game state format. |
+| `save` | Both | **Q1 target:** Saves the game to the named location. Native FTE and extended legacy saves retain Jolt entity props/joints; live skeletal rigs or pending physics work refuse ordinary saves. See [entity saves](JoltPhysics.md#saving-entity-scenes). Quake 3/OpenArena qagame does not implement this engine saved-game state format. |
 | `saveconfig` | Both | Save configuration using the DarkPlaces-compatible output-path rules; an explicit filename is relative to the base game directory. |
 | `savegame` | Both | **Q1 target:** Saves the game to the named location. Quake 3/OpenArena qagame does not implement this engine saved-game state format. |
-| `savegame_legacy` | Both | **Q1 target:** Saves the game in a format compatible with vanilla Quake. Anything not supported by that format will be lost. Quake 3/OpenArena qagame does not implement this engine saved-game state format. |
+| `savegame_legacy` | Both | **Q1 target:** Saves the game in a format compatible with vanilla Quake. FTE extensions retain Jolt entity checkpoints when loaded by this engine; vanilla engines do not restore that physics state. Live skeletal rigs refuse saving. Other unsupported state may be lost. Quake 3/OpenArena qagame does not implement this engine saved-game state format. |
 | `say` | Both | Send global chat. **Different:** Quake 1 uses the engine’s chat formatting/macros; Quake 3 forwards the message to qagame, which applies its chat rules. |
 | `say_team` | Client | Send team chat. **Different:** Quake 1 can expand engine teamplay macros; Quake 3 qagame routes team chat according to actual team membership. In a dedicated OpenArena server, qagame also supports team-directed announcements. |
 | `sayone` | Both | Client: forward a private-chat request through the mod's chat handler. Dedicated server: send a console private message to an identified player. |
@@ -2407,7 +2407,7 @@ Jump to [symbols and A–C](#cvars-symbols-and-ac), [D–H](#cvars-dh),
 | `sv_reportheartbeats` | `"2"` | Print a notice each time a heartbeat is sent to a master server. When set to 2, the message will be displayed once. |
 | `sv_resetparms` | `"0"` | **Q1 target:** reset saved spawn parameters when changing map where applicable. |
 | `sv_running` | dynamic / platform dependent | **Q3:** Whether a local server is running; engine/plugin-maintained status. |
-| `sv_savefmt` | `""` | Specifies the format used for the saved game.<br>0=legacy.<br>1=fte<br>2=binary |
+| `sv_savefmt` | `""` | Specifies the format used for the saved game.<br>0=legacy.<br>1=fte<br>2=binary. Native FTE and extended legacy paths retain Jolt entity state; custom mod save formats remain mod-owned. See [entity saves](JoltPhysics.md#saving-entity-scenes). |
 | `sv_serverip` | `""` | Set this cvar to the server's public ip address if the server is behind a firewall and cannot detect its own public address. Providing a port is required if the firewall/nat remaps it, but is otherwise optional. |
 | `sv_showconnectionlessmessages` | `"0"` | Display a line describing each connectionless message that arrives on the server. Primarily a debugging feature, but also potentially useful to admins. |
 | `sv_showpredloss` | `"0"` | Print messages whenever input frames are ignored or forced serverside, to prevent speedcheats or hover cheats. Any such prints will be accompanied by prediction misses in the named client. |

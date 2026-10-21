@@ -29,6 +29,12 @@ int main(void)
             fte_jolt_joint_remove(world,joint);
     }
     if (passed) {
+        fte_jolt_runtime snapshot={0};double remainder,simulated;
+        passed=fte_jolt_runtime_get(world,handle,&snapshot) &&
+            fte_jolt_clock_get(world,&remainder,&simulated) &&
+            fte_jolt_runtime_set(world,handle,&snapshot) && fte_jolt_clock_set(world,remainder,simulated);
+    }
+    if (passed) {
         fte_jolt_stats stats={0};
         passed=fte_jolt_animate(world,handle,.5f) && fte_jolt_get(world,handle,&state);
         state.position[0]=8;

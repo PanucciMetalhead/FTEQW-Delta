@@ -7916,8 +7916,89 @@ void QCBUILTIN PF_pushmove (pubprogfuncs_t *prinst, struct globalvars_s *pr_glob
 	G_FLOAT(OFS_RETURN) = WPhys_Push(world, ent, move, amove);
 }
 
+/* State is a bounded, plugin-defined text block, never a native replay blob.
+ * Keep it pending until all QC entities and model precaches have been restored. */
+qboolean World_RBE_CanSave(world_t *world)
+{
+#ifdef USERBE
+    if(world->rbe && world->rbe->SaveEntityState)
+        return world->rbe->SaveEntityState(world,NULL,NULL);
+#endif
+    return true;
+}
+#ifdef USERBE
+static qboolean QDECL World_RBE_WriteState(void *ctx,const char *data,size_t size)
+{
+    return size<=0x1000000 && VFS_WRITE((vfsfile_t*)ctx,data,size)==size;
+}
+#endif
+void World_RBE_SaveGame(vfsfile_t *f,world_t *world)
+{
+#ifdef USERBE
+    if(world->rbe && world->rbe->SaveEntityState) {
+        VFS_PUTS(f,"rbe_state {\n");
+        if(!world->rbe->SaveEntityState(world,World_RBE_WriteState,f))
+            Con_Printf("Rigid-body state could not be written.\n");
+        VFS_PUTS(f,"}\n");
+    }
+#endif
+}
+const char *World_RBE_LoadGame(world_t *world,const char *text)
+{
+#ifdef USERBE
+    const char *start,*end,*input=text;
+    while(*text && (unsigned char)*text<=32) ++text;
+    if(*text++!='{') goto invalid;
+    start=text;end=text;
+    while(*end && *end!='}' && end-start<0x1000000) {
+        /* Numeric state syntax has no nested blocks, quotes or comments. */
+        if(*end=='{' || *end=='"' || *end=='/' || (unsigned char)*end>126) goto invalid;
+        ++end;
+    }
+    if(*end!='}' || world->rbe_savedstate) goto invalid;
+    world->rbe_savedstate=Z_Malloc(end-start+1);
+    memcpy(world->rbe_savedstate,start,end-start);world->rbe_savedstate[end-start]=0;
+    return end+1;
+invalid:
+    /* Legacy comment extensions ignore unknown lines. Retain a rejection marker
+     * so malformed known physics data cannot silently become a classic load. */
+    Z_Free(world->rbe_savedstate);world->rbe_savedstate=Z_StrDup("invalid");
+    /* Stop parsing this rejected save, including legacy comment extensions.
+     * The pending marker makes FinishLoad fail cleanly instead of entering the
+     * VM library's fatal "unknown term" path. */
+    return input+strlen(input);
+#else
+    return NULL;
+#endif
+}
+qboolean World_RBE_FinishLoad(world_t *world)
+{
+#ifdef USERBE
+    char *state=world->rbe_savedstate;
+    qboolean ok=true;
+    world->rbe_savedstate=NULL;
+    if(state) {
+        World_RBE_Shutdown(world);World_RBE_Start(world);
+        ok=world->rbe && world->rbe->LoadEntityState &&
+            world->rbe->LoadEntityState(world,state,strlen(state));
+        Z_Free(state);
+        if(!ok) {
+            World_RBE_Shutdown(world);
+            Con_Printf("Rigid-body saved state rejected; enable the matching backend and use valid state data.\n");
+        }
+    } else World_RBE_Start(world);
+    return ok;
+#else
+    return true;
+#endif
+}
+
 void PR_Common_Shutdown(pubprogfuncs_t *progs, qboolean errored)
 {
+#ifdef USERBE
+    world_t *world=progs->parms->user;
+    if(world) {Z_Free(world->rbe_savedstate);world->rbe_savedstate=NULL;}
+#endif
 	PR_ClearThreads(progs);
 #if defined(SKELETALOBJECTS) || defined(RAGDOLLS)
 	skel_reset(progs->parms->user);
@@ -7945,6 +8026,11 @@ qboolean PR_Common_LoadGame(pubprogfuncs_t *prinst, char *command, const char **
 		if (!l)
 			return false;
 	}
+    else if (!strcmp(command,"rbe_state"))
+    {
+        l=World_RBE_LoadGame(prinst->parms->user,l);
+        if(!l) return false;
+    }
 	else if (!strcmp(command, "hashtable"))
 	{
 		l = PR_hash_loadgame(prinst, l);
@@ -7960,6 +8046,7 @@ void PR_Common_SaveGame(vfsfile_t *f, pubprogfuncs_t *prinst, qboolean binary)
 {
 	PR_buf_savegame(f, prinst, binary);
 	PR_hash_savegame(f, prinst, binary);
+	World_RBE_SaveGame(f,prinst->parms->user);
 }
 
 

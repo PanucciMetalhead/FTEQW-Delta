@@ -1636,6 +1636,16 @@ if(BUILD_TESTING AND TARGET fte-jolt-adapter)
                 --jolt-plugin $<TARGET_FILE:plug_jolt> ${fte_jolt_ode_args}
                 --out "${CMAKE_BINARY_DIR}/physics-tests/$<CONFIG>")
         set_tests_properties(jolt-engine PROPERTIES TIMEOUT 300)
+        set(fte_jolt_save_client_args)
+        if(TARGET fteqw)
+            list(APPEND fte_jolt_save_client_args --legacy-engine $<TARGET_FILE:fteqw>)
+        endif()
+        add_test(NAME jolt-save
+            COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/physics_save.py"
+                --server $<TARGET_FILE:fteqw-sv> --qcc $<TARGET_FILE:fteqcc>
+                --plugin $<TARGET_FILE:plug_jolt>
+                --out "${CMAKE_BINARY_DIR}/physics-save/$<CONFIG>" ${fte_jolt_save_client_args})
+        set_tests_properties(jolt-save PROPERTIES TIMEOUT 180)
         add_test(NAME jolt-pointanchors
             COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/physics_pointanchors.py"
                 --server $<TARGET_FILE:fteqw-sv> --qcc $<TARGET_FILE:fteqcc>

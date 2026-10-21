@@ -278,7 +278,7 @@ QuakeC server/client field registration and the shared link-container macro now
 use standard `offsetof` too. The `qcfields` and `qcfields_split` fixtures compile
 the production entity declarations and registration macros, checking every
 registered offset/type/name against real allocated structures in combined and
-split VM layouts. They also exercise the production ABI 5 compatibility helper:
+split VM layouts. They also exercise the production ABI 6 compatibility helper:
 null interfaces, old/future versions and mismatched entity/joint/backend sizes are
 rejected, and the old ABI 1 interface has a different request size. Runtime
 physics assertions are unchanged; CI server watchdogs
@@ -475,3 +475,49 @@ and math assembly. The generated QuakeC reference was refreshed and checked
 against fresh engine exports. Windows/Linux CI remains to be run after publication.
 ODE/Bullet remain while save/load, real-mod acceptance and many-body
 performance/bandwidth validation are completed.
+
+
+## Jolt entity-scene persistence
+
+Native FTE saves and legacy extended `.sav` files now contain a versioned,
+bounded numeric physics block. The decoder stages records, validates entity
+bindings and finite values, and reconstructs colliders from mod-owned assets.
+It does not invoke Jolt's opaque replay deserializer or restore native pointers.
+The input cap is 16 MiB, with at most 8,192 bodies and 16,384 joints. Missing or
+incompatible backends, clock/mode/version mismatches and malformed records fail
+loading. Active skeletal rigs and queued commands/forces refuse ordinary saves
+before writing; pending collision-shape rebuilds must first reach a physics tick.
+
+`jolt-save` exercises native and legacy paths in the dedicated server and a
+headless full client, including a fresh engine process. It verifies moving and
+spinning props, sleeping bodies, model-derived hulls, original slider limits,
+compressed suspension and legacy world point anchors after wake-up. Fractional
+joint coordinates catch precision loss in the VM's ordinary entity text. Each
+format includes four restores, two refused overwrites, 18 malformed snapshots
+and a missing-backend case. The malformed cases cover version/mode/clock,
+counts, truncation/trailing data, bad entity IDs, quaternions, numeric bounds,
+flags, nonfinite/oversized tokens, oversized blocks, nested/quoted data, tiny
+mass and zero primitive dimensions. The adapter additionally checks pending
+kinematic targets, fractional ticks, disabled joints and remapped native handles.
+
+Cold-process loading exposed a pre-existing null client-pointer increment in
+the native save reader. The loop now indexes its saved-player records directly
+and bounds names by the destination array. The same cold loads run under UBSan.
+Skeletal resources, CSQC worlds and mod-owned `SV_PerformSave` formats are outside
+this entity persistence scope. Contact caches are rebuilt; bit-exact replay is
+not claimed. See [saving entity scenes](JoltPhysics.md#saving-entity-scenes).
+
+Local Apple Silicon validation on 2026-10-21 passed 12/12 Debug, 12/12 Release
+and 15/15 ASan/UBSan CTest checks, including 42 standalone sanitizer
+fixtures. Adapter/C17 boundary checks passed against CI-pinned Jolt
+`1b2e77e3c6c09709e5edc79dc208459b8ff32051`; the C17 guard checked 505 C units and
+unchanged assembly for classic movement, server physics, world collision and
+math. Windows/Linux CI remains to be run after publication. ODE/Bullet remain
+until skeletal save/load, real-mod acceptance and many-body performance/bandwidth
+gates are complete.
+
+The new delayed-worker fixture also executes production worker teardown with
+created handles but a zero live-worker count. Shutdown must wait for each stop
+callback/join before destroying the conditions, including workers that have not
+entered their thread function yet. This fixes a startup/quit race exposed by the
+headless client's malformed-save rejection checks.

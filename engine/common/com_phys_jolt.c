@@ -489,6 +489,7 @@ static void read_back(world_t *world,wedict_t *ed) {
     ed->v->avelocity[ROLL]=state.spin[1]*(180.0/M_PI);ed->v->avelocity[YAW]=state.spin[2]*(180.0/M_PI);
     remember(ed);rbeapi->LinkEdict(world,ed,qtrue);
 }
+#include "com_phys_jolt_save.h"
 static wedict_t *contact_entity(world_t *world,fte_jolt_body handle,unsigned number) {
     wedict_t *ed;jolt_entity_t *body;
     if (number>=world->num_edicts) return NULL;
@@ -565,6 +566,7 @@ static void QDECL start_world(world_t *world) {
     ctx->pub.RagCreateJoint=rag_create_joint;ctx->pub.RagDestroyBody=rag_destroy_body;ctx->pub.RagDestroyJoint=rag_destroy_joint;
     ctx->pub.RunFrame=prepare_frame;ctx->pub.RunFrameAfterEntities=run_frame;ctx->pub.PushCommand=push_command;ctx->pub.RagCreateBody=rag_create_body;
     ctx->pub.RagSetBodyAnimation=rag_set_animation;ctx->pub.RagAnimateBody=rag_animate_body;
+    ctx->pub.SaveEntityState=save_entities;ctx->pub.LoadEntityState=load_entities;
     world->rbe=&ctx->pub;
     Con_Printf("Jolt %s rigid-body backend initialized (120 Hz; experimental).\n",fte_jolt_version());
 }

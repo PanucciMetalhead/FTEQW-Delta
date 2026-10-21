@@ -6225,6 +6225,20 @@ void COM_DestroyWorkerThread(void)
 	while(COM_DoWork(WG_MAIN, false))
 		;
 
+	/* A created worker may not have incremented com_liveworkers yet. FullSync
+	 * can then return early; keep both conditions alive until every created
+	 * thread has posted its stop callback and been joined on the main thread. */
+	for (;;)
+	{
+		for (i = 0; i < WORKERTHREADS; i++)
+			if (com_worker[i].thread)
+				break;
+		if (i == WORKERTHREADS)
+			break;
+		if (!COM_DoWork(WG_MAIN, false))
+			Sys_Sleep(0.001);
+	}
+
 	for (i = 0; i < WG_COUNT; i++)
 	{
 		if (com_workercondition[i])

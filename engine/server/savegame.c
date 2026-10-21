@@ -234,6 +234,8 @@ static qboolean SV_LegacySavegame (const char *savename, qboolean verbose)
 		return false;
 	}
 
+	if(!World_RBE_CanSave(&sv.world)) return false;
+
 	if (sv.allocated_client_slots != 1 || svs.clients->state != cs_spawned)
 	{
 		//we don't care about fte-format legacy.
@@ -361,6 +363,7 @@ static qboolean SV_LegacySavegame (const char *savename, qboolean verbose)
 			VFS_PRINTF(f, "spawnparm %i %g\n", i+1, svs.clients->spawn_parms[i]);
 //	sv.buffer %i %i "string"
 //	sv.bufstr %i %i "%s"
+	World_RBE_SaveGame(f,&sv.world);
 	VFS_PUTS(f, "*/\n");
 #endif
 	svprogfuncs->parms->memfree(s);
@@ -769,6 +772,7 @@ qboolean SV_LoadLevelCache(const char *savename, const char *level, const char *
 	/*hexen2's gamecode doesn't have SAVE set on all variables, in which case we must clobber them, and run the risk that they were set at map load time, but clear in the savegame.*/
 	if (progstype != PROG_H2)
 	{
+		World_RBE_Shutdown(&sv.world);
 		Q_SetProgsParms(false);
 		PR_Configure(svprogfuncs, PR_ReadBytesString(pr_ssqc_memsize.string), MAX_PROGS, pr_enable_profiling.ival);
 		PR_RegisterFields();
@@ -817,6 +821,7 @@ qboolean SV_LoadLevelCache(const char *savename, const char *level, const char *
 	memset(file, 0, filelen+1);
 	VFS_READ(f, file, filelen);
 	file[filelen]='\0';
+	World_RBE_Shutdown(&sv.world);
 	sv.world.edict_size=svprogfuncs->load_ents(svprogfuncs, file, NULL, SV_SaveMemoryReset, NULL, SV_ExtendedSaveData);
 	BZ_Free(file);
 
@@ -838,6 +843,7 @@ qboolean SV_LoadLevelCache(const char *savename, const char *level, const char *
 	PF_InitTempStrings(svprogfuncs);
 
 	World_ClearWorld (&sv.world, true);
+	if(!World_RBE_FinishLoad(&sv.world)) return false;
 
 	for (i=0 ; i<svs.allocated_client_slots ; i++)
 	{
@@ -1047,17 +1053,6 @@ void SV_SaveLevelCache(const char *savedir, qboolean dontharmgame)
 	if (func)
 		version = CACHEGAME_VERSION_MODSAVED;
 
-	f = FS_OpenVFS (name, "wbp", FS_GAMEONLY);
-	if (!f)
-	{
-		Con_TPrintf ("ERROR: couldn't open %s.\n", name);
-		return;
-	}
-
-	VFS_PRINTF (f, "%i\n", version);
-	SV_SavegameComment (comment, sizeof(comment));
-	VFS_PRINTF (f, "%s\n", comment);
-
 	if (!dontharmgame)
 	{
 		//map-change caches require the players to have been de-spawned
@@ -1075,6 +1070,20 @@ void SV_SaveLevelCache(const char *savedir, qboolean dontharmgame)
 				SV_DespawnClient(cl);
 		}
 	}
+
+	if(version!=CACHEGAME_VERSION_MODSAVED && !World_RBE_CanSave(&sv.world)) return;
+
+	f = FS_OpenVFS (name, "wbp", FS_GAMEONLY);
+	if (!f)
+	{
+		Con_TPrintf ("ERROR: couldn't open %s.\n", name);
+		return;
+	}
+
+	VFS_PRINTF (f, "%i\n", version);
+	SV_SavegameComment (comment, sizeof(comment));
+	VFS_PRINTF (f, "%s\n", comment);
+
 
 	if (version >= CACHEGAME_VERSION_VERBOSE)
 	{
@@ -1236,6 +1245,9 @@ void SV_Savegame (const char *savename, qboolean mapchange)
 		Con_Printf("Server is playing a cinematic - unable to save\n");
 		return;
 	}
+
+    if(svs.gametype==GT_PROGS && !PR_FindFunction(svprogfuncs,"SV_PerformSave",PR_ANY) &&
+       !World_RBE_CanSave(&sv.world)) return;
 
 #ifndef QUAKETC
 	{
@@ -2055,6 +2067,7 @@ static qboolean SV_Loadgame_Legacy(const char *savename, const char *filename, v
 	strcpy(file, "loadgame");
 	clnum=VFS_READ(f, file+8, filelen);
 	file[filelen+8]='\0';
+	World_RBE_Shutdown(&sv.world);
 	sv.world.edict_size=svprogfuncs->load_ents(svprogfuncs, file, &loadinfo, SV_SaveMemoryReset, NULL, SV_ExtendedSaveData);
 	BZ_Free(file);
 
@@ -2068,6 +2081,7 @@ static qboolean SV_Loadgame_Legacy(const char *savename, const char *filename, v
 	//FIXME: QSS+DP saved games have some / *\nkey values\nkey values\n* / thing in them to save precaches and stuff
 
 	World_ClearWorld(&sv.world, true);
+	if(!World_RBE_FinishLoad(&sv.world)) {SV_UnspawnServer();return false;}
 
 	SV_GameLoaded(lp, slots, savename);
 	return true;
@@ -2086,7 +2100,6 @@ qboolean SV_Loadgame (const char *unsafe_savename)
 	int clnum;
 	int slots;
 	int p;
-	client_t *cl;
 	gametype_e gametype;
 	loadplayer_t lp[255];
 
@@ -2191,10 +2204,10 @@ qboolean SV_Loadgame (const char *unsafe_savename)
 		return false;
 	}
 
-	for (cl = svs.clients, clnum=0; clnum < slots; cl++,clnum++)
+	for (clnum=0; clnum < slots; clnum++)
 	{
 		VFS_GETS(f, str, sizeof(str)-1);
-		str[sizeof(cl->namebuf)-1] = '\0';
+		str[sizeof(lp[clnum].name)-1] = '\0';
 		for (trim = str+strlen(str)-1; trim>=str && *trim <= ' '; trim--)
 			*trim='\0';
 		for (trim = str; *trim <= ' ' && *trim; trim++)
@@ -2352,7 +2365,9 @@ qboolean SV_Loadgame (const char *unsafe_savename)
 #endif
 
 	svs.gametype = gametype;
-	SV_LoadLevelCache(savename, str, "", true);
+	if(!SV_LoadLevelCache(savename, str, "", true)) {
+        Con_Printf("Level cache load failed.\n");SV_UnspawnServer();return false;
+    }
 
 	SV_GameLoaded(lp, slots, savename);
 	return true;
