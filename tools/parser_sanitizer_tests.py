@@ -52,6 +52,7 @@ def main():
         'epoll': [('engine/common/net_wins.c', name) for name in ('FTENET_Datagram_Polled', 'FTENET_TCP_Polled')],
         'rulesets': [('engine/client/valid.c', name) for name in ('Ruleset_SortRuleCB', 'Ruleset_SortFileCB')],
         'consoleoutput': [('engine/server/sv_sys_win.c', 'Sys_Printf')],
+        'filecreate': [('engine/common/fs_stdio.c', 'FSSTDIO_CreateLoc')],
         'workers': [('engine/common/common.c', 'COM_DestroyWorkerThread')],
         'timers': [('engine/common/cmd.c', name) for name in ('Cmd_AddTimer', 'Cmd_ExecuteTimers')],
         'consoleinput': [],
@@ -139,6 +140,10 @@ def main():
             macro = re.search(r'^#define\s+STRUCT_FROM_LINK[^\n]+',
                               (ROOT / 'engine/common/common.h').read_text(), re.M)[0]
             template = template.replace('/* ENGINE_CONTAINER_MACRO */', macro)
+        if name == 'filecreate':
+            header = (ROOT / 'engine/common/fs.h').read_text()
+            callback = next(line for line in header.splitlines() if '(QDECL *CreateFile)' in line)
+            template = template.replace('/* ENGINE_CREATE_CALLBACK */', callback)
         if name == 'epoll':
             macro = re.search(r'^#define\s+STRUCT_FROM_LINK[^\n]+',
                               (ROOT / 'engine/common/common.h').read_text(), re.M)[0]

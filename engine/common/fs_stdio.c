@@ -298,7 +298,7 @@ static void QDECL FSSTDIO_BuildHash(searchpathfuncs_t *handle, int depth, void (
 	Sys_EnumerateFiles(sp->rootpath, "*", FSSTDIO_RebuildFSHash, AddFileHash, handle);
 }
 
-static unsigned int QDECL FSSTDIO_CreateLoc(searchpathfuncs_t *handle, flocation_t *loc, const char *filename)
+static qboolean QDECL FSSTDIO_CreateLoc(searchpathfuncs_t *handle, flocation_t *loc, const char *filename)
 {
 	stdiopath_t *sp = (void*)handle;
 	char	*ofs;

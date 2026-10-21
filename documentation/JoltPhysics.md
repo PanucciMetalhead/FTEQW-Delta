@@ -340,7 +340,7 @@ complete engine shutdown leak audit or a third-party ODE library audit.
 Local validation on Apple Silicon/macOS passes native Debug, Release and
 ASan/UBSan adapter, ABI and engine checks against the supplied Jolt checkout and Homebrew
 ODE. The complete native Debug and Release builds pass 12/12 CTest checks each;
-the instrumented build passes 15/15, including 42 standalone source-based sanitizer fixtures. The native
+the instrumented build passes 15/15, including 43 standalone source-based sanitizer fixtures. The native
 Metal demo also passed client connection, joint release and map-reload checks;
 its captured poses were visually inspected. Skeleton allocation without CSQC,
 world isolation, cache reuse and native/VM ownership have dedicated sanitizer

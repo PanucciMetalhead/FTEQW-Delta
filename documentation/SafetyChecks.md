@@ -521,3 +521,29 @@ created handles but a zero live-worker count. Shutdown must wait for each stop
 callback/join before destroying the conditions, including workers that have not
 entered their thread function yet. This fixes a startup/quit race exposed by the
 headless client's malformed-save rejection checks.
+
+
+## Filesystem creation callback compatibility
+
+Linux Clang UBSan caught an existing return-type mismatch when `jolt-save` first
+created its save directory: `FSSTDIO_CreateLoc` returned `unsigned int`, while
+the filesystem's `CreateFile` callback requires the `qboolean` enum. The callback
+now uses that exact signature, preserving the existing zero/one results and
+file-creation behavior. No sanitizer checks are disabled.
+
+The `filecreate` source fixture extracts both the production function and the
+`CreateFile` declaration from `fs.h` and uses the callback without casts. Some
+compilers accept the enum/unsigned assignment without a warning; calling through
+a volatile pointer lets Clang's indirect-call sanitizer detect the mismatch.
+The fixture also checks nested locations, restored path
+separators, zero offsets/lengths, readonly refusal without writes to the output,
+overlong-path rejection and repeated calls. The standalone sanitizer suite now
+contains 43 fixtures. Native and legacy Jolt save/load checks exercise the real
+engine filesystem path too; the Clang Linux CI rerun checks its indirect-call
+sanitizer in the full engine.
+
+Local follow-up validation passed Debug and Release `jolt-save`, all 43 source
+sanitizer fixtures, the instrumented engine startup test and instrumented
+native/legacy save loading. A separate Clang 23 `-fsanitize=function` run on macOS
+reproduced the exact CI diagnostic with the original callback and passed with
+the corrected signature. The full Linux check remains subject to the new CI run.
