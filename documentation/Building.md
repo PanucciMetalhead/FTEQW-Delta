@@ -67,6 +67,82 @@ See [SDL3-GPU.md](SDL3-GPU.md) for integration testing and the validation record
 Legacy console, mobile, and Flatpak deployment files are upstream history;
 they are not supported build paths for this desktop fork.
 
+## Original Quake II gamecode
+
+Point `-basedir` at the installation directory containing `baseq2/pak0.pak`:
+
+```sh
+./build/fteqw -quake2 -basedir "/path/to/Quake II"
+```
+
+Quake II's game logic is a separate native module. The retail PAK files provide
+maps, models, textures, and sounds, but cannot replace that module. A Windows
+installation's `baseq2/gamex86.dll` is a 32-bit Windows binary; macOS, Linux, and
+64-bit Windows engines need gamecode built for their own OS and CPU architecture.
+The menu can work even when the game module is missing.
+
+If starting a new game reports `Failed to load progs.dat`,
+`Failed to load qwprogs.dat`, followed by `No gamecode available`, the Quake II
+module did not load and FTE fell back to looking for QuakeC gamecode. Supplying
+Quake 1's `progs.dat` does not fix this. FTE's normal CMake build does not include
+the Quake II game module.
+
+### Build the base-game module on Apple Silicon macOS
+
+The following commands run from this fork's repository root and require Apple's
+command-line compiler tools, Git, and Python 3. They build
+[id Software's original GPL gamecode](https://github.com/id-Software/Quake-2),
+pinned to commit `372afde46e7defc9dd2d719a1732b8ace1fa096e`. Use a fresh
+`build/quake2-source` directory for the clone.
+
+```sh
+git clone https://github.com/id-Software/Quake-2.git build/quake2-source
+git -C build/quake2-source checkout --detach 372afde46e7defc9dd2d719a1732b8ace1fa096e
+
+python3 - <<'PY'
+from pathlib import Path
+
+path = Path("build/quake2-source/game/g_items.c")
+source = path.read_text()
+for name in ("jacket_armor_index", "combat_armor_index", "body_armor_index"):
+    old = f"static int\t{name};"
+    if source.count(old) != 1:
+        raise SystemExit(f"Unexpected source declaration: {name}")
+    source = source.replace(old, f"int\t{name};")
+path.write_text(source)
+PY
+
+clang -arch arm64 -dynamiclib -O2 -std=gnu89 -DC_ONLY \
+  -fno-strict-aliasing -Wno-deprecated-non-prototype \
+  -Wno-pointer-to-int-cast build/quake2-source/game/*.c \
+  -o build/q2gamearm64_baseq2.so
+
+./build/fteqw -quake2 -basedir "/path/to/Quake II"
+```
+
+The source adjustment removes `static` from three armor index definitions to
+match their existing `extern` declarations in `g_local.h`; modern Clang rejects
+the conflicting declarations. `C_ONLY` selects the portable C implementation.
+The legacy gamecode is compiled separately from this fork's C17 engine policy
+and still emits inherited warnings.
+
+Keep `q2gamearm64_baseq2.so` beside the native arm64 `fteqw` executable, including
+when copying the engine elsewhere. The `.so` suffix is intentional on macOS:
+this is a Mach-O library using FTE's expected module filename. FTE also accepts
+`libgame_baseq2.so` beside the executable. These explicit filenames load without
+enabling `com_gamedirnativecode`. A generic `game.so` inside `baseq2` requires
+`com_gamedirnativecode 1` and is unnecessary for the layout above.
+
+This recipe covers the original `baseq2` campaign. Mission packs and mods need
+their own compatible game modules; renaming the base-game module does not add
+their game logic. The original game data remains player-supplied. If distributing
+the compiled module, follow the source release's GPL terms, including its source
+availability requirements; see `build/quake2-source/gnu.txt`.
+
+Validation covered loading this module with the arm64 engine in dedicated mode,
+starting `base1`, running server frames, and shutting down cleanly. It does not
+establish full campaign, savegame, mission-pack, or mod compatibility.
+
 ## OpenArena and the Quake 3 plugin
 
 OpenArena requires the Quake 3 compatibility plugin. Build both targets and
