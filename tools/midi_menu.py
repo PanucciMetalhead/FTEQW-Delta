@@ -19,22 +19,36 @@ ROOT = Path(__file__).resolve().parents[1]
 ADDED = '0 Added ; echo MIDI_INJECTED.sf2'
 
 
-def check_captures(out):
+def check_captures(out, virtual_width=640, virtual_height=480):
     from PIL import Image, ImageChops
     def capture(name):
         matches = list(out.rglob(f'midi-picker-{name}.png'))
         assert len(matches) == 1, (name, matches)
         return Image.open(matches[0]).convert('RGB')
     before = capture('before')
-    # Fixed 640x480 virtual coordinates: title art, heading and instructions,
+    # Virtual coordinates: title art, heading and instructions,
     # ending above the current-filename row. These must survive list clipping.
-    box = tuple(round(v * scale) for v, scale in zip((160, 140, 480, 192),
-        (before.width / 640, before.height / 480, before.width / 640, before.height / 480)))
+    left = (virtual_width - 320) // 2
+    top = max(0, (virtual_height - 200) // 2)
+    sx, sy = before.width / virtual_width, before.height / virtual_height
+    box = tuple(round(v * scale) for v, scale in zip((left, top, left + 320, top + 52),
+        (sx, sy, sx, sy)))
     for name in ('refreshed', 'selected', 'empty'):
         later = capture(name)
         assert later.size == before.size
         assert ImageChops.difference(before.crop(box), later.crop(box)).getbbox() is None, \
             f'Picker header disappeared or changed after {name}'
+    # Bitmap glyphs round to whole physical pixels. At fractional UI scales,
+    # a strlen*8 button width can lose its final letter even with a clear header.
+    empty = capture('empty')
+    advance = int(8 * sy + 0.5)
+    x = int((left + 56) * sx)
+    for label, y in (('Rescan Folder', top + 72), ('Back', top + 100)):
+        last = x + (len(label) - 1) * advance
+        cell = empty.crop((last + 2, int(y * sy) + 2,
+                           last + advance - 2, int(y * sy) + advance - 2))
+        ink = sum(cell.convert('L').histogram()[65:])
+        assert ink > cell.width * cell.height * 0.05, f'Final letter clipped: {label}'
 
 
 def main():
@@ -43,6 +57,8 @@ def main():
     p.add_argument('--font', type=Path, required=True)
     p.add_argument('--out', type=Path, required=True)
     p.add_argument('--gpu', action='store_true')
+    p.add_argument('--virtual-width', type=int, default=640, help='GPU UI width; 360 exercises fractional glyph rounding')
+    p.add_argument('--virtual-height', type=int, default=480, help='GPU UI height; use 270 with width 360')
     p.add_argument('--game', type=Path)
     p.add_argument('--menusys', type=Path, help='Also test opening from the QuakeC audio menu')
     p.add_argument('--many', action='store_true', help='Check scrolling with forty extra fonts')
@@ -181,7 +197,7 @@ defer 11.2 quit force
     if not args.gpu:
         env['SDL_VIDEODRIVER'] = 'dummy'
     mode = ['-window', '-width', '800', '-height', '600', '+vid_conautoscale', '0',
-            '+vid_conwidth', '640', '+vid_conheight', '480'] if args.gpu else ['+vid_renderer', 'headless']
+            '+vid_conwidth', str(args.virtual_width), '+vid_conheight', str(args.virtual_height)] if args.gpu else ['+vid_renderer', 'headless']
     with (out / 'engine.log').open('w') as log:
         result = subprocess.run([str(binary), '-nohome', '-basedir', str(out), '-quake', '-nostdin',
             *mode, '+set', 'plug_loaddefault', '0', '+s_device', 'SDL:', '+exec', 'midi-menu-start.cfg'],
@@ -205,7 +221,7 @@ defer 11.2 quit force
     if args.menusys:
         assert 'Initialized menu.dat' in text, 'QuakeC menus did not load'
     if args.gpu:
-        check_captures(out)
+        check_captures(out, args.virtual_width, args.virtual_height)
     (out / 'results.json').write_text(json.dumps({'discovery': 'passed', 'refresh': 'passed',
         'selection': 'passed', 'empty_folder': 'passed', 'persistence': 'passed',
         'filename_escaping': 'passed', 'audio_restart': 'passed'}, indent=2) + '\n')

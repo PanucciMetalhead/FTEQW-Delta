@@ -151,12 +151,25 @@ static void M_MIDI_Background(emenu_t *menu)
     R2D_ImageColours(1, 1, 1, 1);
     /* The native scroll frame uses absolute option coordinates, so translate
      * the options rather than the menu origin when vertically centering. */
-    if (offset != info->layoutoffset)
+    for (menuoption_t *option = menu->options; option; option = option->common.next)
     {
-        for (menuoption_t *option = menu->options; option; option = option->common.next)
-            option->common.posy += offset - info->layoutoffset;
-        info->layoutoffset = offset;
+        option->common.posy += offset - info->layoutoffset;
+        if (option->common.type == mt_button && font_default && vid.rotpixelwidth)
+        {
+            conchar_t buffer[2048], *end;
+            int px, py;
+            end = COM_ParseFunString(CON_WHITEMASK, option->button.text, buffer, sizeof(buffer), false);
+            Font_BeginString(font_default, 0, 0, &px, &py);
+            px = Font_LineWidth(buffer, end);
+            Font_EndString(font_default);
+            /* Glyph advances round to whole physical pixels. strlen*8 can
+             * underestimate their width at fractional scales and clip letters.
+             * Re-measure on draw so changing UI scale/fonts also stays correct. */
+            option->common.width = ceil(px * (double)vid.width / vid.rotpixelwidth);
+            option->button.rightalign = false;
+        }
     }
+    info->layoutoffset = offset;
 }
 
 void M_Menu_MIDI_f(void)
