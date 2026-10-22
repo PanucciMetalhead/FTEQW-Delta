@@ -451,7 +451,7 @@ static pbool PDECL SV_BadField(pubprogfuncs_t *inst, edict_t *foo, const char *k
 	/*Worldspawn only fields...*/
 	if (NUM_FOR_EDICT(inst, foo) == 0)
 	{
-		/*hexen2 midi - just mute it, we don't support it*/
+		/* Hexen II's named map music is forwarded to clients at signon. */
 		if (!stricmp(keyname, "MIDI"))
 		{
 			Q_strncpyz(sv.h2miditrack, value, sizeof(sv.h2miditrack));

@@ -333,6 +333,7 @@ qboolean Media_CleanupTrackName(const char *track, int *out_track, char *result,
 	{
 		"music/",
 		"sound/cdtracks/",
+		"midi/", /* Hexen II's original music directory. */
 		"",
 		NULL
 	};
@@ -363,12 +364,17 @@ qboolean Media_CleanupTrackName(const char *track, int *out_track, char *result,
 		//".s3m",	//some variant of mod that noone cares about. listed because of qs.
 		//".umx",	//wtf? qs is weird.
 #endif
+#ifdef AVAIL_MIDI
+		".mid",
+		".midi",
+#endif
 		NULL
 	};
 	unsigned int tracknum;
 	char *trackend;
 	unsigned int ip, ie;
 	int bestdepth = 0x7fffffff, d;
+	qboolean bestismidi = false;
 	char tryname[MAX_QPATH];
 
 	//check if its a proper number (0123456789 without any other weird stuff. if so, we can use fake track paths or actual cd tracks)
@@ -404,10 +410,12 @@ qboolean Media_CleanupTrackName(const char *track, int *out_track, char *result,
 					for(ie = 0; ext[ie]; ie++)
 					{
 						Q_snprintfz(tryname, sizeof(tryname), "%strack%03u%s", path[ip], tracknum, ext[ie]);
+						qboolean ismidi = !strncmp(ext[ie], ".mid", 4);
 						d = COM_FDepthFile(tryname, false);
-						if (d < bestdepth)
+						if (d < bestdepth || (d == bestdepth && bestismidi && !ismidi))
 						{
 							bestdepth = d;
+							bestismidi = ismidi;
 							Q_strncpy(result, tryname, resultsize);
 						}
 					}
@@ -417,10 +425,12 @@ qboolean Media_CleanupTrackName(const char *track, int *out_track, char *result,
 					for(ie = 0; ext[ie]; ie++)
 					{
 						Q_snprintfz(tryname, sizeof(tryname), "%strack%02u%s", path[ip], tracknum, ext[ie]);
+						qboolean ismidi = !strncmp(ext[ie], ".mid", 4);
 						d = COM_FDepthFile(tryname, false);
-						if (d < bestdepth)
+						if (d < bestdepth || (d == bestdepth && bestismidi && !ismidi))
 						{
 							bestdepth = d;
+							bestismidi = ismidi;
 							Q_strncpy(result, tryname, resultsize);
 						}
 					}
@@ -432,10 +442,12 @@ qboolean Media_CleanupTrackName(const char *track, int *out_track, char *result,
 			for(ie = 0; ext[ie]; ie++)
 			{
 				Q_snprintfz(tryname, sizeof(tryname), "%s%s%s", path[ip], track, ext[ie]);
+				qboolean ismidi = !strncmp(ext[ie], ".mid", 4);
 				d = COM_FDepthFile(tryname, false);
-				if (d < bestdepth)
+				if (d < bestdepth || (d == bestdepth && bestismidi && !ismidi))
 				{
 					bestdepth = d;
+					bestismidi = ismidi;
 					Q_strncpy(result, tryname, resultsize);
 				}
 			}

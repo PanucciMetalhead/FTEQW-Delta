@@ -16,6 +16,11 @@ fonts, libvorbisfile for music, and GnuTLS for encrypted networking. Plugin
 requirements are detected by CMake. Python 3 enables portable plugin metadata
 packaging and the integration test tools; Pillow is needed for screenshot checks.
 
+Optional MIDI music uses FluidSynth 2.2+ (`FTE_DEP_FLUIDSYNTH=AUTO/ON/OFF`).
+Install `fluid-synth` with Homebrew or `libfluidsynth-dev` on Debian/Ubuntu.
+The selected FluidR3 GM bank is a separately packaged MIT asset; see
+[MIDI.md](MIDI.md) for its explicit download, checksum and redistribution notices.
+
 On macOS with Homebrew:
 
 ```sh

@@ -875,6 +875,9 @@ static qboolean QDECL S_LoadWavSound (sfx_t *s, qbyte *data, size_t datalen, int
 
 
 qboolean QDECL S_LoadOVSound (sfx_t *s, qbyte *data, size_t datalen, int sndspeed, qboolean forcedecode);
+#ifdef AVAIL_MIDI
+qboolean QDECL S_LoadMIDISound(sfx_t *s, qbyte *data, size_t datalen, int sndspeed, qboolean forcedecode);
+#endif
 
 //highest priority is last.
 static struct
@@ -883,6 +886,9 @@ static struct
 	void *module;
 } AudioInputPlugins[10] =
 {
+#ifdef AVAIL_MIDI
+	{S_LoadMIDISound},
+#endif
 #ifdef AVAIL_OGGVORBIS
 	{S_LoadOVSound},
 #endif
