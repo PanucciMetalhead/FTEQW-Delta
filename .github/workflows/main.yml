@@ -104,9 +104,13 @@ jobs:
             build/package-tests/
             build-sanitize/engine-sanitize-tests/
             build/network-tests/
-            build/midi-integration/
-            build-sanitize/midi-integration/
-            build/midi-picker/
-            build-sanitize/midi-picker/
+            build/midi-integration/**/engine.log
+            build/midi-integration/**/results.json
+            build-sanitize/midi-integration/**/engine.log
+            build-sanitize/midi-integration/**/results.json
+            build/midi-picker/**/engine.log
+            build/midi-picker/**/results.json
+            build-sanitize/midi-picker/**/engine.log
+            build-sanitize/midi-picker/**/results.json
             build/c17-compat/
           if-no-files-found: ignore

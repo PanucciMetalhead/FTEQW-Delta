@@ -169,7 +169,7 @@ defer 11.2 quit force
             *mode, '+set', 'plug_loaddefault', '0', '+s_device', 'SDL:', '+exec', 'midi-menu-start.cfg'],
             cwd=out, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=60)
     text = (out / 'engine.log').read_text(errors='replace')
-    assert result.returncode == 0 and 'MIDI_MENU_DONE' in text, out
+    assert result.returncode == 0 and 'MIDI_MENU_DONE' in text, f'{out}\n{text[-8000:]}'
     assert not re.search(r'AddressSanitizer:|runtime error:|Sys_Error|Host_Error|MIDI_MENU_FIXTURE_FAILED|Unknown command', text), text
     expected = (out / 'id1/soundfonts' / ADDED).as_posix()
     assert 'MIDI_MENU_SELECTION ' + expected in text, f'Selection failed: {out}'
