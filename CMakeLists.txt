@@ -1523,6 +1523,23 @@ IF(FTE_CSADDON AND TARGET fteqcc AND Python3_Interpreter_FOUND)
 		DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/games/quake/id1/")
 ENDIF()
 
+# Windows must find SDL beside runnable clients/tools, including MIDI test hosts.
+if(WIN32)
+    get_target_property(fte_sdl_type SDL3::SDL3 TYPE)
+    if(fte_sdl_type STREQUAL "SHARED_LIBRARY")
+        foreach(fte_sdl_host IN ITEMS fteqw fteqw-cl imgtool)
+            if(TARGET ${fte_sdl_host})
+                add_custom_command(TARGET ${fte_sdl_host} POST_BUILD
+                    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                        "$<TARGET_FILE:SDL3::SDL3>" "$<TARGET_FILE_DIR:${fte_sdl_host}>"
+                    VERBATIM)
+            endif()
+        endforeach()
+        unset(fte_sdl_host)
+    endif()
+    unset(fte_sdl_type)
+endif()
+
 # Stage the selected font with each desktop executable, including multi-config builds.
 if(FTE_MIDI_SOUNDFONT)
     foreach(fte_midi_host IN ITEMS fteqw fteqw-cl)
