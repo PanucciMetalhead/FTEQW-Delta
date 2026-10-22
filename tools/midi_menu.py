@@ -155,6 +155,24 @@ defer 11.2 quit force
         config = '\n'.join(line for line in config.splitlines() if ' screenshot ' not in line) + '\n'
     if args.many:
         config = config.replace('defer 8 midi_key escape', 'defer 7.2 midi_key downarrow 44\ndefer 8 midi_key escape')
+    # Engine timers use an unordered list: several independent deadlines that
+    # expire during a slow frame can execute in reverse order. Chain one future
+    # action at a time, so rescan/navigation/selection always finish in order.
+    initial, actions = [], []
+    for line in config.splitlines():
+        if line.startswith('defer '):
+            _, when, command = line.split(' ', 2)
+            actions.append((float(when), command))
+        else:
+            initial.append(line)
+    actions.sort(key=lambda action: action[0])
+    for i, (when, command) in enumerate(actions):
+        step = command + '\n'
+        if i + 1 < len(actions):
+            delay = actions[i + 1][0] - when
+            step += f'defer {delay:.3f} exec midi-menu-step-{i + 1}.cfg\n'
+        (out / f'id1/midi-menu-step-{i}.cfg').write_text(step)
+    config = '\n'.join(initial) + f'\ndefer {actions[0][0]:.3f} exec midi-menu-step-0.cfg\n'
     (out / 'id1/midi-menu-test.cfg').write_text(config)
     (out / 'id1/midi-menu-start.cfg').write_text('cfg_save_auto 0\nplug_loaddefault 0\n'
         'developer 1\nm_preset_chosen 1\nnet_enabled 0\nsnd_inactive 1\ndefer 1 plug_load midiprobe\n')
