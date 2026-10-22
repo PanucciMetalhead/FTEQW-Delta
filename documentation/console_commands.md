@@ -249,6 +249,7 @@ Jump to [input actions](#held-input-actions), [menus](#built-in-menu-entry-point
 | `menu_main` | Client | Open the built-in main menu. In Quake 3 this is the engine menu, separate from the bundled gamecode UI. |
 | `menu_media` | Client | Open the built-in media playlist menu. In Quake 3 this is the engine menu, separate from the bundled gamecode UI. |
 | `menu_mediafiles` | Client | Open the built-in media file browser menu. In Quake 3 this is the engine menu, separate from the bundled gamecode UI. |
+| `menu_midi` | Client with FluidSynth | Open the SoundFont picker shared by native and QuakeC audio menus. Scans loose SF2/SF3 files in soundfonts folders; choosing one saves it and restarts audio. |
 | `menu_mods` | Client | Open the built-in game/mod selection menu. In Quake 3 this is the engine menu, separate from the bundled gamecode UI. |
 | `menu_multi` | Client | Open the built-in multiplayer menu. In Quake 3 this is the engine menu, separate from the bundled gamecode UI. |
 | `menu_network` | Client | Open the built-in network options menu. In Quake 3 this is the engine menu, separate from the bundled gamecode UI. |
@@ -538,7 +539,7 @@ Jump to [input actions](#held-input-actions), [menus](#built-in-menu-entry-point
 | `mod_usetexture` | Client | Replace a named loaded brush texture with a solid RGB color for debugging: `mod_usetexture <texture> <red> <green> <blue>`. |
 | `modelviewer` | Client | Open the model viewer to inspect a model and its animations/materials. |
 | `msg_trigger` | Client | Define or inspect an alias-based trigger for incoming message text: `msg_trigger <name> "string" [-l <level>]`. |
-| `music` | Client | Play a named music track, optionally with a separate looping track: `music <initial-track> [loop-track]`; requires a suitable audio decoder. |
+| `music` | Client | Play a named music track, optionally with a separate looping track: `music <initial-track> [loop-track]`. MIDI (`.mid`/`.midi`) uses optional FluidSynth; see [MIDI music](MIDI.md). |
 | `music_fforward` | Client | Seek forward in the current media track by a number of seconds, defaulting to 15. |
 | `music_next` | Client | Advance to the next music/media playlist track. |
 | `music_rewind` | Client | Seek backward in the current media track by a number of seconds, defaulting to 15. |
@@ -2271,6 +2272,7 @@ Jump to [symbols and A–C](#cvars-symbols-and-ac), [D–H](#cvars-dh),
 | `snd_ignorecueloops` | Q1: `"0"`; Q3: `"1"` | Ignores cue commands in wav files, for q3 compat. |
 | `snd_ignoregamespeed` | `"0"` | When set, allows sounds to desynchronise with game time or demo speeds. |
 | `snd_loadasstereo` | `"0"` | Force mono sounds to load as if stereo ones, to waste memory. Not normally useful. |
+| `snd_midi_soundfont` | `"soundfonts/FluidR3_GM.sf2"` | Client with FluidSynth: loose SoundFont path, relative to the executable/game/home directory or absolute. Use `snd_restart` after changing it. Servers cannot set it. See [MIDI music](MIDI.md). |
 | `snd_playbackrate` | `"1"` | Debugging cvar that changes the playback rate of all new sounds. [cheat/ruleset restricted.] |
 | `spawn` | `""` | **Q1 target:** spawn-setting compatibility value exposed to gamecode. |
 | `spectator` | `""` | **Different:** **Different:** Quake 1/QuakeWorld spectator request/userinfo. Quake 3 uses team spectator instead. |

@@ -9141,7 +9141,13 @@ static qboolean CLH2_ParseServerSubMessage (int cmd)
 	switch (cmd)
 	{
 	case svch2_midiname:
-		MSG_ReadString();
+		{
+			const char *track = MSG_ReadString();
+			if (!*track || !Q_strcasecmp(track, "none"))
+				Media_NamedTrack(NULL, NULL);
+			else
+				Media_NamedTrack(track, NULL);
+		}
 		break;
 	case svch2_particle2:
 		CL_ParseParticleEffect2 ();

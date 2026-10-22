@@ -3,7 +3,7 @@ name: SDL3 GPU desktop build
 on:
   workflow_dispatch:
   push:
-    branches: ["master", "dev/c17"]
+    branches: ["master", "dev/c17", "dev/midi"]
   pull_request:
     branches: [master]
 jobs:
@@ -30,7 +30,18 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxkbcommon-dev libwayland-dev libasound2-dev libpulse-dev libudev-dev libpng-dev libjpeg-dev zlib1g-dev libgnutls28-dev pkg-config libxss-dev libxtst-dev libxdamage-dev libgl1-mesa-dev libegl1-mesa-dev libgbm-dev libdrm-dev libdecor-0-dev wayland-protocols
+          sudo apt-get install -y ninja-build libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxkbcommon-dev libwayland-dev libasound2-dev libpulse-dev libudev-dev libpng-dev libjpeg-dev zlib1g-dev libgnutls28-dev libfluidsynth-dev pkg-config libxss-dev libxtst-dev libxdamage-dev libgl1-mesa-dev libegl1-mesa-dev libgbm-dev libdrm-dev libdecor-0-dev wayland-protocols
+      - name: macOS MIDI dependency
+        if: runner.os == 'macOS'
+        run: brew install fluid-synth
+      - name: Windows MIDI dependency
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_INSTALLATION_ROOT/vcpkg.exe" install fluidsynth:x64-windows
+          "CMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" >> $env:GITHUB_ENV
+      - name: Stage pinned MIDI instrument bank
+        run: python3 tools/package_soundfont.py --download --out build-deps/soundfonts
       - name: Select Linux compiler
         if: runner.os == 'Linux'
         shell: bash
@@ -51,7 +62,7 @@ jobs:
           cmake --install build-deps/sdl-build --config Release
       - name: Configure fork
         shell: bash
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/build-deps/install" -DFTE_WERROR=OFF -DFTE_TOOL_QCCGUI=OFF -DFTE_TOOL_QCVM=ON -DFTE_ENGINE_CLIENT_ONLY=ON -DBUILD_TESTING=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/build-deps/install" -DFTE_WERROR=OFF -DFTE_TOOL_QCCGUI=OFF -DFTE_TOOL_QCVM=ON -DFTE_ENGINE_CLIENT_ONLY=ON -DBUILD_TESTING=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DFTE_DEP_FLUIDSYNTH=ON -DFTE_MIDI_SOUNDFONT="$GITHUB_WORKSPACE/build-deps/soundfonts/FluidR3_GM.sf2"
       - name: Compile engine, server and tools
         run: cmake --build build --config Release --parallel 2
       - name: Run data-free regression checks
@@ -68,10 +79,10 @@ jobs:
       - name: Configure sanitizer engine and tools
         if: runner.os != 'Windows'
         shell: bash
-        run: cmake -S . -B build-sanitize -DCMAKE_BUILD_TYPE=Debug -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/build-deps/install" -DFTE_SANITIZERS=ON -DFTE_ENGINE=ON -DFTE_ENGINE_SERVER_ONLY=ON -DFTE_ENGINE_CLIENT_ONLY=ON -DFTE_TOOL_QCCGUI=OFF -DFTE_TOOL_QCVM=ON -DBUILD_TESTING=ON
+        run: cmake -S . -B build-sanitize -DCMAKE_BUILD_TYPE=Debug -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/build-deps/install" -DFTE_SANITIZERS=ON -DFTE_ENGINE=ON -DFTE_ENGINE_SERVER_ONLY=ON -DFTE_ENGINE_CLIENT_ONLY=ON -DFTE_TOOL_QCCGUI=OFF -DFTE_TOOL_QCVM=ON -DBUILD_TESTING=ON -DFTE_DEP_FLUIDSYNTH=ON -DFTE_MIDI_SOUNDFONT="$GITHUB_WORKSPACE/build-deps/soundfonts/FluidR3_GM.sf2"
       - name: Build sanitizer engine and tools
         if: runner.os != 'Windows'
-        run: cmake --build build-sanitize --target fteqw fteqw-sv fteqcc qcvm c17-endian-check --parallel 2
+        run: cmake --build build-sanitize --target fteqw fteqw-sv fteqcc qcvm c17-endian-check midi-tests --parallel 2
       - name: Run sanitizer engine, compiler, VM and parser checks
         if: runner.os != 'Windows'
         env:
@@ -93,5 +104,9 @@ jobs:
             build/package-tests/
             build-sanitize/engine-sanitize-tests/
             build/network-tests/
+            build/midi-integration/
+            build-sanitize/midi-integration/
+            build/midi-picker/
+            build-sanitize/midi-picker/
             build/c17-compat/
           if-no-files-found: ignore

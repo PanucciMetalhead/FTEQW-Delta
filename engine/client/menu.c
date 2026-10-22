@@ -720,6 +720,9 @@ void Menu_Frame(void)
 #ifndef NOBUILTINMENUS
 
 void M_Menu_Audio_f (void);
+#ifdef AVAIL_MIDI
+void M_Menu_MIDI_f(void);
+#endif
 void M_Menu_Demos_f (void);
 void M_Menu_Mods_f (void);
 void M_Menu_ModelViewer_f(void);
@@ -1549,6 +1552,10 @@ void M_Init (void)
 	Cmd_AddCommandD("vid_revert", M_VideoRevert_f, "Revert an unconfirmed display change from the engine Video menu.");
 	Cmd_AddCommandAD("fps_preset", FPS_Preset_f, FPS_Preset_c, "Apply a preset");
 	Cmd_AddCommand("menupop", M_MenuPop_f);
+#ifdef AVAIL_MIDI
+	// The shared file picker also serves MenuQC, outside its filesystem sandbox.
+	Cmd_AddCommandD("menu_midi", M_Menu_MIDI_f, "Choose MIDI instruments from loose SF2/SF3 files in soundfonts folders.");
+#endif
 
 	//server browser is kinda complex, and has clipboard integration which we need to sandbox a little
 #ifdef CL_MASTER

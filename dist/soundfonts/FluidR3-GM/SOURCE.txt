@@ -1,0 +1,13 @@
+FluidR3 GM 3.1 by Frank Wen and contributors
+License: MIT (see COPYING). Original sample/author notes: README.
+
+Unmodified asset (148398306 bytes):
+https://github.com/pianobooster/fluid-soundfont/releases/download/v3.1/FluidR3_GM.sf2
+SHA-256: 74594e8f4250680adf590507a306655a299935343583256f3b722c48a1bc1cb0
+
+COPYING and README were preserved from this packaging repository revision:
+https://github.com/pianobooster/fluid-soundfont/tree/24c5c8a82e2f2cec2497710c6a72e5ccfeca40cd
+The repository identifies Ubuntu's fluid-soundfont package as its source.
+
+The SoundFont is a separate MIT-licensed data asset. MIDI compositions and game
+soundtracks are not included. This notice does not license third-party music.

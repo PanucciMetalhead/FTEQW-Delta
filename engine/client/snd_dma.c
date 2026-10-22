@@ -2320,6 +2320,9 @@ void S_Init (void)
 	Cvar_Register(&snd_loadas8bit,		"Sound controls");
 	Cvar_Register(&snd_loadasstereo,	"Sound controls");
 	Cvar_Register(&bgmvolume,			"Sound controls");
+#ifdef AVAIL_MIDI
+	S_MIDI_Init();
+#endif
 	Cvar_Register(&snd_nominaldistance,	"Sound controls");
 	Cvar_Register(&ambient_level,		"Sound controls");
 	Cvar_Register(&ambient_fade,		"Sound controls");

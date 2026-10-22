@@ -33,6 +33,9 @@ cmake --build build --target fteqw --config Release --parallel
 Requires SDL **3.4 or newer**, CMake, and a C/C++ compiler. See
 [building](documentation/Building.md), [dependencies](documentation/Dependencies.md),
 and [renderer controls and validation](documentation/SDL3-GPU.md).
+Optional [MIDI music playback](documentation/MIDI.md) uses FluidSynth and the
+MIT-licensed FluidR3 GM SoundFont, with verified release packaging and support
+for user-selected SoundFonts.
 Warning audits and expanded sanitizer checks are documented in
 [SafetyChecks.md](documentation/SafetyChecks.md).
 

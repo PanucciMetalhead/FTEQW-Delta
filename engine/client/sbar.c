@@ -277,7 +277,7 @@ void Draw_FunStringWidthFont(struct font_s *font, float x, float y, const void *
 
 		width -= Font_CharWidth(codeflags, codepoint);
 		if (width < 0)
-			return;
+			break; /* Finish the font batch even when the label is clipped. */
 		px = Font_DrawChar(px, py, codeflags, codepoint);
 	}
 	Font_EndString(font);
