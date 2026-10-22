@@ -149,6 +149,10 @@ commands that trigger an action in the engine.
 You can always find a list of both of these with the console commands 
 `cvarlist` and `cmdlist` respectively.
 
+For Quake 1 weapon preselection and automatic weapon hiding similar to
+ezQuake, see the [weapon-script guide](WeaponScripts.md), including example
+bindings and weapon priority lists.
+
 ## Some example commands
 
 `bind <key> <command>`	Binds a command to a key, e.g. `bind F12 quit`

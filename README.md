@@ -46,6 +46,8 @@ models, portable-install detection and repeatable campaign/model checks are cove
 The [console command and cvar reference](documentation/console_commands.md) covers
 Quake 1 and Quake 3/OpenArena, including shared settings, game-specific behavior,
 and client/server availability.
+For Quake 1 weapon preselection, priority binds, and automatic weapon hiding
+similar to ezQuake, see the [weapon-script guide](documentation/WeaponScripts.md).
 
 For game and total-conversion development, see
 [Writing Your progs.dat](documentation/writing_progs.md) and the

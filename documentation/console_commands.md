@@ -66,6 +66,11 @@ Binding the `+` form sends the release automatically. Typing `+forward` manually
 keeps moving until `-forward` is executed. The gamecode defines attack, use,
 gesture and weapon behavior; shared input names do not imply identical physics.
 
+For a working Quake 1 setup using `weapon`, `cl_weaponpreselect`,
+`cl_weaponhide`, and `+fire`, see the [weapon-script guide](WeaponScripts.md).
+It covers behavior similar to ezQuake, priority lists, hiding preferences,
+and the distinction between `weapon` and `impulse` bindings.
+
 ## Availability and scope
 
 | Where | Meaning |
