@@ -87,6 +87,11 @@ textures and model interpolation, CPU skeletal animation, classic layered skies
 and skyboxes, fog, particles, decals, HUD/menus, screenshots, and CSQC 2D render
 targets. Availability of an effect still depends on the supplied game assets.
 
+For asset authoring and distribution, see [Textures and custom-map packaging](MapTextures.md).
+The current native scene shader adds emissive RGB without multiplying by the
+companion image's alpha. Use opaque black for non-emissive areas in `_luma`
+or `_glow` images; the guide explains switch states and fallback fullbrights.
+
 `gpu_info` reports the native driver, physical framebuffer size, frame geometry,
 material counts, maximum lights per draw, shadow caster draws, loaded lightmaps,
 fallback lightmap draws, and water views. Material counts are unlit, lightmapped,

@@ -53,6 +53,10 @@ For game and total-conversion development, see
 [Writing Your progs.dat](documentation/writing_progs.md) and the
 [FTEQCC compiler manual](documentation/FTEQCC.md).
 
+For custom Quake maps, see the [texture and packaging guide](documentation/MapTextures.md).
+It covers WAD/BSP fallbacks, true-color PNGs, animated and switchable textures,
+fullbright masks, transparency, and single-file PK3 distribution.
+
 Graphics controls remain available through the in-game Options menus and console.
 Built-in graphics presets default to crisp pixel filtering. The engine menus offer
 F1 setting help and a 15-second Keep/Revert confirmation for display changes;
