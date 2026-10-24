@@ -108,13 +108,50 @@ A two-second release/reverb tail follows the last event before the playlist
 advances or loops. Seeking renders intermediate samples to preserve controller,
 tempo and envelope state; large seeks cost more. PCM buffering stays bounded.
 
+## Track remapping
+
+Numbered music requests from maps and `music <number>` can be redirected to
+another track number or a named file. This works for recorded music and MIDI,
+independently of physical CD support. The supported SDL3 build has no physical
+CD playback.
+
+```text
+cd remaptrack 2 "music/castle.mid"
+cd remaptrack 3 5
+cd remap
+```
+
+Track 2 now plays `music/castle.mid`; track 3 finds numbered track 5, such as
+`music/track05.ogg`. Replacements use normal music-file lookup. Mapping is
+applied once, so a mapping for track 5 does not redirect track 3 again.
+`cd remap` lists current mappings. `cd remaptrack 2 ""` clears only slot 2;
+`cd reset` clears all mappings, even with music muted or no CD drive.
+
+The original positional syntax remains supported: `cd remap 1 5` sets slot 1
+to track 1 and slot 2 to track 5. Arguments always start at slot 1; omitted
+higher slots are unchanged. Prefer `remaptrack` for individual edits and high
+slots, since the console limits the number of arguments in one command.
+Slots 1 through 255 are available.
+
+`cfg_save` writes mappings into the configuration as a reset followed by
+individual `cd remaptrack` commands, preserving gaps and quoted filenames.
+Loading that configuration replaces the current table, including when the
+saved table is empty. Mapping edits also trigger `cfg_save_ifmodified`.
+`cd play <track>` plays once, `cd loop <track> [looptrack]` loops, and `cd stop`
+stops file music, retaining these legacy command names.
+
 ## Verification
 
 ```sh
-ctest --test-dir build -C Release -R '^midi-' --output-on-failure
+ctest --test-dir build -C Release -R '^(midi-|music-remap)' --output-on-failure
 python3 tools/midi_integration.py --engine build/fteqw --out build/midi-integration
 python3 tools/midi_menu.py --engine build/fteqw --font build/soundfonts/FluidR3_GM.sf2 --out build/midi-picker
 ```
+
+`music-remap` requires no SoundFont or game data. It uses synthetic WAV files
+to check all 255 mapping slots, quoted filenames, configuration save/reload,
+reset, legacy commands, and real SDL mixer playback. It can also be run with
+`python3 tools/music_remap.py --engine build/fteqw --out build/music-remap`.
 
 `midi-parser` requires no SoundFont or game data. `midi-synthesis` is registered
 when `FTE_MIDI_SOUNDFONT` is set. It checks real FluidR3 output at 22.05, 44.1
@@ -152,3 +189,11 @@ The shared SoundFont picker also passed normal and ASan/UBSan input checks,
 including QuakeC-menu integration, refresh, saved selection and music reload.
 Native Metal captures with 44 listed fonts and an empty folder were inspected;
 the header image comparison passed in both normal and sanitizer builds.
+
+The track-remapping cleanup passed on macOS in Release, MIDI-disabled Debug,
+and ASan/UBSan client builds. The new regression covered all 255 slots,
+positional compatibility, quoted filenames, save/reload in a fresh process,
+conditional saves, muted reset, empty-table restore, invalid arguments, and
+WAV playback through the SDL mixer. The sanitizer dedicated server also built;
+existing MIDI parser, FluidR3 synthesis, and engine integration checks passed.
+Windows/Linux runtime validation of these remapping changes remains pending.

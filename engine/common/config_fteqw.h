@@ -1,14 +1,14 @@
-// Build-Config file for FTE's standard builds, the default settings.
-// to use: make FTE_CONFIG=fteqw
+// Default feature configuration for FTEQW Delta desktop builds.
+// Select another header with cmake -DFTE_BUILD_CONFIG=/absolute/path/to/config.h
 
 // Features should either be commented or not. If you change undefs to defines or vice versa then expect problems.
-// Later code will disable any features if they're not supported on the current platform, so don't worry about win/lin/mac/android/etc here - any such issues should be fixed elsewhere.
+// Later code will disable any features if they're not supported on the current platform, so don't worry about Windows/Linux/macOS here - any such issues should be fixed elsewhere.
 
 //general rebranding
 //#define DISTRIBUTION			"FTE"							//should be kept short. 8 or less letters is good, with no spaces.
 //#define DISTRIBUTIONLONG		"Forethought Entertainment"		//think of this as your company name. It isn't shown too often, so can be quite long.
-//#define FULLENGINENAME		"FTE Quake"						//nominally user-visible name.
-//#define ENGINEWEBSITE			"http://fte.triptohell.info"	//for shameless self-promotion purposes.
+//#define FULLENGINENAME		"FTEQW Delta"						//nominally user-visible name.
+//#define ENGINEWEBSITE			"https://github.com/PanucciMetalhead/FTEQW-Delta"	//for shameless self-promotion purposes.
 //#define BRANDING_ICON			"fte_eukara.ico"				//The file to use in windows' resource files - for linux your game should include an icon.[png|ico] file in the game's data.
 
 //filesystem rebranding
@@ -23,14 +23,9 @@
 
 //#define ENGINE_HAS_ZIP	//when defined, the engine is effectively a self-extrating zip with the gamedata zipped onto the end (if it in turn contains nested packages then they should probably be STOREd pk3s)
 
-// Allowed renderers... There should ONLY be undefs here (other C files won't be pulled in automatically)
-//#undef GLQUAKE
-//#undef D3D8QUAKE
-//#undef D3D9QUAKE
-//#undef D3D11QUAKE
-//#undef VKQUAKE
-//#undef HEADLESSQUAKE			//no-op renderer...
-//#undef WAYLANDQUAKE			//linux only
+// Renderers are selected by CMake. Only undefine them here to disable support.
+//#undef SDL_GPUQUAKE			//native desktop renderer
+//#undef HEADLESSQUAKE			//no-op renderer
 
 //Misc Renderer stuff
 #define PSET_CLASSIC			//support the 'classic' particle system, for that classic quake feel.
@@ -40,9 +35,8 @@
 
 //Extra misc features.
 //#define CLIENTONLY			//
-#define MULTITHREAD				//misc basic multithreading - dsound, downloads, basic stuff that's unlikely to have race conditions.
+#define MULTITHREAD				//basic multithreading for downloads and other background work.
 #define LOADERTHREAD			//worker threads for loading misc stuff. falls back on main thread if not supported.
-#define AVAIL_DINPUT
 #define SIDEVIEWS   4   		//enable secondary/reverse views.
 #define MAX_SPLITS	4u
 #define	VERTEXINDEXBYTES	2	//16bit indexes work everywhere but may break some file types, 32bit indexes are optional in gles<=2 and d3d<=9 and take more memory/copying but allow for bigger batches/models. Plugins need to be compiled the same way so this is no longer set per-renderer.
@@ -159,13 +153,10 @@
 
 // Audio Drivers
 #define AVAIL_OPENAL
-#define AVAIL_WASAPI			//windows advanced sound api
-#define AVAIL_DSOUND
 #define HAVE_MIXER				//support non-openal audio drivers
 
 // Audio Formats
 #define AVAIL_OGGVORBIS			//.ogg support
-#define AVAIL_MP3_ACM			//.mp3 support (windows only).
 
 // Other Audio Options
 #define VOICECHAT
@@ -173,9 +164,7 @@
 #define HAVE_OPUS               //Support the opus codec.
 #define HAVE_MEDIA_DECODER		//can play cin/roq, more with plugins
 #define HAVE_MEDIA_ENCODER		//capture/capturedemo work.
-#define HAVE_CDPLAYER			//includes cd playback. actual cds. named/numbered tracks are supported regardless (though you need to use the 'music' command to play them without this).
-#define HAVE_JUKEBOX			//includes built-in jukebox crap
-#define HAVE_SPEECHTOTEXT		//windows speech-to-text thing
+#define HAVE_JUKEBOX			//music playlists, seeking, and media menu
 
 // Features required by vanilla quake/quakeworld...
 //#define QUAKETC
@@ -193,44 +182,3 @@
 //#define SVCHAT					//ancient lame builtin to support NPC-style chat...
 ////#define SV_MASTER			//Support running the server as a master server. Should probably not be used.
 ////#define QUAKESPYAPI			//define this if you want the engine to be usable via gamespy/quakespy, which has been dead for a long time now. forces the client to use a single port for all outgoing connections, which hurts reconnects.
-
-
-#ifdef COMPILE_OPTS //This is a block of hints for the makefile to decide which deps to link.
-//things to configure qclib, which annoyingly doesn't include this file itself
-//-DOMIT_QCC	//disable the built-in qcc 
-//-DSIMPLE_QCVM	//disable qc debugging and 32bit opcodes
-#ifndef AVAIL_ZLIB
-//-DNO_ZLIB	//disable zlib
-#endif
-	#ifdef AVAIL_PNGLIB
-		-DLINK_PNG
-	#endif
-	#ifdef AVAIL_JPEGLIB
-		-DLINK_JPEG
-	#endif
-#if defined(PLUGINS) && (defined(Q3SERVER) || defined(Q3CLIENT))
--DLINK_QUAKE3	//ask the makefile to bake the quake3 plugin into the engine itself.
-#endif
-
-//-DNO_OPUS
-//-DNO_SPEEX	//disable static speex
-#ifndef AVAIL_BOTLIB
--DNO_BOTLIB	//disable static botlib
-#endif
--DLINK_VORBISFILE	//disable static vorbisfile
-
-
-//enable some staticaly linked libraries
--DLINK_FREETYPE		//international text requires international fonts.
-
-#if defined(USE_INTERNAL_ODE) && !defined(ODE_DYNAMIC)
--DLINK_ODE
-#endif
-
-#if defined(PLUGINS)
-//-DLINK_EZHUD		//uncomment this line to statically link the ezhud plugin.
-#endif
-//-DLINK_OPENSSL	//statically link our openssl plugin into the engine instead of being separate. NOTE: openssl<3 is a license no-go, 3 still requires gpl3 (2 prohits patent).
-
-//-Os		//optimise for size instead of speed. less cpu cache needed means that its sometimes faster anyway.
-#endif

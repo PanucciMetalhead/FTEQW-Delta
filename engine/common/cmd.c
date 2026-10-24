@@ -4144,7 +4144,7 @@ static void Cmd_WriteConfig_f(void)
 	qboolean all = true;
 	qboolean nohidden = false;
 
-	//special variation that only saves if an archived cvar was actually modified.
+	//Only save when archived settings, bindings, or other saved state changed.
 	if (!Q_strcasecmp(Cmd_Argv(0), "cfg_save_ifmodified"))
 		if (!Cvar_UnsavedArchive())
 			return;
@@ -4224,9 +4224,8 @@ static void Cmd_WriteConfig_f(void)
 	if (cfg_save_buttons.ival)
 		IN_WriteButtons(f, all);
 	
-	#ifdef HAVE_CDPLAYER
-//		if (cfg_save_cdtracks.ival)
-			Media_SaveTracks(f);
+	#ifndef NOMEDIA
+		Media_SaveTracks(f);
 	#endif
 	if (cfg_save_infos.ival)
 		CL_SaveInfo(f);

@@ -1559,6 +1559,12 @@ endif()
 # Data-free checks also run in desktop CI; game-data tests remain opt-in.
 include(CTest)
 if(BUILD_TESTING)
+    if(TARGET fteqw AND Python3_Interpreter_FOUND)
+        add_test(NAME music-remap
+            COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/music_remap.py"
+                --engine $<TARGET_FILE:fteqw> --out "${CMAKE_BINARY_DIR}/music-remap")
+        set_tests_properties(music-remap PROPERTIES TIMEOUT 90)
+    endif()
     if(TARGET fte-midi-core)
         add_executable(midi-tests tools/tests/midi_fluid.c)
         target_link_libraries(midi-tests PRIVATE fte-midi-core)

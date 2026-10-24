@@ -320,12 +320,12 @@ Jump to [input actions](#held-input-actions), [menus](#built-in-menu-entry-point
 | `capturedemo` | Client | capturedemo foo.dem foo.avi - Captures a named demo to a named video file. Demo capturing is performed offscreen when possible, allowing arbitrary video sizes or smooth captures on underpowered hardware. |
 | `capturepause` | Client | Pauses the video capture, allowing you to avoid capturing uninteresting parts. This is a toggle, so reuse the same command to resume capturing again. |
 | `capturestop` | Client | Stop the current video capture and close its output. |
-| `cd` | Client | Control numbered CD/music tracks. Subcommands include `play`, `loop`, `stop`, `pause`, `resume`, `info`, and `remap`; physical CD support depends on the platform/backend. |
+| `cd` | Client | File music controls: `play <track>`, `loop <track> [looptrack]`, `stop`, `remap [replacement1 replacement2 ...]`, `remaptrack <1-255> <replacement>`, and `reset`. Remapping works without a CD drive; physical CD playback is unavailable in the supported SDL3 build. See [track remapping](MIDI.md#track-remapping). |
 | `centerview` | Client | Return the player's view pitch toward its centered position. |
 | `cfg_load` | Both | Execute console commands from a configuration file: `exec myconfig.cfg`. |
 | `cfg_reset` | Both | Reset cvar values to their defaults by executing `cvarreset *`; does not reset bindings or aliases. |
 | `cfg_save` | Both | Write settings, bindings, and aliases to a configuration file. No filename uses the normal config; an explicit name writes under `configs/`. |
-| `cfg_save_ifmodified` | Both | Save the configuration only if an archived cvar has been modified. |
+| `cfg_save_ifmodified` | Both | Save the configuration only when saved configuration state has changed, including archived cvars, bindings, and music mappings. |
 | `changelevel` | Both | Continues the game on a different map. The current map can be reentered later when a starting position for the new map is specified as a second argument. |
 | `changing` | Client | Part of network protocols. This command should not be used manually. |
 | `chat` | Both | **Q3:** Dedicated qagame console: send a chat-style announcement. |
