@@ -318,6 +318,7 @@ static dollcreatectx_t *rag_createdoll(model_t *mod, const char *fname, int numb
 		return NULL;
 
 	ctx = malloc(sizeof(*ctx));
+	memset(ctx, 0, sizeof(*ctx));
 
 	ctx->bones = Mod_GetBoneInfo(mod, &ctx->numbones);
 	ctx->errors = 0;
@@ -342,6 +343,7 @@ static dollcreatectx_t *rag_createdoll(model_t *mod, const char *fname, int numb
 	ctx->defjoint.CFM2 = 1e-5;
 
 	ctx->d = BZ_Malloc(sizeof(*ctx->d));
+	memset(ctx->d, 0, sizeof(*ctx->d));
 	ctx->d->next = NULL;
     ctx->d->registered = false;
 	ctx->d->name = strdup(fname);

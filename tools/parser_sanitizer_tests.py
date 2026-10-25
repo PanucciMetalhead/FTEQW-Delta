@@ -49,6 +49,9 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     (out / 'results.json').unlink(missing_ok=True)
     cases = {
+        'skeldefaults': [('engine/client/pr_skelobj.c', 'rag_createdoll')] +
+                        [('engine/client/pr_skel_save.h', name) for name in
+                         ('skel_checkpoint_matrices','skel_checkpoint_doll')],
         'epoll': [('engine/common/net_wins.c', name) for name in ('FTENET_Datagram_Polled', 'FTENET_TCP_Polled')],
         'rulesets': [('engine/client/valid.c', name) for name in ('Ruleset_SortRuleCB', 'Ruleset_SortFileCB')],
         'consoleoutput': [('engine/server/sv_sys_win.c', 'Sys_Printf')],
@@ -186,6 +189,16 @@ def main():
             first = source.index('typedef struct', source.index('/* Borrowed skeleton view'))
             last = source.index('} rbeskel_t;', first) + len('} rbeskel_t;')
             template = template.replace('/* ENGINE_SKEL_VIEW */', source[first:last])
+        if name == 'skeldefaults':
+            source = (ROOT / 'engine/server/progdefs.h').read_text()
+            first = source.index('typedef struct', source.index('#ifdef USERBE'))
+            last = source.index('} rbejointinfo_t;', first) + len('} rbejointinfo_t;')
+            template = template.replace('/* ENGINE_RIG_TYPES */', source[first:last])
+            source = (ROOT / 'engine/client/pr_skelobj.c').read_text()
+            doll = re.search(r'typedef struct doll_s\s*\{.*?\} doll_t;', source, re.S)[0]
+            last = source.index('} dollcreatectx_t;') + len('} dollcreatectx_t;')
+            first = source.rfind('typedef struct', 0, last)
+            template = template.replace('/* ENGINE_DOLL_TYPES */', doll + '\n' + source[first:last])
         if name == 'viewangles':
             macro = re.search(r'^#define ANGLE2SHORT[^\n]+',
                               (ROOT / 'engine/common/protocol.h').read_text(), re.M)[0]

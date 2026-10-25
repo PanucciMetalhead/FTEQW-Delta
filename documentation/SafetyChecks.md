@@ -619,3 +619,25 @@ regression submits a valid but extreme one-tick kinematic target, confirms its
 release velocity exceeds save limits and checks that saving refuses that state
 before serialization. After an idle tick clears the release velocity, capture
 and restore succeed again. This does not clamp or change simulation behavior.
+
+
+## Rig definition initialization on desktop CI
+
+The live-rig checkpoint validator exposed uninitialized `refanimtime` in newly
+allocated `.doll` definitions. `BZ_Malloc` deliberately does not clear memory;
+definitions using the default skin reference pose did not assign that field.
+Depending on heap contents, valid live scenes could refuse saving or restoring.
+Linux CI rejected its first save; Windows completed native loading but rejected
+the legacy restore and waited until the test watchdog expired.
+
+Rig creation now clears the definition and parser context before setting
+authored defaults. This also initializes the current body/joint selectors.
+The `skeldefaults` fixture extracts the production constructor, types and
+checkpoint validation functions, supplies allocations filled with `0x7f`, and
+checks deterministic reference time, empty selectors, default properties and
+repeated cleanup. It reproduces checkpoint rejection before the fix and passes
+after it. The source sanitizer suite now contains 46 fixtures.
+
+The cancelled macOS job in that run had no assigned runner or executed steps;
+it did not report an engine failure. Cross-platform confirmation of this fix
+comes from the follow-up desktop CI run.
