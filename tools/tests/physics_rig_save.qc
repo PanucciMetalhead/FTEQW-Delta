@@ -18,6 +18,9 @@ entity(vector at,string command,float animation) rig = {
     verify(skel_ragupdate(e,command,animation)==1,"create saved rig");return e;
 };
 void() worldspawn = {
+    // Missing-backend loads must reach the engine's checkpoint rejection path.
+    // Creating rigs here would raise unrelated QC errors before that check.
+    if(!physics_supported()) return;
     self.dimension_solid=1;self.dimension_hit=1;precache_model("progs/physics-rig.md5mesh");
     shown=spawn();setmodel(shown,"progs/physics-rig.md5mesh");
     source=skel_create(shown.modelindex);shown.skeletonindex=skel_create(shown.modelindex);shown.basebone=-1;
@@ -47,6 +50,7 @@ void() update = {
 };
 void() StartFrame = {
     local vector p,s,t,h;
+    if(!physics_supported()) return;
     elapsed+=frametime;
     if(phase==1 && !source_changed && elapsed>resume_time+.08) {drive_pose('256 0 64');source_changed=1;}
     if(phase==1 && cvar("checkpoint_loaded")==1) {

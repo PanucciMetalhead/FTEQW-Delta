@@ -641,3 +641,12 @@ after it. The source sanitizer suite now contains 46 fixtures.
 The cancelled macOS job in that run had no assigned runner or executed steps;
 it did not report an engine failure. Cross-platform confirmation of this fix
 comes from the follow-up desktop CI run.
+
+The follow-up Windows run completed both live-rig save formats and all 41
+malformed-state cases in each format. It then exposed a fixture issue in the
+intentional missing-backend case: `worldspawn` attempted rig creation without
+physics, raised unrelated QC errors and queued an early exit. The rig fixture
+now skips creation and frame updates when the backend is absent, allowing the
+engine's saved-state rejection path to finish. The harness still requires exit
+status zero, the explicit rejection message, no restored scene and no sanitizer
+diagnostics; it now also rejects unexpected fixture failure messages.

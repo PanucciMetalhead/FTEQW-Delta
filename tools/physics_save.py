@@ -215,8 +215,8 @@ load physics-resume-a
         diagnostics[name]='rejected'
     code,log,path=run_config('missing-backend','load physics-resume-a\n'+finish)
     if code or 'Rigid-body saved state rejected' not in log or 'Jolt entity scene restored' in log or re.search(
-            r'AddressSanitizer|UndefinedBehaviorSanitizer|runtime error:',log):
-        raise AssertionError(f'Missing backend accepted: {path}\n{log[-4000:]}')
+            r'SAVE_RIG_FAIL|SAVE_PHYSICS_FAIL|AddressSanitizer|UndefinedBehaviorSanitizer|runtime error:',log):
+        raise AssertionError(f'Missing backend not safely rejected (exit {code}): {path}\n{log[-4000:]}')
     if args.legacy_engine:
         subprocess.run([sys.executable,str(ROOT/'tools/physics_save.py'),
             '--server',str(args.legacy_engine.resolve()),'--qcc',str(args.qcc.resolve()),
