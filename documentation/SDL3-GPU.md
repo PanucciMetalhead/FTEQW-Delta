@@ -13,6 +13,43 @@ driver have been removed. Shared map/model/material helpers retain their
 upstream `engine/gl` filenames. Legacy `gl_*` console variables and material
 blend tokens remain for configuration and shader-script compatibility.
 
+## Differences from the previous renderer
+
+This update improves Delta's existing SDL3 GPU backend. The table compares it
+with that backend through commit `dd9044798`, before geometry caching,
+clustered lighting, shadow bounds culling and pyramid bloom were introduced.
+Both versions use SDL3 GPU with Metal on macOS and Vulkan on Windows/Linux.
+
+| Area | Previous SDL3 GPU implementation | Current implementation |
+| --- | --- | --- |
+| World geometry | Repacked visible world vertices into CPU frame arrays and uploaded them every frame. | Keeps eligible immutable world vertices in GPU buffer pages after their first use. Visibility-dependent indices, animated models and changing vertex attributes still stream. |
+| Realtime light assignment | Scanned lights and calculated mesh bounds for each draw, ranking at most 32 intersecting lights into draw uniforms. | Bins visible lights once per view on the CPU into a 16×9×24 frustum grid. Fragment shaders read the relevant light indices from SDL GPU storage buffers. |
+| Dense lighting | A mesh could receive only its selected 32 lights, even if more intersected it. | Cells exceeding 128 entries evaluate the full visible light list. Fragments outside the grid also use the full list; neither case drops lights because of cluster capacity. |
+| Shadow geometry | Submitted every collected caster to each active light's six cubemap faces. | Tests final caster bounds against the light sphere and each face before submission. Bounds include CPU skinning/deformations, and merged draws retain their combined bounds. |
+| Shadow light selection | Allocated shadow slots as lights were encountered in per-mesh selection. | Ranks shadow candidates by estimated contribution per view and snapshots their position/radius for deferred submission. The shared frame budget remains eight 512×512 cubemap shadows. |
+| Bloom | Applied a 7×7 filter, taking 49 scene samples per full-resolution output pixel. | Extracts bright values into up to five smaller levels, then filters and blends them upward before compositing. This changes the glow's spread. |
+| Scene isolation | Lighting was prepared separately for each mesh as it was collected. | Shares immutable per-view light lists while preserving independent lists for repeated CSQC scenes, including the same camera rendered with different transient lights. |
+| Diagnostics | Reported frame geometry, materials, lights, lightmaps and water views. | Also reports cached versus streamed vertices, geometry upload bytes, submitted/culled shadow draws, cluster indices and overflow cells. |
+
+Geometry caching and shadow culling preserve the rendered result in the
+documented comparisons. Bloom intentionally looks different. Scenes with more
+than 32 contributing lights can also look different because the new lighting
+path retains contributions the previous per-mesh selection omitted. Shadow
+priority can change when more lights request shadows than the frame budget
+allows. Existing material/blend order, lightmaps, CPU skeletal animation, FXAA,
+HDR scene storage and SDR presentation continue through the same backend.
+
+The earlier upstream FTE renderer is a separate comparison: this fork has
+already replaced its OpenGL renderer and platform contexts with native SDL3
+GPU pipelines and Metal/SPIR-V shaders. Legacy `gl_*` settings and shared
+`engine/gl` helper paths support existing content and configuration. The
+measurements here compare Delta's SDL3 GPU algorithms; upstream-wide visual
+parity and performance against upstream renderers remain unestablished.
+
+The [performance section](#renderer-performance) documents reference switches
+and reproducible tests. The [validation record](#local-validation-record)
+includes measured before/after results and the remaining platform limits.
+
 ## Menu usability
 
 The engine Video menu offers display mode, resolution, refresh rate, interface
@@ -96,6 +133,8 @@ or `_glow` images; the guide explains switch states and fallback fullbrights.
 material counts, maximum lights per draw, shadow caster draws, loaded lightmaps,
 fallback lightmap draws, and water views. Material counts are unlit, lightmapped,
 model-lit, classic liquid, layered sky, enhanced liquid, and cube sky, in that order.
+It also reports cached/streamed vertices, geometry upload bytes, submitted/culled
+shadow draws, and per-view clustered light lists including overflow cells.
 `-gpu_debug` enables SDL GPU debugging.
 
 ## Current implementation limits
@@ -115,9 +154,13 @@ The following work remains before that claim is appropriate:
   projections other than Panini have not been ported. Water subviews exclude other reflective or
   refractive surfaces to prevent recursion. Particle-driven ripple maps are not
   implemented; water styles 4/5 currently use style 3.
-- At most 32 intersecting lights are selected per draw, ranked by contribution;
-  eight lights can have 512×512 cubemap shadows per frame. This is not clustered
-  lighting. Shadow and CPU geometry performance still need profiling on large maps.
+- Clustered forward lighting bins visible lights once per view into a 16×9×24
+  frustum grid with logarithmic depth slices. Assignment currently runs on the
+  CPU; SDL GPU storage buffers provide per-cluster light indices to the shader.
+  Cells exceeding 128 lights evaluate the complete visible light list instead
+  of dropping lights. Eight lights can have 512×512 cubemap shadows per frame.
+  The engine's separate transient-light budget still applies. Shadow maps are
+  rendered each frame; static shadow-map caching is not implemented.
 - Up to four water planes receive separate views per frame. Subview visibility
   is conservative because legacy opaque-water VIS can omit required geometry;
   frustum, backface, clip-plane and depth culling still apply. The default view
@@ -222,9 +265,38 @@ Adjacent draws with identical pipeline state, viewport/scissor, textures and
 uniforms are combined without sorting or changing triangle/blend order. Index
 rebasing respects 16-bit buffer limits. For non-RT material passes, state is
 prepared once and subsequent meshes append directly to the draw; RT lighting
-still selects lights for each mesh. Each render pass reuses unchanged uniforms,
+uses a shared per-view list by default, with per-mesh selection retained in the
+reference mode. Each render pass reuses unchanged uniforms,
 samplers and pipeline bindings, and frames without shadow lights skip repeated
 clears after the fallback shadow resource has been initialized.
+
+Immutable world vertices now remain in GPU buffer pages after their first use.
+The frame still streams visibility-dependent indices and animated/model/UI
+vertices. Materials with deformations, generated or animated UVs, entity colour,
+or vertex lighting use the streaming path. Pages preserve adjacent batching and
+16-bit index limits; map/mesh rebuilds and video shutdown invalidate the cache.
+Shadow caster bounds cover final deformed/skinned positions and are tested
+conservatively against each light sphere and cubemap face before submission.
+
+Bloom uses up to five downsampled levels and filtered upsampling rather than
+49 scene samples at every full-resolution output pixel. This intentionally
+changes the glow's spread. HDR scene storage and scene-only gamma retain their
+existing ordering; screen overlays remain outside scene-only bloom.
+
+These non-archived diagnostic settings apply immediately and default to one:
+
+| Control | Reference mode | Default mode |
+| --- | --- | --- |
+| `gpu_staticgeometry` | 0: stream all vertices | 1: cache immutable world vertices |
+| `gpu_shadowcull` | 0: submit all shadow casters | 1: light/face bounds culling |
+| `gpu_bloom_pyramid` | 0: original full-resolution bloom | 1: downsample/upsample pyramid |
+| `gpu_clustered` | 0: original ranked 32-light-per-mesh selection | 1: clustered forward lighting |
+
+`gpu_clustered 2` evaluates the complete per-view light list through the same
+storage buffers, providing a reference for scenes with more than 32 lights and
+overflow cells. It can be expensive. Clustered lists are independent for main,
+Panini, reflection/refraction and offscreen views. Light styles and dynamic
+lights are refreshed each frame. Opaque and blended material order is retained.
 
 `gpu_benchmark 10 label` measures frame throughput, median/p95 intervals and
 CPU acquisition, scene construction and command encoding time. Warm up first;
@@ -251,7 +323,54 @@ build type and machine load; avoid compiling or running other engines during
 measurements. This is a renderer test at the entrance, not a traversal of the
 entire map or a direct benchmark against another engine.
 
+The renderer comparison suite checks caching against streamed geometry in the
+same paused AD Tears scene, including a stream/cache/stream benchmark sequence,
+map changes and video restart. Its effects profile checks legacy/full/clustered
+lighting, 64 transient lights, 160 map lights with overflowing cells, shadow
+culling, Panini and HDR water subviews, repeated CSQC cameras with different
+lights, bloom and scene-only UI preservation:
+
+```sh
+python3 tools/gpu_renderer.py prepare /path/to/Quake --profile geometry --out build/renderer-geometry
+python3 tools/gpu_renderer.py run build/fteqw --out build/renderer-geometry
+python3 tools/gpu_renderer.py prepare /path/to/Quake --profile effects --out build/renderer-effects
+python3 tools/gpu_renderer.py run build/fteqw --out build/renderer-effects --debug
+ctest --test-dir build -R gpu-renderer-math --output-on-failure
+```
+
+Use fresh output directories. `--qcc` selects a different compiler executable.
+For fullscreen effects throughput, add `--fullscreen` to the effects `prepare`
+command and omit `--debug` from `run`.
+Each run writes `renderer.log`, screenshots and `results.json`. Run performance
+measurements without `--debug` and without another engine or build running.
+The data-free math test checks shadow clip planes/sphere boundaries and
+conservative cluster coverage under off-centre/flipped projections.
+
 ## Local validation record
+
+On 2026-10-26, on macOS arm64/Metal with the Release client:
+
+- In one paused AD Tears run at 2940×1846, streamed/cached/streamed geometry
+  measured 131.68/145.71/132.81 FPS. The map comparison was pixel-identical and
+  all three phases submitted 59,028 vertices and 184 draws. Geometry uploads
+  fell from 4,932,342 to 1,519,462 bytes per frame after cache warmup.
+- The fullscreen effects fixture at 2940×1846 measured 170.01 FPS with the
+  original bloom filter and 256.67 FPS with the pyramid, without GPU debugging.
+  Both phases submitted 45,193 vertices and 283 draws. The filter's appearance
+  changes intentionally; these are scene-specific throughput measurements.
+- The native GPU-debug effects comparison was pixel-identical for reference
+  versus clustered lighting, shadow culling, 64 transient lights, 160 map lights
+  including overflowing cells, Panini, same-camera CSQC scenes with different
+  light sets, and HDR reflection/refraction subviews. Scene-only bloom preserved
+  UI pixels. Shadow culling reduced one fixture's submissions from 432 to 56.
+- The standard graphics integration and Panini suite passed, including static
+  lighting, lightmaps, offscreen rendering, map changes, split/RTT views and
+  video restart. OpenArena gameplay checks passed for camera turning, movement,
+  weapon visibility and restart after first-launch certificate generation had
+  completed. SPIR-V regeneration/validation passed. Conservative light and
+  shadow math tests passed normally and with AddressSanitizer/UBSan.
+- Native Windows/Linux Vulkan runtime validation remains pending. The light
+  binning runs on the CPU, and static shadow-map caching remains future work.
 
 On 2026-10-09, on macOS arm64 with AppleClang and SDL 3.4.18:
 

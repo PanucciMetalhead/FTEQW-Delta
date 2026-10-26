@@ -1,5 +1,6 @@
 #version 450
 layout(set=2,binding=0) uniform sampler2D scene;
+layout(set=2,binding=1) uniform sampler2D bloomimage;
 layout(set=3,binding=0,std140) uniform Post { vec4 settings, color, reserved; } u;
 layout(location=0) in vec2 uv;
 layout(location=0) out vec4 outputcolor;
@@ -23,7 +24,8 @@ void main() {
             float l=dot(r2,luma); c=(l<lo || l>hi)?r1:r2;
         }
     }
-    if(u.settings.z>0) {
+    if(u.settings.z>0 && u.reserved.y>0) c+=texture(bloomimage,uv).rgb*u.settings.z;
+    else if(u.settings.z>0) {
         vec3 bloom=vec3(0); float total=0;
         for(int x=-3;x<=3;x++) for(int y=-3;y<=3;y++) {
             float w=exp(-float(x*x+y*y)/6);

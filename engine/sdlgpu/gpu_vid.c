@@ -100,6 +100,10 @@ static void GPU_Info_f(void)
     Con_Printf("Lightmaps: %u/%u loaded, %u draws using fallback\n",loaded,numlightmaps,fallback);
     Con_Printf("Cutouts: %u draws, %u using missing texture, %u shadow caster draws\n",cutouts,missing,cutoutshadows);
     GPU_WaterInfo();
+    GPU_LightingInfo();
+    Con_Printf("Geometry: %u cached, %u streamed vertices, %u bytes uploaded; shadows: %u submitted, %u culled\n",
+        (unsigned)gpu.cachedvertices, (unsigned)gpu.numstreamvertices, (unsigned)gpu.uploadedbytes,
+        (unsigned)gpu.shadowdraws, (unsigned)gpu.shadowculled);
 }
 
 static void GPU_VideoModes(const char *driver, const char *output, void (*cb)(int, int))
@@ -255,6 +259,7 @@ static void GPU_RenderView(void)
     float fx = r_refdef.fov_x, fy = r_refdef.fov_y;
     if (r_norefresh.value) return;
     if (R2D_Flush) R2D_Flush();
+    GPU_LightingNewScene();
     gpu.drawing2d = false;
     if (project) {
         fx = bound(0.001f, fx, 170.0f); fy = bound(0.001f, fy, 170.0f);

@@ -331,6 +331,7 @@ set(FTE_ARCH_FILES
     engine/sdlgpu/gpu_vid.c
     engine/sdlgpu/gpu_image.c
     engine/sdlgpu/gpu_backend.c
+    engine/sdlgpu/gpu_lighting.c
 )
 set(FTESV_DEFINES ${FTESV_DEFINES} MULTITHREAD)
 set(FTESV_LIBS ${FTESV_LIBS} ${SYS_LIBS} ${CMAKE_DL_LIBS})
@@ -1559,6 +1560,12 @@ endif()
 # Data-free checks also run in desktop CI; game-data tests remain opt-in.
 include(CTest)
 if(BUILD_TESTING)
+    add_executable(gpu-renderer-math tools/tests/gpu_renderer_math.c)
+    target_include_directories(gpu-renderer-math PRIVATE "${PROJECT_SOURCE_DIR}")
+    if(UNIX)
+        target_link_libraries(gpu-renderer-math PRIVATE m)
+    endif()
+    add_test(NAME gpu-renderer-math COMMAND gpu-renderer-math)
     if(TARGET fteqw AND Python3_Interpreter_FOUND)
         add_test(NAME music-remap
             COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/music_remap.py"

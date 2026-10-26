@@ -35,6 +35,7 @@ void R_FetchPlayerColour(unsigned int, vec3_t);
 #define GPU_MAX_SHADOWS 8
 #define GPU_SHADOW_SIZE 512
 #define GPU_MAX_LIGHTS 32
+#define GPU_BLOOM_LEVELS 5
 
 typedef struct gpu_image_s {
     SDL_GPUTexture *texture;
@@ -60,10 +61,17 @@ typedef struct {
     float upper[4], lower[4], settings[4]; /* upper.w holds the program's alpha cutoff. */
     float clipplane[4], screenmatrix[16];
     float lightpos[GPU_MAX_LIGHTS][4], lightcolor[GPU_MAX_LIGHTS][4], lightshadow[GPU_MAX_LIGHTS][4], lightparams[GPU_MAX_LIGHTS][4];
+    float lightmatrix[16], lightdepth[4], lightgrid[4];
 } gpu_fragment_uniforms_t;
 
+typedef struct gpu_lightview_s gpu_lightview_t;
 typedef struct gpu_draw_s {
-    unsigned firstindex, numindices, vertexoffset, bits, cull;
+    unsigned firstindex, numindices, vertexoffset;
+    vec3_t mins, maxs;
+    qboolean boundsvalid;
+    unsigned bits, cull;
+    SDL_GPUBuffer *vertexbuffer; /* NULL selects the frame's streamed vertices. */
+    gpu_lightview_t *lighting;
     qboolean lines, castshadow, shadowonly, screenoverlay, panini, vertexlit;
     float projection[8]; /* warp, source texel size, sharpening; filter, padding */
     SDL_GPUTexture *target, *depth;
@@ -85,13 +93,19 @@ typedef struct {
     SDL_GPUShader *vertexshader, *fragmentshader, *postvertex, *postfragment, *shadowvertex, *shadowfragment, *paninifragment;
     SDL_GPUGraphicsPipeline *postpipeline, *shadowpipeline;
     SDL_GPUSampler *postsampler, *paninisampler, *shadowsampler;
+    SDL_GPUShader *bloomshader;
+    SDL_GPUGraphicsPipeline *bloompipeline[2];
+    SDL_GPUTexture *bloom[GPU_BLOOM_LEVELS];
+    unsigned bloomwidth, bloomheight, bloomlevels;
+    SDL_GPUTextureFormat bloomformat;
     SDL_GPUBuffer *vertices, *indices;
     SDL_GPUTransferBuffer *transfer;
     size_t vertexcapacity, indexcapacity, transfercapacity;
     gpu_vertex_t *cpuvertices;
     index_t *cpuindices;
     gpu_draw_t *draws;
-    size_t numvertices, numindices, numdraws, maxvertices, maxindices, maxdraws;
+    size_t numvertices, numstreamvertices, numindices, numdraws, maxvertices, maxindices, maxdraws;
+    size_t cachedvertices, uploadedbytes, shadowdraws, shadowculled;
     unsigned width, height;
     qboolean drawing2d, sceneonlygamma;
     qboolean benchmarking;
@@ -119,6 +133,15 @@ void GPU_CheckLightingSettings(void);
 void GPU_EndFrame(void);
 void GPU_WaterInfo(void);
 void GPU_BenchmarkFrame(double encodebegin, double submitted);
+void GPU_LightingInit(void);
+void GPU_LightingShutdown(void);
+void GPU_LightingBeginFrame(void);
+void GPU_LightingNewScene(void);
+void GPU_LightingUpload(void);
+void GPU_LightingBind(SDL_GPURenderPass *, const gpu_draw_t *);
+void GPU_LightingInfo(void);
+qboolean GPU_ClusterLights(gpu_draw_t *);
+unsigned GPU_ShadowSlot(dlight_t *, float params[4]);
 void GPU_Set2D(void);
 typedef struct gpu_panini_view_s gpu_panini_view_t;
 gpu_panini_view_t *GPU_BeginPaniniView(float fovx);

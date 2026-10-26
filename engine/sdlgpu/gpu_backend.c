@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <float.h>
 #include "panini.h"
+#include "gpu_cull.h"
 
 extern cvar_t r_panini_scale, r_panini_filter, r_panini_sharpen;
 
@@ -25,10 +26,97 @@ extern cvar_t r_shadow_shadowmapping, r_shadow_shadowmapping_nearclip, r_shadow_
 extern cvar_t r_shadow_realtime_world_importlightentitiesfrommap;
 static struct {
     dlight_t *light;
+    vec3_t origin;
+    float radius;
     float nearclip;
 } shadowlights[GPU_MAX_SHADOWS];
 static unsigned numshadowlights;
 static qboolean collectshadowonly;
+
+/* Immutable world vertices share pages so adjacent surfaces can still batch.
+ * Indices remain in the frame stream: visibility and material order can change.
+ * A page fits both 16-bit and 32-bit index builds without rebasing its vertices. */
+#define GPU_STATIC_VERTICES 65536
+#define GPU_STATIC_BUCKETS 4096
+typedef struct gpu_static_page_s {
+    SDL_GPUBuffer *buffer;
+    gpu_vertex_t *vertices;
+    unsigned count, uploaded;
+    struct gpu_static_page_s *next;
+} gpu_static_page_t;
+typedef struct gpu_static_mesh_s {
+    const mesh_t *mesh;
+    gpu_static_page_t *page;
+    unsigned first;
+    vec3_t mins, maxs;
+    struct gpu_static_mesh_s *next;
+} gpu_static_mesh_t;
+static gpu_static_page_t *staticpages;
+static gpu_static_mesh_t *staticmeshes[GPU_STATIC_BUCKETS];
+static model_t *staticworld;
+static msurface_t *staticsurfaces;
+static qboolean staticinvalid;
+static unsigned staticpagecount;
+static cvar_t gpu_staticgeometry = CVARD("gpu_staticgeometry", "1", "Keep immutable world vertices on the GPU. Zero uses the reference streaming path.");
+static cvar_t gpu_shadowcull = CVARD("gpu_shadowcull", "1", "Cull shadow casters against each light and cubemap face. Zero submits all casters for comparison.");
+static cvar_t gpu_bloom_pyramid = CVARD("gpu_bloom_pyramid", "1", "Use a downsampled bloom pyramid. Zero selects the reference full-resolution filter.");
+
+static void GPU_FreeStaticGeometry(void)
+{
+    unsigned i;
+    for (i = 0; i < GPU_STATIC_BUCKETS; ++i) while (staticmeshes[i]) {
+        gpu_static_mesh_t *m = staticmeshes[i];
+        staticmeshes[i] = m->next; Z_Free(m);
+    }
+    while (staticpages) {
+        gpu_static_page_t *p = staticpages;
+        staticpages = p->next;
+        SDL_ReleaseGPUBuffer(gpu.device, p->buffer);
+        Z_Free(p->vertices); Z_Free(p);
+    }
+    staticpagecount = 0;
+}
+
+static unsigned GPU_StaticHash(const mesh_t *mesh)
+{
+    return ((uintptr_t)mesh >> 4) % GPU_STATIC_BUCKETS;
+}
+
+static gpu_static_mesh_t *GPU_StaticMesh(const mesh_t *mesh)
+{
+    gpu_static_mesh_t *m;
+    for (m = staticmeshes[GPU_StaticHash(mesh)]; m; m = m->next)
+        if (m->mesh == mesh) return m;
+    return NULL;
+}
+
+static gpu_static_mesh_t *GPU_CacheStaticMesh(const mesh_t *mesh, const gpu_vertex_t *vertices)
+{
+    gpu_static_page_t *p = staticpages;
+    gpu_static_mesh_t *m;
+    unsigned i, j, hash = GPU_StaticHash(mesh);
+    if (!p || p->count + mesh->numvertexes > GPU_STATIC_VERTICES) {
+        SDL_GPUBufferCreateInfo bi = {0};
+        /* Bound storage even for pathological maps. Further surfaces stream. */
+        if (staticpagecount >= 16) return NULL;
+        p = Z_Malloc(sizeof(*p));
+        bi.usage = SDL_GPU_BUFFERUSAGE_VERTEX; bi.size = GPU_STATIC_VERTICES*sizeof(gpu_vertex_t);
+        p->buffer = SDL_CreateGPUBuffer(gpu.device, &bi);
+        if (!p->buffer) GPU_Error("create static geometry page");
+        p->vertices = BZ_Malloc(bi.size);
+        p->next = staticpages; staticpages = p; ++staticpagecount;
+    }
+    m = Z_Malloc(sizeof(*m)); m->mesh = mesh; m->page = p; m->first = p->count;
+    memcpy(p->vertices+p->count, vertices, mesh->numvertexes*sizeof(*vertices));
+    for (j = 0; j < 3; ++j) m->mins[j] = m->maxs[j] = vertices[0].position[j];
+    for (i = 1; i < mesh->numvertexes; ++i) for (j = 0; j < 3; ++j) {
+        m->mins[j] = min(m->mins[j], vertices[i].position[j]);
+        m->maxs[j] = max(m->maxs[j], vertices[i].position[j]);
+    }
+    p->count += mesh->numvertexes;
+    m->next = staticmeshes[hash]; staticmeshes[hash] = m;
+    return m;
+}
 
 void GPU_CheckLightingSettings(void)
 {
@@ -208,7 +296,7 @@ static void GPU_FreeWaterViews(void)
 }
 
 static SDL_GPUShader *GPU_Shader(const unsigned char *spirv, size_t spirvsize, const unsigned char *msl,
-    SDL_GPUShaderStage stage, unsigned samplers, unsigned uniforms)
+    SDL_GPUShaderStage stage, unsigned samplers, unsigned uniforms, unsigned storages)
 {
     SDL_GPUShaderCreateInfo info = {0};
     if (SDL_GetGPUShaderFormats(gpu.device) & SDL_GPU_SHADERFORMAT_MSL) {
@@ -218,7 +306,7 @@ static SDL_GPUShader *GPU_Shader(const unsigned char *spirv, size_t spirvsize, c
         info.code = spirv; info.code_size = spirvsize;
         info.format = SDL_GPU_SHADERFORMAT_SPIRV; info.entrypoint = "main";
     }
-    info.stage = stage; info.num_samplers = samplers; info.num_uniform_buffers = uniforms;
+    info.stage = stage; info.num_samplers = samplers; info.num_uniform_buffers = uniforms; info.num_storage_buffers = storages;
     SDL_GPUShader *shader = SDL_CreateGPUShader(gpu.device, &info);
     if (!shader) GPU_Error("create shader");
     return shader;
@@ -324,11 +412,15 @@ void GPU_BackendInit(void)
     SDL_GPUGraphicsPipelineCreateInfo pi = {0};
     SDL_GPUColorTargetDescription color = {0};
     SDL_GPUSamplerCreateInfo si = {0};
-    gpu.vertexshader = GPU_Shader(gpu_scene_vert_spv, sizeof(gpu_scene_vert_spv), gpu_scene_vert_msl, SDL_GPU_SHADERSTAGE_VERTEX, 0, 1);
-    gpu.fragmentshader = GPU_Shader(gpu_scene_frag_spv, sizeof(gpu_scene_frag_spv), gpu_scene_frag_msl, SDL_GPU_SHADERSTAGE_FRAGMENT, GPU_SAMPLERS, 1);
-    gpu.postvertex = GPU_Shader(gpu_post_vert_spv, sizeof(gpu_post_vert_spv), gpu_post_vert_msl, SDL_GPU_SHADERSTAGE_VERTEX, 0, 0);
-    gpu.postfragment = GPU_Shader(gpu_post_frag_spv, sizeof(gpu_post_frag_spv), gpu_post_frag_msl, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 1);
-    gpu.paninifragment = GPU_Shader(gpu_panini_frag_spv, sizeof(gpu_panini_frag_spv), gpu_panini_frag_msl, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 1);
+    if (Cvar_FindVar(gpu_staticgeometry.name) != &gpu_staticgeometry) Cvar_Register(&gpu_staticgeometry, "SDL GPU");
+    if (Cvar_FindVar(gpu_shadowcull.name) != &gpu_shadowcull) Cvar_Register(&gpu_shadowcull, "SDL GPU");
+    if (Cvar_FindVar(gpu_bloom_pyramid.name) != &gpu_bloom_pyramid) Cvar_Register(&gpu_bloom_pyramid, "SDL GPU");
+    gpu.vertexshader = GPU_Shader(gpu_scene_vert_spv, sizeof(gpu_scene_vert_spv), gpu_scene_vert_msl, SDL_GPU_SHADERSTAGE_VERTEX, 0, 1, 0);
+    gpu.fragmentshader = GPU_Shader(gpu_scene_frag_spv, sizeof(gpu_scene_frag_spv), gpu_scene_frag_msl, SDL_GPU_SHADERSTAGE_FRAGMENT, GPU_SAMPLERS, 1, 3);
+    gpu.postvertex = GPU_Shader(gpu_post_vert_spv, sizeof(gpu_post_vert_spv), gpu_post_vert_msl, SDL_GPU_SHADERSTAGE_VERTEX, 0, 0, 0);
+    gpu.postfragment = GPU_Shader(gpu_post_frag_spv, sizeof(gpu_post_frag_spv), gpu_post_frag_msl, SDL_GPU_SHADERSTAGE_FRAGMENT, 2, 1, 0);
+    gpu.bloomshader = GPU_Shader(gpu_bloom_frag_spv, sizeof(gpu_bloom_frag_spv), gpu_bloom_frag_msl, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 1, 0);
+    gpu.paninifragment = GPU_Shader(gpu_panini_frag_spv, sizeof(gpu_panini_frag_spv), gpu_panini_frag_msl, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 1, 0);
     pi.vertex_shader = gpu.postvertex; pi.fragment_shader = gpu.postfragment;
     pi.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
     pi.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
@@ -370,8 +462,8 @@ void GPU_BackendInit(void)
         }
         if (!SDL_SubmitGPUCommandBuffer(command)) GPU_Error("clear fallback cube");
     }
-    gpu.shadowvertex = GPU_Shader(gpu_shadow_vert_spv, sizeof(gpu_shadow_vert_spv), gpu_shadow_vert_msl, SDL_GPU_SHADERSTAGE_VERTEX, 0, 1);
-    gpu.shadowfragment = GPU_Shader(gpu_shadow_frag_spv, sizeof(gpu_shadow_frag_spv), gpu_shadow_frag_msl, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 1);
+    gpu.shadowvertex = GPU_Shader(gpu_shadow_vert_spv, sizeof(gpu_shadow_vert_spv), gpu_shadow_vert_msl, SDL_GPU_SHADERSTAGE_VERTEX, 0, 1, 0);
+    gpu.shadowfragment = GPU_Shader(gpu_shadow_frag_spv, sizeof(gpu_shadow_frag_spv), gpu_shadow_frag_msl, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 1, 0);
     {
         SDL_GPUVertexBufferDescription buffer = {0};
         SDL_GPUVertexAttribute attrs[] = {
@@ -407,6 +499,7 @@ void GPU_BackendInit(void)
     }
     entity = &r_worldentity; mode = BEM_STANDARD;
     gpu.batching = true;
+    GPU_LightingInit();
     be_maxpasses = 1;
 }
 
@@ -414,6 +507,13 @@ void GPU_BackendShutdown(void)
 {
     pipeline_t *p;
     size_t i;
+    GPU_FreeStaticGeometry(); staticworld = NULL; staticsurfaces = NULL; staticinvalid = false;
+    GPU_LightingShutdown();
+    for (i = 0; i < GPU_BLOOM_LEVELS; ++i)
+        if (gpu.bloom[i]) SDL_ReleaseGPUTexture(gpu.device, gpu.bloom[i]);
+    for (i = 0; i < 2; ++i)
+        if (gpu.bloompipeline[i]) SDL_ReleaseGPUGraphicsPipeline(gpu.device, gpu.bloompipeline[i]);
+    if (gpu.bloomshader) SDL_ReleaseGPUShader(gpu.device, gpu.bloomshader);
     GPU_FreeWaterViews();
     while (paniniviews) {
         gpu_panini_view_t *view = paniniviews;
@@ -459,7 +559,14 @@ void GPU_BeginFrame(void)
     unsigned w, h;
     if (gpu.command) return;
     if (gpu.benchmarking) gpu.framebegin = Sys_DoubleTime();
-    gpu.numvertices = gpu.numindices = gpu.numdraws = numtempbatches = numshadowlights = 0;
+    if (staticinvalid || staticworld != cl.worldmodel ||
+        (cl.worldmodel && staticsurfaces != cl.worldmodel->surfaces)) {
+        GPU_FreeStaticGeometry(); staticworld = cl.worldmodel;
+        staticsurfaces = cl.worldmodel ? cl.worldmodel->surfaces : NULL; staticinvalid = false;
+    }
+    gpu.numvertices = gpu.numstreamvertices = gpu.numindices = gpu.numdraws = numtempbatches = numshadowlights = 0;
+    gpu.cachedvertices = gpu.uploadedbytes = gpu.shadowdraws = gpu.shadowculled = 0;
+    GPU_LightingBeginFrame();
     collectshadowonly = false;
     gpu.sceneonlygamma = !!vid_sceneonlygamma.ival;
     for (gpu_panini_view_t *view = paniniviews; view; view = view->next) view->used = false;
@@ -508,18 +615,20 @@ void GPU_BeginFrame(void)
 
 static void GPU_UploadGeometry(void)
 {
-    size_t vbytes = gpu.numvertices*sizeof(gpu_vertex_t), ibytes = gpu.numindices*sizeof(index_t);
-    size_t total = vbytes + ibytes;
+    size_t vbytes = gpu.numstreamvertices*sizeof(gpu_vertex_t), ibytes = gpu.numindices*sizeof(index_t);
+    size_t total = vbytes + ibytes, offset;
+    gpu_static_page_t *p;
     SDL_GPUBufferCreateInfo bi = {0};
     SDL_GPUTransferBufferCreateInfo ti = {0};
     SDL_GPUTransferBufferLocation src = {0};
     SDL_GPUBufferRegion dst = {0};
     SDL_GPUCopyPass *copy;
     qbyte *map;
+    for (p = staticpages; p; p = p->next) total += (p->count-p->uploaded)*sizeof(gpu_vertex_t);
     if (!total) return;
-    if (vbytes > gpu.vertexcapacity) {
+    if (vbytes > gpu.vertexcapacity || !gpu.vertices) {
         if (gpu.vertices) SDL_ReleaseGPUBuffer(gpu.device, gpu.vertices);
-        bi.usage = SDL_GPU_BUFFERUSAGE_VERTEX; bi.size = gpu.vertexcapacity = max(vbytes, gpu.vertexcapacity*2);
+        bi.usage = SDL_GPU_BUFFERUSAGE_VERTEX; bi.size = gpu.vertexcapacity = max(sizeof(gpu_vertex_t), max(vbytes, gpu.vertexcapacity*2));
         gpu.vertices = SDL_CreateGPUBuffer(gpu.device, &bi);
     }
     if (ibytes > gpu.indexcapacity) {
@@ -536,12 +645,27 @@ static void GPU_UploadGeometry(void)
     map = SDL_MapGPUTransferBuffer(gpu.device, gpu.transfer, true);
     if (!map) GPU_Error("map frame geometry");
     memcpy(map, gpu.cpuvertices, vbytes); memcpy(map+vbytes, gpu.cpuindices, ibytes);
+    offset = vbytes+ibytes;
+    for (p = staticpages; p; p = p->next) if (p->count > p->uploaded) {
+        size_t bytes = (p->count-p->uploaded)*sizeof(gpu_vertex_t);
+        memcpy(map+offset, p->vertices+p->uploaded, bytes); offset += bytes;
+    }
     SDL_UnmapGPUTransferBuffer(gpu.device, gpu.transfer);
     copy = SDL_BeginGPUCopyPass(gpu.command);
     src.transfer_buffer = gpu.transfer; dst.buffer = gpu.vertices; dst.size = vbytes;
-    SDL_UploadToGPUBuffer(copy, &src, &dst, true);
+    if (vbytes) SDL_UploadToGPUBuffer(copy, &src, &dst, true);
     src.offset = vbytes; dst.buffer = gpu.indices; dst.size = ibytes;
-    SDL_UploadToGPUBuffer(copy, &src, &dst, true);
+    if (ibytes) SDL_UploadToGPUBuffer(copy, &src, &dst, true);
+    offset = vbytes+ibytes;
+    for (p = staticpages; p; p = p->next) if (p->count > p->uploaded) {
+        src.offset = offset; dst.buffer = p->buffer;
+        dst.offset = p->uploaded*sizeof(gpu_vertex_t); dst.size = (p->count-p->uploaded)*sizeof(gpu_vertex_t);
+        /* Append only to previously unreferenced regions. Cycling would discard
+         * the immutable vertices referenced by earlier frames. */
+        SDL_UploadToGPUBuffer(copy, &src, &dst, false);
+        offset += dst.size; p->uploaded = p->count;
+    }
+    gpu.uploadedbytes = total;
     SDL_EndGPUCopyPass(copy);
 }
 
@@ -565,10 +689,9 @@ static void GPU_DrawShadows(void)
         pass = SDL_BeginGPURenderPass(gpu.command, NULL, 0, &depth);
         if (!pass) GPU_Error("begin shadow pass");
         if (l < numshadowlights && gpu.numdraws) {
-            dlight_t *light = shadowlights[l].light;
             CrossProduct(direction[face], up[face], right);
-            Matrix4x4_CM_ModelViewMatrixFromAxis(view, direction[face], right, up[face], light->origin);
-            Matrix4x4_CM_Projection_Far(proj, 90, 90, shadowlights[l].nearclip, light->radius, true);
+            Matrix4x4_CM_ModelViewMatrixFromAxis(view, direction[face], right, up[face], shadowlights[l].origin);
+            Matrix4x4_CM_Projection_Far(proj, 90, 90, shadowlights[l].nearclip, shadowlights[l].radius, true);
             proj[5] = -proj[5]; /* Cube image rows run downwards. */
             Matrix4_Multiply(proj, view, vp);
             SDL_BindGPUGraphicsPipeline(pass, gpu.shadowpipeline);
@@ -578,11 +701,20 @@ static void GPU_DrawShadows(void)
                 gpu_draw_t *d = &gpu.draws[i];
                 float mvp[16], control[4] = {d->frag.material[2],d->frag.upper[3],0,0};
                 if (!d->castshadow || d->lines) continue;
+                if (gpu_shadowcull.ival && d->boundsvalid &&
+                    !GPU_ShadowBoundsVisible(d->mins, d->maxs, shadowlights[l].origin, shadowlights[l].radius, vp)) {
+                    ++gpu.shadowculled; continue;
+                }
+                if (vb.buffer != (d->vertexbuffer ? d->vertexbuffer : gpu.vertices)) {
+                    vb.buffer = d->vertexbuffer ? d->vertexbuffer : gpu.vertices;
+                    SDL_BindGPUVertexBuffers(pass, 0, &vb, 1);
+                }
                 Matrix4_Multiply(vp, d->vert.model, mvp);
                 SDL_PushGPUVertexUniformData(gpu.command, 0, mvp, sizeof(mvp));
                 SDL_PushGPUFragmentUniformData(gpu.command, 0, control, sizeof(control));
                 SDL_BindGPUFragmentSamplers(pass, 0, &d->samplers[0], 1);
                 SDL_DrawGPUIndexedPrimitives(pass, d->numindices, 1, d->firstindex, d->vertexoffset, 0);
+                ++gpu.shadowdraws;
             }
         }
         SDL_EndGPURenderPass(pass);
@@ -661,6 +793,10 @@ static void GPU_DrawCommands(SDL_GPURenderPass *pass, size_t first, size_t end, 
          * world rendering used an HDR scene buffer. Blend after correction so
          * translucent UI retains its source colors and alpha. */
         pipeline = GPU_Pipeline(d->bits, d->cull, d->lines, overlays ? gpu.colorformat : d->format);
+        if (vb.buffer != (d->vertexbuffer ? d->vertexbuffer : gpu.vertices)) {
+            vb.buffer = d->vertexbuffer ? d->vertexbuffer : gpu.vertices;
+            SDL_BindGPUVertexBuffers(pass, 0, &vb, 1);
+        }
         if (pipeline != boundpipeline) {
             SDL_BindGPUGraphicsPipeline(pass, pipeline);
             boundpipeline = pipeline;
@@ -670,9 +806,81 @@ static void GPU_DrawCommands(SDL_GPURenderPass *pass, size_t first, size_t end, 
         if (!previous || memcmp(&previous->vert,&d->vert,sizeof(d->vert))) SDL_PushGPUVertexUniformData(gpu.command, 0, &d->vert, sizeof(d->vert));
         if (!previous || memcmp(&previous->frag,&d->frag,sizeof(d->frag))) SDL_PushGPUFragmentUniformData(gpu.command, 0, &d->frag, sizeof(d->frag));
         if (!previous || memcmp(previous->samplers,d->samplers,sizeof(d->samplers))) SDL_BindGPUFragmentSamplers(pass, 0, d->samplers, GPU_SAMPLERS);
+        if (!previous || previous->lighting != d->lighting) GPU_LightingBind(pass,d);
         SDL_DrawGPUIndexedPrimitives(pass, d->numindices, 1, d->firstindex, d->vertexoffset, 0);
         previous = gpu.batching ? d : NULL;
     }
+}
+
+static SDL_GPUTexture *GPU_Bloom(void)
+{
+    SDL_GPUTexture *source = gpu.scene;
+    unsigned i, width = gpu.width, height = gpu.height;
+    if (gpu.bloomwidth != gpu.width || gpu.bloomheight != gpu.height || gpu.bloomformat != gpu.sceneformat) {
+        SDL_GPUTextureCreateInfo ci = {0};
+        for (i = 0; i < GPU_BLOOM_LEVELS; ++i) {
+            if (gpu.bloom[i]) SDL_ReleaseGPUTexture(gpu.device, gpu.bloom[i]);
+            gpu.bloom[i] = NULL;
+        }
+        if (gpu.bloomformat != gpu.sceneformat) {
+            for (i = 0; i < 2; ++i) {
+                SDL_GPUGraphicsPipelineCreateInfo pi = {0};
+                SDL_GPUColorTargetDescription color = {0};
+                if (gpu.bloompipeline[i]) SDL_ReleaseGPUGraphicsPipeline(gpu.device, gpu.bloompipeline[i]);
+                pi.vertex_shader = gpu.postvertex; pi.fragment_shader = gpu.bloomshader;
+                pi.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+                pi.multisample_state.sample_count = SDL_GPU_SAMPLECOUNT_1;
+                color.format = gpu.sceneformat;
+                color.blend_state.enable_blend = i != 0;
+                color.blend_state.src_color_blendfactor = SDL_GPU_BLENDFACTOR_SRC_ALPHA;
+                color.blend_state.dst_color_blendfactor = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+                color.blend_state.color_blend_op = SDL_GPU_BLENDOP_ADD;
+                color.blend_state.src_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE;
+                color.blend_state.dst_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ZERO;
+                color.blend_state.alpha_blend_op = SDL_GPU_BLENDOP_ADD;
+                pi.target_info.color_target_descriptions = &color; pi.target_info.num_color_targets = 1;
+                gpu.bloompipeline[i] = SDL_CreateGPUGraphicsPipeline(gpu.device, &pi);
+                if (!gpu.bloompipeline[i]) GPU_Error("create bloom pipeline");
+            }
+        }
+        gpu.bloomwidth = gpu.width; gpu.bloomheight = gpu.height; gpu.bloomformat = gpu.sceneformat;
+        ci.type = SDL_GPU_TEXTURETYPE_2D; ci.format = gpu.sceneformat;
+        ci.layer_count_or_depth = ci.num_levels = 1; ci.sample_count = SDL_GPU_SAMPLECOUNT_1;
+        ci.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
+        gpu.bloomlevels = 0;
+        do {
+            width = max(1,(width+1)/2); height = max(1,(height+1)/2);
+            ci.width = width; ci.height = height;
+            gpu.bloom[gpu.bloomlevels] = SDL_CreateGPUTexture(gpu.device, &ci);
+            if (!gpu.bloom[gpu.bloomlevels]) GPU_Error("create bloom pyramid");
+            ++gpu.bloomlevels;
+        } while (gpu.bloomlevels < GPU_BLOOM_LEVELS && (width > 1 || height > 1));
+    }
+    width = gpu.width; height = gpu.height;
+    /* Downsample then blend each coarser level into its finer neighbour. The
+     * half/half upsample keeps a uniform bright field's energy independent of
+     * the number of levels. Never sample the texture being rendered to. */
+    for (i = 0; i < gpu.bloomlevels*2-1; ++i) {
+        qboolean up = i >= gpu.bloomlevels;
+        unsigned level = up ? gpu.bloomlevels*2-2-i : i;
+        SDL_GPUColorTargetInfo color = {0};
+        SDL_GPUTextureSamplerBinding sampler = {source,gpu.postsampler};
+        float control[4] = {1.0f/width,1.0f/height,up ? 2 : i ? 1 : 0,0};
+        SDL_GPURenderPass *pass;
+        color.texture = gpu.bloom[level]; color.load_op = up ? SDL_GPU_LOADOP_LOAD : SDL_GPU_LOADOP_DONT_CARE;
+        color.store_op = SDL_GPU_STOREOP_STORE;
+        pass = SDL_BeginGPURenderPass(gpu.command, &color, 1, NULL);
+        if (!pass) GPU_Error("begin bloom pass");
+        SDL_BindGPUGraphicsPipeline(pass, gpu.bloompipeline[up]);
+        SDL_BindGPUFragmentSamplers(pass, 0, &sampler, 1);
+        SDL_PushGPUFragmentUniformData(gpu.command, 0, control, sizeof(control));
+        SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
+        SDL_EndGPURenderPass(pass);
+        source = gpu.bloom[level];
+        width = (gpu.width+(1u << (level+1))-1) >> (level+1);
+        height = (gpu.height+(1u << (level+1))-1) >> (level+1);
+    }
+    return gpu.bloom[0];
 }
 
 void GPU_EndFrame(void)
@@ -684,10 +892,11 @@ void GPU_EndFrame(void)
     gpu_overlay_snapshot_t *snapshots = NULL;
     size_t i;
     float post[12] = {0};
-    SDL_GPUTextureSamplerBinding sampler;
+    SDL_GPUTextureSamplerBinding samplers[2];
     double encodebegin = gpu.benchmarking ? Sys_DoubleTime() : 0;
     if (!gpu.command || !gpu.swapchain) return;
     GPU_UploadGeometry();
+    GPU_LightingUpload();
     GPU_DrawShadows();
     for (gpu_panini_view_t *view = paniniviews; view; view = view->next) if (view->used && !view->populated) {
         color.texture = view->color; color.load_op = SDL_GPU_LOADOP_CLEAR;
@@ -738,11 +947,15 @@ void GPU_EndFrame(void)
         color.texture = gpu.scene; color.load_op = SDL_GPU_LOADOP_CLEAR; color.store_op = SDL_GPU_STOREOP_STORE;
         pass = SDL_BeginGPURenderPass(gpu.command, &color, 1, NULL); SDL_EndGPURenderPass(pass);
     }
+    samplers[0].texture = gpu.scene; samplers[0].sampler = gpu.postsampler;
+    samplers[1] = samplers[0];
+    if (r_bloom.value > 0 && gpu_bloom_pyramid.ival && (!gpu.sceneonlygamma || sceneinitialized)) {
+        samplers[1].texture = GPU_Bloom(); post[9] = 1;
+    }
     color.texture = gpu.present; color.load_op = SDL_GPU_LOADOP_DONT_CARE;
     pass = SDL_BeginGPURenderPass(gpu.command, &color, 1, NULL);
     SDL_BindGPUGraphicsPipeline(pass, gpu.postpipeline);
-    sampler.texture = gpu.scene; sampler.sampler = gpu.postsampler;
-    SDL_BindGPUFragmentSamplers(pass, 0, &sampler, 1);
+    SDL_BindGPUFragmentSamplers(pass, 0, samplers, 2);
     post[0] = 1.0f/gpu.width; post[1] = 1.0f/gpu.height; post[2] = r_bloom.value;
     post[3] = v_gammainverted.ival ? v_gamma.value : 1.0f/max(0.1f, v_gamma.value);
     post[4] = v_contrast.value; post[5] = v_brightness.value; post[6] = v_contrastboost.value; post[8] = r_fxaa.value;
@@ -900,13 +1113,37 @@ void R_FetchPlayerColour(unsigned int color, vec3_t rgb)
     }
 }
 
+unsigned GPU_ShadowSlot(dlight_t *l, float params[4])
+{
+    qboolean world = l >= cl_dlights+RTL_FIRST;
+    unsigned slot;
+    if (!r_shadow_shadowmapping.ival || (l->flags & LFLAG_NOSHADOWS) || l->radius <= 2 ||
+        (world ? !r_shadow_realtime_world_shadows.ival : !r_shadow_realtime_dlight_shadows.ival)) return 0;
+    float nearclip = bound(0.1f,l->nearclip ? l->nearclip : r_shadow_shadowmapping_nearclip.value,l->radius*0.5f);
+    for (slot = 0; slot < numshadowlights; ++slot)
+        if (shadowlights[slot].light == l && shadowlights[slot].radius == l->radius &&
+            shadowlights[slot].nearclip == nearclip && !memcmp(shadowlights[slot].origin,l->origin,sizeof(vec3_t))) break;
+    if (slot == GPU_MAX_SHADOWS) return 0;
+    if (slot == numshadowlights) {
+        shadowlights[slot].light = l;
+        VectorCopy(l->origin,shadowlights[slot].origin); shadowlights[slot].radius = l->radius;
+        shadowlights[slot].nearclip = nearclip;
+        ++numshadowlights;
+    }
+    params[0] = shadowlights[slot].nearclip; params[1] = l->radius;
+    params[2] = max(0.001f,r_shadow_shadowmapping_bias.value); params[3] = 0;
+    return slot+1;
+}
+
 static void GPU_Lights(gpu_draw_t *d, unsigned flags, const mesh_t *mesh, const vecV_t *coords)
 {
     unsigned i, count = 0, selected[GPU_MAX_LIGHTS], numselected = 0;
     float scores[GPU_MAX_LIGHTS];
     vec3_t mins = {FLT_MAX,FLT_MAX,FLT_MAX}, maxs = {-FLT_MAX,-FLT_MAX,-FLT_MAX};
     if (gpu.drawing2d || flags & BEF_NODLIGHT ||
+        (d->frag.material[0] != 1 && d->frag.material[0] != 2) ||
         (!r_shadow_realtime_world.ival && !r_shadow_realtime_dlight.ival)) return;
+    if (GPU_ClusterLights(d)) return;
     for (i = 0; i < mesh->numvertexes; ++i) {
         vec3_t point;
         unsigned j;
@@ -944,28 +1181,12 @@ static void GPU_Lights(gpu_draw_t *d, unsigned flags, const mesh_t *mesh, const 
     }
     for (count = 0; count < numselected; ++count) {
         dlight_t *l = &cl_dlights[selected[count]];
-        qboolean isworld = selected[count] >= RTL_FIRST;
         float style = 1;
         if (l->style >= 0 && l->style < MAX_NET_LIGHTSTYLES) style = d_lightstylevalue[l->style]/256.0f;
         VectorCopy(l->origin, d->frag.lightpos[count]); d->frag.lightpos[count][3] = l->radius;
         VectorScale(l->color, style, d->frag.lightcolor[count]);
         VectorCopy(l->lightcolourscales, d->frag.lightparams[count]);
-        if (r_shadow_shadowmapping.ival && !(l->flags & LFLAG_NOSHADOWS) &&
-            (isworld ? r_shadow_realtime_world_shadows.ival : r_shadow_realtime_dlight_shadows.ival)) {
-            unsigned slot;
-            for (slot = 0; slot < numshadowlights; ++slot) if (shadowlights[slot].light == l) break;
-            if (slot < GPU_MAX_SHADOWS && l->radius > 2) {
-                if (slot == numshadowlights) {
-                    shadowlights[slot].light = l;
-                    shadowlights[slot].nearclip = bound(0.1f, l->nearclip ? l->nearclip : r_shadow_shadowmapping_nearclip.value, l->radius*0.5f);
-                    ++numshadowlights;
-                }
-                d->frag.lightcolor[count][3] = slot+1;
-                d->frag.lightshadow[count][0] = shadowlights[slot].nearclip;
-                d->frag.lightshadow[count][1] = l->radius;
-                d->frag.lightshadow[count][2] = max(0.001f, r_shadow_shadowmapping_bias.value);
-            }
-        }
+        d->frag.lightcolor[count][3] = GPU_ShadowSlot(l,d->frag.lightshadow[count]);
     }
     d->frag.material[3] = count;
 }
@@ -995,8 +1216,21 @@ static void GPU_DrawMesh(shader_t *shader, mesh_t *mesh, vbo_t *vbo, texnums_t *
     index_t *indices = mesh->indexes ? mesh->indexes : vbo ? (index_t *)vbo->indicies.sysptr + mesh->vbofirstelement : NULL;
     if (!coords || !indices || mesh->numvertexes <= 0 || mesh->numindexes <= 0 || !gpu.command) return;
     if (mode != BEM_STANDARD && mode != BEM_DEPTHONLY && mode != BEM_DEPTHDARK) return;
-    if (gpu.numvertices + mesh->numvertexes > gpu.maxvertices) {
-        gpu.maxvertices = max(gpu.numvertices+mesh->numvertexes, max(4096, gpu.maxvertices*2));
+    /* These generators leave the packed world attributes invariant. Anything
+     * animated, entity-coloured, vertex-lit or using generated UVs streams. */
+    qboolean immutable = gpu_staticgeometry.ival && !staticinvalid && entity == &r_worldentity &&
+        entity->model == staticworld && !gpu.drawing2d && !vertexlit && program &&
+        !shader->numdeforms && !mesh->xyz2_array && !mesh->bones &&
+        mesh->numvertexes <= GPU_STATIC_VERTICES && !p->numtcmods && p->tcgen == TC_GEN_BASE &&
+        p->texgen != T_GEN_LIGHTMAP &&
+        (p->rgbgen == RGB_GEN_IDENTITY || p->rgbgen == RGB_GEN_IDENTITY_LIGHTING ||
+         p->rgbgen == RGB_GEN_IDENTITY_OVERBRIGHT || p->rgbgen == RGB_GEN_LIGHTING_DIFFUSE) &&
+        (p->alphagen == ALPHA_GEN_IDENTITY || p->alphagen == ALPHA_GEN_UNDEFINED) &&
+        !(flags & (BEF_FORCECOLOURMOD|BEF_FORCETRANSPARENT|BEF_ENTITYCOLOURS));
+    gpu_static_mesh_t *cached = immutable ? GPU_StaticMesh(mesh) : NULL;
+    SDL_GPUBuffer *vertexbuffer = cached ? cached->page->buffer : NULL;
+    if (!cached && gpu.numstreamvertices + mesh->numvertexes > gpu.maxvertices) {
+        gpu.maxvertices = max(gpu.numstreamvertices+mesh->numvertexes, max(4096, gpu.maxvertices*2));
         gpu.cpuvertices = BZ_Realloc(gpu.cpuvertices, gpu.maxvertices*sizeof(*gpu.cpuvertices));
     }
     if (gpu.numindices + mesh->numindexes > gpu.maxindices) {
@@ -1006,10 +1240,11 @@ static void GPU_DrawMesh(shader_t *shader, mesh_t *mesh, vbo_t *vbo, texnums_t *
     /* Within a material pass, non-RT uniforms don't depend on the mesh.
      * Append geometry directly when the prepared state and index range match. */
     d = gpu.numdraws ? &gpu.draws[gpu.numdraws-1] : NULL;
-    if (prepared && d && d->firstindex+d->numindices == gpu.numindices &&
-        (sizeof(index_t)>2 || gpu.numvertices-d->vertexoffset+mesh->numvertexes <= 65536) &&
+    if (prepared && d && (!immutable || cached) && d->vertexbuffer == vertexbuffer &&
+        d->firstindex+d->numindices == gpu.numindices &&
+        (cached || sizeof(index_t)>2 || gpu.numstreamvertices-d->vertexoffset+mesh->numvertexes <= 65536) &&
         !memcmp(&d->bits,&prepared->bits,sizeof(*d)-offsetof(gpu_draw_t,bits))) {
-        base = gpu.numvertices - d->vertexoffset;
+        base = cached ? cached->first : gpu.numstreamvertices - d->vertexoffset;
         d->numindices += mesh->numindexes;
         appended = true;
     } else {
@@ -1020,7 +1255,10 @@ static void GPU_DrawMesh(shader_t *shader, mesh_t *mesh, vbo_t *vbo, texnums_t *
         d = &gpu.draws[gpu.numdraws++];
         if (prepared) memcpy(d, prepared, sizeof(*d));
         else memset(d, 0, sizeof(*d));
-        d->firstindex = gpu.numindices; d->numindices = mesh->numindexes; d->vertexoffset = gpu.numvertices;
+        d->firstindex = gpu.numindices; d->numindices = mesh->numindexes;
+        d->vertexoffset = cached ? 0 : gpu.numstreamvertices;
+        d->vertexbuffer = vertexbuffer; d->boundsvalid = false;
+        if (cached) base = cached->first;
     }
     if (!prepared) {
         d->shadowonly = collectshadowonly;
@@ -1169,8 +1407,8 @@ static void GPU_DrawMesh(shader_t *shader, mesh_t *mesh, vbo_t *vbo, texnums_t *
         unsigned adjust = vbo && !mesh->indexes ? mesh->vbofirstvert : 0;
         for (i = 0; i < mesh->numindexes; ++i) gpu.cpuindices[gpu.numindices+i] += base-adjust;
     }
-    for (i = 0; i < mesh->numvertexes; ++i) {
-        gpu_vertex_t *v = &gpu.cpuvertices[gpu.numvertices+i];
+    for (i = 0; !cached && i < mesh->numvertexes; ++i) {
+        gpu_vertex_t *v = &gpu.cpuvertices[gpu.numstreamvertices+i];
         int j;
         memset(v, 0, sizeof(*v));
         VectorCopy(coords[i], v->position);
@@ -1283,6 +1521,35 @@ static void GPU_DrawMesh(shader_t *shader, mesh_t *mesh, vbo_t *vbo, texnums_t *
         }
 
     }
+    if (!cached && immutable) {
+        cached = GPU_CacheStaticMesh(mesh, gpu.cpuvertices+gpu.numstreamvertices);
+        if (cached) {
+            d->vertexbuffer = cached->page->buffer; d->vertexoffset = 0;
+            for (i = 0; i < mesh->numindexes; ++i) gpu.cpuindices[gpu.numindices+i] += cached->first;
+        }
+    }
+    /* Bounds cover the final deformed/skinned positions. They are separate
+     * from render state so combining draws unions bounds rather than disabling
+     * batching. Immutable world vertices already use world coordinates. */
+    if (cached) {
+        for (i = 0; i < 3; ++i) {
+            d->mins[i] = d->boundsvalid ? min(d->mins[i],cached->mins[i]) : cached->mins[i];
+            d->maxs[i] = d->boundsvalid ? max(d->maxs[i],cached->maxs[i]) : cached->maxs[i];
+        }
+        d->boundsvalid = true; gpu.cachedvertices += mesh->numvertexes;
+    } else if (d->castshadow && gpu_shadowcull.ival &&
+        (r_shadow_realtime_world.ival || r_shadow_realtime_dlight.ival)) {
+        for (i = 0; i < mesh->numvertexes; ++i) {
+            const float *pos = gpu.cpuvertices[gpu.numstreamvertices+i].position;
+            unsigned j;
+            for (j = 0; j < 3; ++j) {
+                float point = d->vert.model[j]*pos[0]+d->vert.model[4+j]*pos[1]+d->vert.model[8+j]*pos[2]+d->vert.model[12+j];
+                d->mins[j] = d->boundsvalid ? min(d->mins[j],point) : point;
+                d->maxs[j] = d->boundsvalid ? max(d->maxs[j],point) : point;
+            }
+            d->boundsvalid = true;
+        }
+    }
     /* Combine adjacent geometry without changing triangle/blend order. The
      * zero-initialized draw record after vertexoffset contains all render
      * state, texture bindings and uniforms; differing state ends a batch. */
@@ -1293,6 +1560,7 @@ static void GPU_DrawMesh(shader_t *shader, mesh_t *mesh, vbo_t *vbo, texnums_t *
             !memcmp(&prev->bits, &d->bits, sizeof(*d)-offsetof(gpu_draw_t,bits));
         /* Shadow-only draws don't consume the scene lighting/texture uniforms. */
         if (d->shadowonly && prev->shadowonly && prev->castshadow == d->castshadow &&
+            prev->vertexbuffer == d->vertexbuffer &&
             prev->samplers[0].texture == d->samplers[0].texture &&
             prev->samplers[0].sampler == d->samplers[0].sampler &&
             prev->frag.material[2] == d->frag.material[2] &&
@@ -1302,10 +1570,17 @@ static void GPU_DrawMesh(shader_t *shader, mesh_t *mesh, vbo_t *vbo, texnums_t *
             (sizeof(index_t)>2 || base+(size_t)mesh->numvertexes <= 65536)) {
             for (i = 0; i < mesh->numindexes; ++i) gpu.cpuindices[gpu.numindices+i] += base;
             prev->numindices += d->numindices;
+            prev->boundsvalid = prev->boundsvalid && d->boundsvalid;
+            for (i = 0; i < 3; ++i) {
+                prev->mins[i] = min(prev->mins[i], d->mins[i]);
+                prev->maxs[i] = max(prev->maxs[i], d->maxs[i]);
+            }
             --gpu.numdraws;
         }
     }
-    gpu.numvertices += mesh->numvertexes; gpu.numindices += mesh->numindexes;
+    gpu.numvertices += mesh->numvertexes;
+    if (!cached) gpu.numstreamvertices += mesh->numvertexes;
+    gpu.numindices += mesh->numindexes;
 }
 
 void GPU_DrawMeshList(shader_t *shader, int count, mesh_t **meshes, vbo_t *vbo, texnums_t *tex, unsigned flags)
@@ -1440,6 +1715,7 @@ static gpu_water_view_t *GPU_WaterView(batch_t *batch, mesh_t *mesh)
     VectorCopy(forward,vpn); VectorCopy(right,vright); VectorCopy(up,vup); VectorCopy(origin,r_origin);
     gpu.target = target; gpu.targetdepth = depth; gpu.targetformat = format;
     gpu.targetwidth = width; gpu.targetheight = height; entity = savedentity;
+    R_SetFrustum(r_refdef.m_projection_std,r_refdef.m_view);
     return view;
 }
 
@@ -1517,7 +1793,9 @@ void GPU_DrawWorld(batch_t **world)
 }
 void GPU_GenBrushModelVBO(model_t *model)
 {
-    /* BSP meshes retain their CPU arrays. Frame geometry is batched into one GPU upload. */
+    /* Rebuilt lightmap coordinates or a reloaded map invalidate cached data.
+     * Retire pages at the next frame boundary, after pending draws submit. */
+    staticinvalid = true;
     model->vbos = NULL;
 }
 void GPU_ClearVBO(vbo_t *vbo, qboolean dataonly)

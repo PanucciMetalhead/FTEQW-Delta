@@ -65,6 +65,11 @@ Normal mapping, realtime lighting and shadows, specular and offset mapping, bloo
 HDR framebuffers, FXAA, and reflective/refractive water have independent controls. Game data and normal/specular
 replacement textures are supplied by the player and are not included here.
 
+The SDL3 GPU backend caches immutable world geometry, uses clustered forward
+lighting, culls shadow casters per light/cubemap face, and builds bloom through
+a downsample/upsample pyramid. See the [comparison with the previous renderer](documentation/SDL3-GPU.md#differences-from-the-previous-renderer)
+for algorithm changes, visual differences, reference controls and measured results.
+
 This is an active renderer migration. The validation record and remaining feature
 work are listed in [SDL3-GPU.md](documentation/SDL3-GPU.md); upstream-wide visual
 compatibility is not yet established.
