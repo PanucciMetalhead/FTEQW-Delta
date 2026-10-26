@@ -82,7 +82,7 @@ jobs:
         run: cmake -S . -B build-sanitize -DCMAKE_BUILD_TYPE=Debug -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/build-deps/install" -DFTE_SANITIZERS=ON -DFTE_ENGINE=ON -DFTE_ENGINE_SERVER_ONLY=ON -DFTE_ENGINE_CLIENT_ONLY=ON -DFTE_TOOL_QCCGUI=OFF -DFTE_TOOL_QCVM=ON -DBUILD_TESTING=ON -DFTE_DEP_FLUIDSYNTH=ON -DFTE_MIDI_SOUNDFONT="$GITHUB_WORKSPACE/build-deps/soundfonts/FluidR3_GM.sf2"
       - name: Build sanitizer engine and tools
         if: runner.os != 'Windows'
-        run: cmake --build build-sanitize --target fteqw fteqw-sv fteqcc qcvm c17-endian-check midi-tests --parallel 2
+        run: cmake --build build-sanitize --target fteqw fteqw-sv fteqcc qcvm c17-endian-check gpu-renderer-math midi-tests --parallel 2
       - name: Run sanitizer engine, compiler, VM and parser checks
         if: runner.os != 'Windows'
         env:
@@ -110,7 +110,13 @@ jobs:
             build-sanitize/midi-integration/**/results.json
             build/midi-picker/**/engine.log
             build/midi-picker/**/results.json
+            build/music-remap/**/engine.log
+            build/music-remap/**/reload*.log
+            build/music-remap/**/configs/*.cfg
             build-sanitize/midi-picker/**/engine.log
             build-sanitize/midi-picker/**/results.json
+            build-sanitize/music-remap/**/engine.log
+            build-sanitize/music-remap/**/reload*.log
+            build-sanitize/music-remap/**/configs/*.cfg
             build/c17-compat/
           if-no-files-found: ignore

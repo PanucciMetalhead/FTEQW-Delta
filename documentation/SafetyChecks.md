@@ -88,20 +88,34 @@ cmake -S . -B build/safety -DCMAKE_BUILD_TYPE=Debug \
   -DFTE_SANITIZERS=ON -DFTE_ENGINE=ON -DFTE_ENGINE_SERVER_ONLY=ON \
   -DFTE_ENGINE_CLIENT_ONLY=ON -DFTE_TOOL_QCC=ON \
   -DFTE_TOOL_QCVM=ON -DFTE_TOOL_QCCGUI=OFF -DBUILD_TESTING=ON
-cmake --build build/safety --target fteqw fteqw-sv fteqcc qcvm c17-endian-check --parallel
+cmake --build build/safety --target fteqw fteqw-sv fteqcc qcvm c17-endian-check gpu-renderer-math --parallel
 ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1 \
   ctest --test-dir build/safety --output-on-failure
 ```
 
-The five registered cases are:
+Core registered cases include:
 
 | Case | Coverage |
 | --- | --- |
 | `c17-endian` | Fixed-width endian helper patterns. |
+| `gpu-renderer-math` | Conservative light cluster coverage and shadow sphere/clip-plane bounds, without a display or GPU. |
+| `music-remap` | All 255 music remapping slots, quoted filenames, playback, config persistence and restoration in a fresh headless client. |
 | `parser-sanitizers` | Actual message/number/string/Q3 parsers, archive scans, WAD metadata and remaster detection; MD5 replacement preflight/fallback; checksum/hash and image/audio conversion; item stats and pickup sounds; entity view angles and particle indices; model/grouped allocation and worker-GC snapshots. Bodies, relevant types and packing expressions come from current engine source. |
 | `package-signatures` | Actual package authenticity/decoding and installation-gate bodies compiled in release and debug configurations; mirror independence, provider outcomes, catalog trust, malformed metadata, and unsigned data archives. |
 | `engine-sanitizer-smoke` | Actual headless server cvar registration, filesystem initialization, command execution and shutdown; synthetic-PAK remaster autodetection and an explicit classic-profile override. |
 | `qcc-regression` | Compiler help/diagnostics, warning controls, optimization fixtures and execution in the standalone VM. |
+
+The sanitizer build must include `gpu-renderer-math` before CTest runs. The
+desktop workflow's explicit sanitizer target list includes it; registering a
+CTest case alone does not build its executable. MIDI-enabled configurations
+also register their parser, synthesis and engine/picker cases; build `midi-tests`
+as well when running those configurations.
+
+For intermittent music startup/shutdown failures, use
+`python3 tools/music_remap.py --engine build/fteqw --out build/remap-stress --reload-runs 30`.
+Each reload uses a fresh process and validates all mappings. Failures report
+the process exit code and diagnostic lines, and desktop CI preserves the
+engine/reload logs and saved fixture configurations for inspection.
 
 The standalone fixtures cover 12,600 packet round trips, 10,000 unaligned fields,
 10,000 long/double byte fields, truncated inputs, output capacities 0–19, all

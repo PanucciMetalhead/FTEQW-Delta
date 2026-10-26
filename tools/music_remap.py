@@ -29,7 +29,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--engine', type=Path, required=True)
     parser.add_argument('--out', type=Path, required=True)
+    parser.add_argument('--reload-runs', type=int, default=1,
+                        help='repeat fresh-process config restoration to check startup/shutdown races')
     args = parser.parse_args()
+    if args.reload_runs < 1:
+        parser.error('--reload-runs must be positive')
     args.out.mkdir(parents=True, exist_ok=True)
     out = Path(tempfile.mkdtemp(prefix='remap-', dir=args.out.resolve()))
     (out / 'id1/music').mkdir(parents=True)
@@ -93,8 +97,11 @@ mastervolume 1
                 '+s_device', 'SDL:', '+exec', config], cwd=out, env=env,
                 stdout=log, stderr=subprocess.STDOUT, timeout=40)
         text = logpath.read_text(errors='replace')
-        if result.returncode or re.search(r'AddressSanitizer:|runtime error:|Sys_Error|Host_Error|Unknown command', text):
-            raise RuntimeError(f'Engine failure: {logpath}\n{text[-5000:]}')
+        errors = re.findall(r'^.*(?:AddressSanitizer:|runtime error:|Sys_Error|Host_Error|Unknown command).*$', text, re.M)
+        if result.returncode or errors:
+            diagnostics = '\n'.join(errors)
+            raise RuntimeError(f'Engine failure (exit {result.returncode}): {logpath}\n'
+                               f'{diagnostics}\n{text[:2500]}\n...\n{text[-5000:]}')
         return sections(text)
 
     phases = run('remap-test.cfg', 'engine')
@@ -115,13 +122,14 @@ mastervolume 1
     (out / 'id1/reload-step.cfg').write_text('exec configs/saved.cfg\n'
         'echo REMAP_PHASE_RELOAD\ncd remap\nquit force\n')
     (out / 'id1/reload.cfg').write_text(setup + 'defer 1 exec reload-step.cfg\n')
-    reloaded = run('reload.cfg', 'reload')
-    assert mappings(reloaded['RELOAD']) == expected, f'Fresh-process restore failed: {out}'
+    for i in range(args.reload_runs):
+        reloaded = run('reload.cfg', 'reload' if i == 0 else f'reload-{i + 1}')
+        assert mappings(reloaded['RELOAD']) == expected, f'Fresh-process restore failed: {out}'
     (out / 'results.json').write_text(json.dumps({
         'all_255_slots_and_quoted_paths': 'passed', 'positional_compatibility': 'passed',
         'config_round_trip_and_fresh_process': 'passed', 'save_if_modified': 'passed',
         'numeric_named_looping_and_stop': 'passed', 'reset_and_empty_restore': 'passed',
-        'invalid_arguments': 'passed'}, indent=2) + '\n')
+        'invalid_arguments': 'passed', 'fresh_process_runs': args.reload_runs}, indent=2) + '\n')
     print(f'Music remapping checks passed: {out}')
 
 
