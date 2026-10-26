@@ -117,6 +117,13 @@ Each reload uses a fresh process and validates all mappings. Failures report
 the process exit code and diagnostic lines, and desktop CI preserves the
 engine/reload logs and saved fixture configurations for inspection.
 
+The SDL headless renderer skips system-tray creation for the `dummy` and
+`offscreen` video drivers, including the legacy `SDL_VIDEODRIVER` environment
+setting used by the fixtures. SDL's native tray backend can create Cocoa UI
+independently of a dummy video driver; displayless audio tests should avoid
+that UI lifecycle. Music remapping verifies the tray is disabled on every
+launch. macOS CI also preserves engine crash reports when available.
+
 The standalone fixtures cover 12,600 packet round trips, 10,000 unaligned fields,
 10,000 long/double byte fields, truncated inputs, output capacities 0–19, all
 escape bytes, 300,000 number conversions and archive ordering/cleanup. Resource

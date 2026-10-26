@@ -88,6 +88,17 @@ static qboolean Headless_VID_Init				(rendererstate_t *info, unsigned char *pale
 	vid.height = vid.fbvheight = vid.pixelheight = vid.rotpixelheight = vid.fbpheight = info->height > 0 ? info->height : 480;
 
 #ifdef FTE_SDL
+		/* Dummy/offscreen video explicitly requests a displayless process. The
+		 * SDL tray backend is independent of the video driver and may otherwise
+		 * create native Cocoa objects even for an audio-only CI test. */
+		const char *driver = SDL_GetCurrentVideoDriver();
+		if (!driver || !*driver) driver = SDL_GetHint(SDL_HINT_VIDEO_DRIVER);
+		if (!driver || !*driver) driver = SDL_getenv("SDL_VIDEODRIVER");
+		if (driver && (!Q_strcasecmp(driver, "dummy") || !Q_strcasecmp(driver, "offscreen")))
+		{
+			Con_Printf("Headless: displayless SDL driver; system tray disabled.\n");
+			return true;
+		}
 		thetray = SDL_CreateTray(NULL, fs_manifest->formalname);
 		if (thetray)
 		{	//don't know how to respond to direct clicks, so create a menu.
@@ -167,7 +178,7 @@ static qboolean Headless_VID_Init				(rendererstate_t *info, unsigned char *pale
 static void	 Headless_VID_DeInit				(void)
 {
 #ifdef FTE_SDL
-		SDL_DestroyTray(thetray);
+		if (thetray) SDL_DestroyTray(thetray);
 		thetray = NULL;
 #elif defined(_WIN32)
 	//tray icon crap, so the user can still restore the game.

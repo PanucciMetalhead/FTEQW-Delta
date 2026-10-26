@@ -102,6 +102,7 @@ mastervolume 1
             diagnostics = '\n'.join(errors)
             raise RuntimeError(f'Engine failure (exit {result.returncode}): {logpath}\n'
                                f'{diagnostics}\n{text[:2500]}\n...\n{text[-5000:]}')
+        assert 'Headless: displayless SDL driver; system tray disabled.' in text, f'Dummy video created native tray UI: {logpath}'
         return sections(text)
 
     phases = run('remap-test.cfg', 'engine')

@@ -89,6 +89,17 @@ jobs:
           ASAN_OPTIONS: detect_leaks=0
           UBSAN_OPTIONS: halt_on_error=1
         run: ctest --test-dir build-sanitize --output-on-failure
+      - name: Collect macOS crash reports
+        if: failure() && runner.os == 'macOS'
+        shell: bash
+        run: |
+          mkdir -p build/crash-reports
+          sleep 3
+          for report in "$HOME"/Library/Logs/DiagnosticReports/fteqw*.ips "$HOME"/Library/Logs/DiagnosticReports/fteqw*.crash /Library/Logs/DiagnosticReports/fteqw*.ips /Library/Logs/DiagnosticReports/fteqw*.crash; do
+            if [ -f "$report" ]; then
+              cp "$report" build/crash-reports/
+            fi
+          done
       - name: Preserve failed regression logs
         if: failure()
         uses: actions/upload-artifact@v4
@@ -96,6 +107,7 @@ jobs:
           name: diagnostics-${{ matrix.os }}-${{ matrix.cc || 'default' }}
           path: |
             build/Testing/Temporary/LastTest.log
+            build/crash-reports/
             build/qcc-tests/*.log
             build-sanitize/Testing/Temporary/LastTest.log
             build-sanitize/qcc-tests/*.log
