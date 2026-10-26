@@ -124,6 +124,13 @@ independently of a dummy video driver; displayless audio tests should avoid
 that UI lifecycle. Music remapping verifies the tray is disabled on every
 launch. macOS CI also preserves engine crash reports when available.
 
+Music seek position changes are serialized with the SDL mixer callback. The
+source-extracted sanitizer fixture requires mixer ownership before accessing
+the soundcard list and checks 750-second positions beyond signed 32-bit range,
+multiple sample rates, rewind clamping and an empty card list. The MIDI engine
+fixture labels the seek phase separately; its 60-second child-process timeout
+remains bounded, with a 75-second CTest limit allowing error reporting/cleanup.
+
 The standalone fixtures cover 12,600 packet round trips, 10,000 unaligned fields,
 10,000 long/double byte fields, truncated inputs, output capacities 0–19, all
 escape bytes, 300,000 number conversions and archive ordering/cleanup. Resource

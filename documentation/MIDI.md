@@ -107,6 +107,8 @@ RIFF-wrapped MIDI and hardware MIDI input/output are outside this implementation
 A two-second release/reverb tail follows the last event before the playlist
 advances or loops. Seeking renders intermediate samples to preserve controller,
 tempo and envelope state; large seeks cost more. PCM buffering stays bounded.
+Seek position changes take the mixer lock so the SDL audio callback cannot
+decode a block while the command thread changes its channel position.
 
 ## Track remapping
 

@@ -3413,6 +3413,9 @@ void S_Music_Seek(float time)
 {
 	soundcardinfo_t *sc;
 	int i;
+	/* The SDL callback can be decoding and advancing these channels. A seek
+	 * must not change a channel position halfway through a decoder/mixer block. */
+	S_LockMixer();
 	for (i = MUSIC_FIRST; i < MUSIC_STOP; i++)
 	{
 		for (sc = sndcardinfo; sc; sc=sc->next)
@@ -3426,6 +3429,7 @@ void S_Music_Seek(float time)
 			//if we seek over the end, ignore it. The sound playing code will spot that.
 		}
 	}
+	S_UnlockMixer();
 }
 
 //mixer must be locked

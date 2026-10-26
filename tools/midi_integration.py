@@ -70,6 +70,7 @@ defer 23.2 snd_restart
 defer 24 music 2 -
 defer 28 echo MIDI_PHASE_LONG
 defer 28.1 music long -
+defer 29.4 echo MIDI_PHASE_SEEK
 defer 29.5 music_fforward 750
 defer 35 soundinfo
 defer 36 echo MIDI_PHASE_DONE
@@ -79,14 +80,18 @@ defer 36.1 quit force
     env = dict(os.environ, SDL_AUDIODRIVER='dummy', SDL_VIDEODRIVER='dummy', ASAN_OPTIONS='detect_leaks=0',
                UBSAN_OPTIONS='halt_on_error=1:print_stacktrace=1')
     with (out / 'engine.log').open('w') as log:
-        result = subprocess.run([str(args.engine.resolve()), '-nohome', '-basedir', str(out),
-            '-quake', '-nostdin', '+vid_renderer', 'headless', '+set', 'plug_loaddefault', '0',
-            '+s_device', 'SDL:', '+exec', 'midi-test.cfg'], cwd=out, env=env,
-            stdout=log, stderr=subprocess.STDOUT, timeout=60)
+        try:
+            result = subprocess.run([str(args.engine.resolve()), '-nohome', '-basedir', str(out),
+                '-quake', '-nostdin', '+vid_renderer', 'headless', '+set', 'plug_loaddefault', '0',
+                '+s_device', 'SDL:', '+exec', 'midi-test.cfg'], cwd=out, env=env,
+                stdout=log, stderr=subprocess.STDOUT, timeout=60)
+        except subprocess.TimeoutExpired as error:
+            text = (out / 'engine.log').read_text(errors='replace')
+            raise RuntimeError(f'MIDI engine timed out after 60 seconds: {out / "engine.log"}\n{text[-5000:]}') from error
     text = (out / 'engine.log').read_text(errors='replace')
     if result.returncode or re.search(r'AddressSanitizer:|runtime error:|Sys_Error|Host_Error', text):
         raise RuntimeError(f'Engine failure: {out / "engine.log"}\n{text[-5000:]}')
-    phases = re.split(r'MIDI_PHASE_(LOOP|ONCE|NUMERIC|BAD|MISSING|RESTART|LONG|DONE)\s*\n', text)
+    phases = re.split(r'MIDI_PHASE_(LOOP|ONCE|NUMERIC|BAD|MISSING|RESTART|LONG|SEEK|DONE)\s*\n', text)
     sections = dict(zip(phases[1::2], phases[2::2]))
     def loads(phase, track):
         return sections.get(phase, '').count('MIDI: loaded ' + track)
@@ -98,7 +103,7 @@ defer 36.1 quit force
     assert 'SoundFont not found' in sections['MISSING'], f'Missing font not reported: {out}'
     assert loads('RESTART', 'music/track02.mid') == 1, f'Sound restart failed: {out}'
     assert loads('LONG', 'midi/long.mid') == 1, f'Long-track seek failed: {out}'
-    assert re.search(r'midi/long.mid[^\n]*active', sections['LONG']), f'Long-track seek stopped playback: {out}'
+    assert re.search(r'midi/long.mid[^\n]*active', sections['SEEK']), f'Long-track seek stopped playback: {out}'
     report = {'named_lookup_looping': 'passed', 'one_shot': 'passed', 'numeric_track': 'passed',
               'malformed_midi': 'passed', 'missing_soundfont': 'passed', 'sound_restart': 'passed',
               'long_track_seek': 'passed'}

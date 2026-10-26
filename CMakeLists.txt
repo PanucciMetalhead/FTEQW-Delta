@@ -1583,7 +1583,8 @@ if(BUILD_TESTING)
                 add_test(NAME midi-engine
                     COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/midi_integration.py"
                         --engine $<TARGET_FILE:fteqw> --out "${CMAKE_BINARY_DIR}/midi-integration")
-                set_tests_properties(midi-engine PROPERTIES TIMEOUT 60)
+                # Let the child process timeout report and clean up before CTest stops it.
+                set_tests_properties(midi-engine PROPERTIES TIMEOUT 75)
                 if(UNIX)
                     add_test(NAME midi-picker
                         COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/midi_menu.py"
