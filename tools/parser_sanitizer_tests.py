@@ -82,6 +82,9 @@ def main():
         'normalmap': [('engine/client/image.c', 'Image_GenerateNormalMap')],
         'extents': [('engine/common/gl_q2bsp.c', 'CalcSurfaceExtents')],
         'audio': [('engine/client/snd_mem.c', 'SND_ResampleStream')],
+        'worker_lifecycle': [('engine/common/common.c', name) for name in
+                             ('COM_WorkerSync_WorkerStopped', 'COM_WorkerThread',
+                              'COM_StartWorkerThread', 'COM_WorkerFullSync', 'COM_DestroyWorkerThread')],
         'music_seek': [('engine/client/snd_dma.c', 'S_Music_Seek')],
         'palette': [('engine/client/renderer.c', 'R_GenPaletteLookup')],
         'md4': [('engine/common/sha1.c', name) for name in

@@ -6125,7 +6125,6 @@ static int COM_WorkerThread(void *arg)
 	struct com_worker_s *thread = arg;
 	int group = WG_LOADER;
 	Sys_LockConditional(com_workercondition[group]);
-	com_liveworkers[group]++;
 	for(;;)
 	{
 		while(COM_DoWork(group, true))
@@ -6164,6 +6163,20 @@ static int COM_WorkerThread(void *arg)
 	COM_AddWork(WG_MAIN, COM_WorkerSync_WorkerStopped, thread, NULL, 0, group);
 	return 0;
 }
+static void COM_StartWorkerThread(int index)
+{
+	struct com_worker_s *thread = &com_worker[index];
+	// Count pending starts too. Sync/shutdown must not destroy the conditions
+	// while a newly created worker has yet to reach its entry point.
+	Sys_LockConditional(com_workercondition[WG_LOADER]);
+	thread->request = WR_NONE;
+	com_liveworkers[WG_LOADER]++;
+	thread->thread = Sys_CreateThread(va("loadworker_%i", index), COM_WorkerThread, thread, 0, 256*1024);
+	if (!thread->thread)
+		com_liveworkers[WG_LOADER]--;
+	Sys_UnlockConditional(com_workercondition[WG_LOADER]);
+}
+
 static void Sys_ErrorThread(void *ctx, void *data, size_t a, size_t b)
 {
 	if (ctx)
@@ -6277,8 +6290,7 @@ void COM_WorkerUnlock(void)
 		//lower thread indexes need to be (re)created
 		if (!com_worker[i].thread)
 		{
-			com_worker[i].request = WR_NONE;
-			com_worker[i].thread = Sys_CreateThread(va("loadworker_%i", i), COM_WorkerThread, &com_worker[i], 0, 256*1024);
+			COM_StartWorkerThread(i);
 			if (com_worker[i].thread)
 				restarted = true;
 		}
@@ -6486,8 +6498,7 @@ static void QDECL COM_WorkerCount_Change(cvar_t *var, char *oldvalue)
 			//lower thread indexes need to be created
 			if (!com_worker[i].thread)
 			{
-				com_worker[i].request = WR_NONE;
-				com_worker[i].thread = Sys_CreateThread(va("loadworker_%i", i), COM_WorkerThread, &com_worker[i], 0, 256*1024);
+				COM_StartWorkerThread(i);
 			}
 		}
 	}

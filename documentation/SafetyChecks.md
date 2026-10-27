@@ -100,7 +100,7 @@ Core registered cases include:
 | `c17-endian` | Fixed-width endian helper patterns. |
 | `gpu-renderer-math` | Conservative light cluster coverage and shadow sphere/clip-plane bounds, without a display or GPU. |
 | `music-remap` | All 255 music remapping slots, quoted filenames, playback, config persistence and restoration in a fresh headless client. |
-| `parser-sanitizers` | Actual message/number/string/Q3 parsers, archive scans, WAD metadata and remaster detection; MD5 replacement preflight/fallback; checksum/hash and image/audio conversion; item stats and pickup sounds; entity view angles and particle indices; model/grouped allocation and worker-GC snapshots. Bodies, relevant types and packing expressions come from current engine source. |
+| `parser-sanitizers` | Actual message/number/string/Q3 parsers, archive scans, WAD metadata and remaster detection; MD5 replacement preflight/fallback; checksum/hash and image/audio conversion; item stats and pickup sounds; entity view angles and particle indices; model/grouped allocation, worker-GC snapshots, and delayed worker startup/shutdown. Bodies, relevant types and packing expressions come from current engine source. |
 | `package-signatures` | Actual package authenticity/decoding and installation-gate bodies compiled in release and debug configurations; mirror independence, provider outcomes, catalog trust, malformed metadata, and unsigned data archives. |
 | `engine-sanitizer-smoke` | Actual headless server cvar registration, filesystem initialization, command execution and shutdown; synthetic-PAK remaster autodetection and an explicit classic-profile override. |
 | `qcc-regression` | Compiler help/diagnostics, warning controls, optimization fixtures and execution in the standalone VM. |
@@ -110,6 +110,10 @@ desktop workflow's explicit sanitizer target list includes it; registering a
 CTest case alone does not build its executable. MIDI-enabled configurations
 also register their parser, synthesis and engine/picker cases; build `midi-tests`
 as well when running those configurations.
+
+Worker lifecycle checks delay thread entry until shutdown is already waiting,
+then verify that every pending worker is joined before synchronization objects
+are destroyed. Failed thread creation rolls back its reserved worker count.
 
 For intermittent music startup/shutdown failures, use
 `python3 tools/music_remap.py --engine build/fteqw --out build/remap-stress --reload-runs 30`.
