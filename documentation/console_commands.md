@@ -1190,7 +1190,7 @@ Jump to [symbols and A–C](#cvars-symbols-and-ac), [D–H](#cvars-dh),
 | `cl_loopbackprotocol` | `"qw"` | Which protocol to use for single-player/the internal client. Should be one of: qw, qwid, nqid, nq, fitz, bjp3, dp6, dp7, auto. If 'auto', will use qw protocols for qw mods, and nq protocols for nq mods. |
 | `cl_maxfps` | `"250"` | Sets the maximum allowed framerate. If you're using vsync or want to uncap framerates entirely then you should probably set this to 0. Set cl_yieldcpu 0 if you're trying to benchmark. |
 | `cl_maxfps_slop` | `"3"` | If a frame is delayed (eg because of poor system timer precision), this is how much sooner to pretend the frame happened (in milliseconds). If it is set too low then the average framerate will drop below the target, while too high may result in excessively fast frames. |
-| `cl_maxPing` | on demand | **Q3:** OpenArena UI maximum-ping filter for server searches; distinct from the native sb_* browser filters. |
+| `cl_maxPing` | `800` | **Q3:** OpenArena UI maximum-ping filter for server searches, in milliseconds; distinct from the native sb_* browser filters. |
 | `cl_model_bobbing` | `"0"` | Makes rotating pickup items bob too. |
 | `cl_movement` | `"1"` | Specifies whether to send movement sequence info over DPP7 protocols (other protocols are unaffected). Unlike cl_nopred, this can result in different serverside behaviour. |
 | `cl_movespeedkey` | `"2.0"` | Movement-speed multiplier while the speed modifier is held. |
@@ -1232,7 +1232,7 @@ Jump to [symbols and A–C](#cvars-symbols-and-ac), [D–H](#cvars-dh),
 | `cl_sbar` | `"0"` | **Q1 target:** force the classic status bar layout rather than the heads-up variant. |
 | `cl_sbaralpha` (alias: `scr_sbaralpha`) | `"0.75"` | Specifies the transparency of the status bar. Only Takes effect when cl_sbar is set to 2. |
 | `cl_sendchatstate` | `"1"` | Announce your chat state to the server in a privacy-violating kind of way. This allows other players to see your afk/at-console status. |
-| `cl_sendguid` | `""` | Send a randomly generated 'globally unique' id to servers, which can be used by servers for score rankings and stuff. Different servers will see different guids. Delete the 'qkey' file in order to appear as a different user.<br>If set to 2, all servers will see the same guid. Be warned that this can show other people the guid that you're using. |
+| `cl_sendguid` | `""` | Send a randomly generated 'globally unique' id to servers, which can be used by servers for score rankings and stuff. Different servers will see different guids. Delete the 'qkey' file in order to appear as a different user.<br>The empty default supplies a per-server GUID for Quake 3/OpenArena; 0 disables it.<br>If set to 2, all servers will see the same guid. Be warned that this can show other people the guid that you're using. |
 | `cl_serveraddress` | `"none"` | The address of the last server you connected to |
 | `cl_servername` | `""` | The hostname of the last server you connected to |
 | `cl_shownet` | `"0"` | Debugging var. 0 shows nothing. 1 shows incoming packet sizes. 2 shows individual messages. 3 shows entities too. |

@@ -807,6 +807,7 @@ void CL_DownloadFinished(qdownload_t *dl)
 {
 	int i;
 	char ext[8];
+	enum fs_relative fsroot = dl->fsroot;
 
 	char filename[MAX_QPATH];
 	char tempname[MAX_QPATH];
@@ -822,7 +823,7 @@ void CL_DownloadFinished(qdownload_t *dl)
 
 
 	//should probably ask the filesytem code if its a package format instead.
-	if (!strncmp(filename, "package/", 8) || !strncmp(ext, "pk4", 3) || !strncmp(ext, "pk3", 3) || !strncmp(ext, "pak", 3) || (dl->fsroot == FS_ROOT))
+	if (!strncmp(filename, "package/", 8) || !strncmp(ext, "pk4", 3) || !strncmp(ext, "pk3", 3) || !strncmp(ext, "pak", 3) || (fsroot == FS_ROOT))
 	{
 		FS_ReloadPackFiles();
 		CL_CheckServerInfo();

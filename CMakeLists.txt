@@ -1603,6 +1603,10 @@ if(BUILD_TESTING)
             COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/parser_sanitizer_tests.py"
                 --cc "${CMAKE_C_COMPILER}" --out "${CMAKE_BINARY_DIR}/parser-tests")
         set_tests_properties(parser-sanitizers PROPERTIES TIMEOUT 180)
+        add_test(NAME q3-ui
+            COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/q3_ui_tests.py"
+                --cc "${CMAKE_C_COMPILER}" --out "${CMAKE_BINARY_DIR}/q3-ui-tests")
+        set_tests_properties(q3-ui PROPERTIES TIMEOUT 60)
         add_test(NAME package-signatures
             COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/package_signature_tests.py"
                 --cc "${CMAKE_C_COMPILER}" --out "${CMAKE_BINARY_DIR}/package-tests")

@@ -169,7 +169,7 @@ keep the generated plugin beside the engine executable:
 
 ```sh
 cmake --build build --target fteqw plug_quake3 --config Release --parallel
-./build/fteqw -basedir "/path/to/OpenArena" -quake3 -game baseoa +plug_load quake3
+./build/fteqw -basedir "/path/to/OpenArena" -quake3 -basegame baseoa -game baseoa +plug_load quake3
 ```
 
 The basedir contains `baseoa/*.pk3`. On Windows the engine is in
@@ -182,11 +182,45 @@ If a connection fails with “Q3 plugin not loaded”, enter `plug_load quake3` 
 the console, then `reconnect`. `plug_load quake3` can also be placed in the
 game's `autoexec.cfg` for subsequent starts.
 
+`-basegame baseoa` keeps OpenArena’s assets available when a remote server
+requests the unmodified base game. Joining from the OpenArena browser dismisses
+the menu so FTE can show connection/loading progress. The default `cl_sendguid`
+value supplies the per-server player ID OpenArena requires; an explicit `0`
+keeps GUID transmission disabled, and an explicitly supplied `cl_guid` is
+preserved. Generated IDs are added only to the connection packet.
+
+Data-free regression checks cover the browser handoff, IPv4/IPv6 master
+response offsets, GUID defaults/opt-out, disconnect cleanup, packet timeout
+refresh, download completion/error handling, cgame lifecycle, bounded browser
+metadata, long systeminfo values, base-game/mod selection, and pure-package
+name/checksum lists:
+
+```sh
+python3 tools/q3_ui_tests.py
+```
+
 The Quake 3 profile defaults to protocol 68. Standard OpenArena servers use
 [legacy protocol 71](https://github.com/OpenArena/engine/blob/master/README.md);
 use `com_protocolversion 71` before connecting to those servers, or pass
-`+com_protocolversion 71` at launch. Servers using another engine may advertise
-a different protocol, so match the server's version.
+`+com_protocolversion 71` at launch. For OpenArena master-server discovery,
+also set `com_protocolname Quake3Arena` and `net_q3master1 dpmaster.deathmask.net:27950`.
+The master registry uses `Quake3Arena` for OpenArena; querying `OpenArena`
+returns a different, normally empty game list. The browser waits for a fresh
+master response and honours the selected master slot. The Q3 UI
+registers `cl_maxPing` with the standard 800 ms default; an absent cvar would
+make OpenArena silently clamp its filter to 100 ms.
+Pure servers keep installed packages visible when their checksums are allowed,
+including unreferenced player assets. Mods that advertise `sv_pure` without a
+package list retain the usual OpenArena base-asset fallback. Servers running a
+separate mod still require that mod's PK3s; `cl_downloads 1` (also available as
+`cl_allowDownload 1`) permits the server to supply them. Quake 3 disconnects send
+a reliable close command so retrying after a loading failure does not leave a
+stale player connection behind. Incoming Q3 packets refresh the core connection
+timeout during gameplay and downloads. A rejection from the pending Q3 server
+stops the connection attempt and displays its reason.
+
+Servers using another engine may advertise a different protocol, so match the
+server's version.
 
 
 To check OpenArena rendering using your installed game data, build the targets

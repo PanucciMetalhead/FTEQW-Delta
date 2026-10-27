@@ -2460,6 +2460,8 @@ char *FS_GetPackHashes(char *buffer, int buffersize, qboolean referencedonly)
 	{
 		for (search = com_purepaths ; search ; search = search->nextpure)
 		{
+			if (referencedonly && !(search->flags & SPF_REFERENCED))
+				continue;
 			Q_strncatz(buffer, va("%i ", search->crc_check), buffersize);
 		}
 		return buffer;
@@ -2468,7 +2470,7 @@ char *FS_GetPackHashes(char *buffer, int buffersize, qboolean referencedonly)
 	{
 		for (search = com_searchpaths ; search ; search = search->next)
 		{
-			if (search->crc_check)
+			if (search->crc_check && (!referencedonly || (search->flags & SPF_REFERENCED)))
 			{
 				Q_strncatz(buffer, va("%i ", search->crc_check), buffersize);
 			}
@@ -2494,7 +2496,7 @@ char *FS_GetPackNames(char *buffer, int buffersize, int referencedonly, qboolean
 	{
 		for (search = com_purepaths ; search ; search = search->nextpure)
 		{
-			if (referencedonly == 0 && !(search->flags & SPF_REFERENCED))
+			if (referencedonly == 1 && !(search->flags & SPF_REFERENCED))
 				continue;
 			if (referencedonly == 2 && (search->flags & SPF_REFERENCED))
 				Q_strncatz(buffer, "*", buffersize);
@@ -2517,7 +2519,7 @@ char *FS_GetPackNames(char *buffer, int buffersize, int referencedonly, qboolean
 		{
 			if (search->crc_check)
 			{
-				if (referencedonly == 0 && !(search->flags & SPF_REFERENCED))
+				if (referencedonly == 1 && !(search->flags & SPF_REFERENCED))
 					continue;
 				if (referencedonly == 2 && (search->flags & SPF_REFERENCED))
 				{
@@ -5137,14 +5139,15 @@ int FS_PureOkay(void)
 			if (fs_refnames && fs_refcrcs)
 			{	//q3 is annoying as hell
 				int crc2;
+				char refcrc[64];
 				char *rc = fs_refcrcs;
 				char *rn = fs_refnames;
 				pname = "";
 				for (; rc && rn; )
 				{
-					rc = COM_ParseOut(rc, crctok, sizeof(crctok));
+					rc = COM_ParseOut(rc, refcrc, sizeof(refcrc));
 					rn = COM_ParseOut(rn, nametok2, sizeof(nametok2));
-					crc2 = strtoul(crctok, NULL, 0);
+					crc2 = strtoul(refcrc, NULL, 0);
 					if (crc2 == crc)
 					{
 						COM_DefaultExtension(nametok2, ".pk3", sizeof(nametok2));
@@ -5468,14 +5471,15 @@ static void FS_ReloadPackFilesFlags(unsigned int reloadflags)
 			if (fs_refnames && fs_refcrcs)
 			{	//q3 is annoying as hell
 				int crc2;
+				char refcrc[64];
 				char *rc = fs_refcrcs;
 				char *rn = fs_refnames;
 				pname = "";
 				for (; rc && rn; )
 				{
-					rc = COM_ParseOut(rc, crctok, sizeof(crctok));
+					rc = COM_ParseOut(rc, refcrc, sizeof(refcrc));
 					rn = COM_ParseOut(rn, nametok2, sizeof(nametok2));
-					crc2 = strtoul(crctok, NULL, 0);
+					crc2 = strtoul(refcrc, NULL, 0);
 					if (crc2 == crc)
 					{
 						COM_DefaultExtension(nametok2, ".pk3", sizeof(nametok2));

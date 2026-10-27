@@ -351,25 +351,33 @@ void CLQ3_ParseDownload(void)
 	unsigned int chunknum;
 	unsigned int chunksize;
 	unsigned char chunkdata[MAXCHUNKSIZE];
-	int i;
+	unsigned int i;
 	char *s;
 
 	chunknum = (unsigned short) msgfuncs->ReadShort();
-	chunknum |= ccs.downloadchunknum&~0xffff;		//add the chunk number, truncated by the network protocol.
+	if (dl && ccs.downloadchunknum >= 0)
+		chunknum |= ccs.downloadchunknum&~0xffff;	// restore the truncated chunk number
 
 	if (!chunknum)
 	{
-		dl->size = (unsigned int)msgfuncs->ReadLong();
-		cvarfuncs->SetFloat( cvarfuncs->GetNVFDG("cl_downloadSize", "0", 0, NULL, "Q3 Compat")->name, dl->size );	//so the gamecode knows download progress.
-	}
-
-	if (dl->size == (unsigned int)-1)
-	{	//the only downloads we should be getting is pk3s.
-		//if they're advertised-but-failing then its probably due to permissions rather than file-not-found
-		s = msgfuncs->ReadString();
-		clientfuncs->DownloadFailed(dl->remotename, dl, DLFAIL_SERVERCVAR);
-		plugfuncs->EndGame("%s", s);
-		return;
+		unsigned int size = (unsigned int)msgfuncs->ReadLong();
+		if (size == (unsigned int)-1)
+		{
+			s = msgfuncs->ReadString();
+			if (dl)
+			{
+				ccs.download = NULL;
+				clientfuncs->DownloadFailed(dl->remotename, dl, DLFAIL_SERVERCVAR);
+				plugfuncs->EndGame("%s", s);
+			}
+			return;
+		}
+		if (dl)
+		{
+			dl->size = size;
+			cvarfuncs->SetFloat(cvarfuncs->GetNVFDG("cl_downloadSize", "0", 0, NULL, "Q3 Compat")->name, dl->size);
+			Con_Printf("Downloading %s (%u bytes)\n", dl->remotename, size);
+		}
 	}
 
 	chunksize = (unsigned short)msgfuncs->ReadShort();
@@ -379,24 +387,26 @@ void CLQ3_ParseDownload(void)
 	for (i = 0; i < chunksize; i++)
 		chunkdata[i] = msgfuncs->ReadByte();
 
-	if (ccs.downloadchunknum != chunknum)	//the q3 client is rather lame.
+	// Consume unsolicited/retransmitted chunks before rejecting them, so the
+	// outer message parser remains aligned and never dereferences a freed dl.
+	if (!dl || dl->method != DL_Q3)
+	{
+		CLQ3_SendClientCommand("stopdl");
+		return;
+	}
+
+	if ((unsigned int)ccs.downloadchunknum != chunknum)	//the q3 client is rather lame.
 	{										//ccs.downloadchunknum holds the chunk number.
 		Con_DPrintf("PACKETLOSS WHEN DOWNLOADING!!!!\n");
 		return;	//let the server try again some time
 	}
 	ccs.downloadchunknum++;
 
-	if (!dl || dl->method != DL_Q3)
-	{
-		Con_Printf("Server sending download, but no download was requested\n");
-		CLQ3_SendClientCommand("stopdl");
-		return;
-	}
-
 	if (!dl->file)
 	{
 		if (!clientfuncs->DownloadBegun(dl))
 		{
+			ccs.download = NULL;
 			clientfuncs->DownloadFailed(dl->remotename, dl, DLFAIL_CLIENTFILE);
 			return;
 		}
@@ -406,7 +416,12 @@ void CLQ3_ParseDownload(void)
 
 	if (!chunksize)
 	{
+		// Acknowledge EOF before asking for a fresh gamestate. DownloadFinished
+		// frees dl, so detach it before callbacks or retransmitted chunks.
+		CLQ3_SendClientCommand("nextdl %u", chunknum);
+		ccs.download = NULL;
 		clientfuncs->DownloadFinished(dl);
+		CLQ3_SendClientCommand("donedl");
 
 		ccs.servercount = -1;	//make sure the server resends us that vital gamestate.
 		ccs.downloadchunknum = -1;
@@ -489,37 +504,74 @@ static qboolean CLQ3_SendDownloads(char *rc, char *rn)
 	return false;
 }
 
+// Systeminfo can contain pak lists much larger than GetInfoKey's rotating buffers.
+static qboolean CLQ3_InfoValue(const char *info, const char *key, char *out, size_t size)
+{
+	const char *start, *value;
+	size_t keylen = strlen(key), len;
+	if (!size)
+		return false;
+	*out = 0;
+	while (*info)
+	{
+		if (*info == '\\')
+			info++;
+		start = info;
+		while (*info && *info != '\\') info++;
+		len = info - start;
+		if (!*info)
+			break;
+		value = ++info;
+		while (*info && *info != '\\') info++;
+		if (len == keylen && !memcmp(start, key, keylen))
+		{
+			len = info - value;
+			if (len >= size)
+				return false;
+			memcpy(out, value, len);
+			out[len] = 0;
+			return true;
+		}
+	}
+	return true;
+}
+
 qboolean CLQ3_SystemInfoChanged(const char *str)
 {
 	qboolean usingpure, usingcheats;
-	char *value;
-	char *pc, *pn;
-	char *rc, *rn;
+	int puremode = 0;
+	char gamedir[MAX_QPATH];
+	// Q3's entire gamestate string table is limited to 16000 bytes.
+	char pc[16000], pn[16000], rc[16000], rn[16000];
 
 	Con_Printf("Server's sv_pure: \"%s\"\n", worldfuncs->GetInfoKey(str, "sv_pure"));
 	usingpure = atoi(worldfuncs->GetInfoKey(str, "sv_pure"));
 	usingcheats = atoi(worldfuncs->GetInfoKey(str, "sv_cheats"));
 	clientfuncs->ForceCheatVars(usingpure||usingcheats, usingcheats);
 
-//	if (atoi(value))
-//		Host_EndGame("Unable to connect to Q3 Pure Servers\n");
-	value = worldfuncs->GetInfoKey(str, "fs_game");
-
-	if (!*value)
+	// Empty fs_game means the configured base game (which may be OpenArena).
+	if (!CLQ3_InfoValue(str, "fs_game", gamedir, sizeof(gamedir)) ||
+		!CLQ3_InfoValue(str, "sv_referencedPaks", rc, sizeof(rc)) ||
+		!CLQ3_InfoValue(str, "sv_referencedPakNames", rn, sizeof(rn)) ||
+		!CLQ3_InfoValue(str, "sv_paks", pc, sizeof(pc)) ||
+		!CLQ3_InfoValue(str, "sv_pakNames", pn, sizeof(pn)))
 	{
-		value = "baseq3";
+		plugfuncs->EndGame("Oversized Q3 systeminfo value");
+		return false;
 	}
-
-	rc = worldfuncs->GetInfoKey(str, "sv_referencedPaks");	//the ones that we should download.
-	rn = worldfuncs->GetInfoKey(str, "sv_referencedPakNames");
 	if (CLQ3_SendDownloads(rc, rn))
 		return false;
 
-	pc = worldfuncs->GetInfoKey(str, "sv_paks");		//the ones that we are allowed to use (in order!)
-	pn = worldfuncs->GetInfoKey(str, "sv_pakNames");
-	fsfuncs->PureMode(value, usingpure?2:0, pn, pc, rn, rc, ccs.fs_key);
-
-	return true;	//yay, we're in
+	// Q3 only filters packages when the server supplies an allowed-pak list.
+	// Some OA mods set sv_pure but deliberately omit that list.
+	// With no allowlist, referenced downloads still override base assets.
+	// Soft mode gives them priority while permitting all other installed files.
+	if (usingpure && *pc)
+		puremode = 2;
+	else if (!*pc && *rc)
+		puremode = 1;
+	fsfuncs->PureMode(gamedir, puremode, *pc?pn:rn, *pc?pc:rc, rn, rc, ccs.fs_key);
+	return true;
 }
 
 void CLQ3_ParseGameState(sizebuf_t *msg)
@@ -532,6 +584,8 @@ void CLQ3_ParseGameState(sizebuf_t *msg)
 // wipe the client_state_t struct
 //
 	clientfuncs->ClearClientState();
+	// A map/mod change can defer cgame startup while packages download.
+	ccs.state = ca_connected;
 	CG_ClearGameState();
 	ccs.firstParseEntity = 0;
 	memset(ccs.parseEntities, 0, sizeof(ccs.parseEntities));
@@ -597,6 +651,9 @@ void CLQ3_ParseGameState(sizebuf_t *msg)
 
 	CG_Restart();
 	UI_Restart_f();
+	// Restarting the UI opens its in-game menu. A completed join should hand
+	// input to cgame instead of leaving that menu over the new match.
+	Q3_SetKeyCatcher(Q3_GetKeyCatcher() & ~2);
 
 	if (!ccs.worldmodel)
 		plugfuncs->EndGame("CGame didn't set a map.\n");
@@ -867,34 +924,37 @@ void CLQ3_SendCmd(struct ftenet_connections_s *socket, usercmd_t *cmd, unsigned 
 	const usercmd_t *to, *from;
 	static usercmd_t nullcmd;
 
-	//reuse the q1 array
-	cmd->servertime = gametime*1000;
-	cmd->weapon = ccs.selected_weapon;
-
-
-	cmd->forwardmove *= 127/400.0f;
-	cmd->sidemove *= 127/400.0f;
-	cmd->upmove *= 127/400.0f;
-	if (cmd->forwardmove > 127)
-		cmd->forwardmove = 127;
-	if (cmd->forwardmove < -127)
-		cmd->forwardmove = -127;
-	if (cmd->sidemove > 127)
-		cmd->sidemove = 127;
-	if (cmd->sidemove < -127)
-		cmd->sidemove = -127;
-	if (cmd->upmove > 127)
-		cmd->upmove = 127;
-	if (cmd->upmove < -127)
-		cmd->upmove = -127;
-
-	if (cmd->buttons & 2)	//jump
+	if (cmd)
 	{
-		cmd->upmove = 100;
-		cmd->buttons &= ~2;
+		//reuse the q1 array
+		cmd->servertime = gametime*1000;
+		cmd->weapon = ccs.selected_weapon;
+
+
+		cmd->forwardmove *= 127/400.0f;
+		cmd->sidemove *= 127/400.0f;
+		cmd->upmove *= 127/400.0f;
+		if (cmd->forwardmove > 127)
+			cmd->forwardmove = 127;
+		if (cmd->forwardmove < -127)
+			cmd->forwardmove = -127;
+		if (cmd->sidemove > 127)
+			cmd->sidemove = 127;
+		if (cmd->sidemove < -127)
+			cmd->sidemove = -127;
+		if (cmd->upmove > 127)
+			cmd->upmove = 127;
+		if (cmd->upmove < -127)
+			cmd->upmove = -127;
+
+		if (cmd->buttons & 2)	//jump
+		{
+			cmd->upmove = 100;
+			cmd->buttons &= ~2;
+		}
+		if (inputfuncs->GetKeyDest() & ~kdm_game)
+			cmd->buttons |= 2;	//add in the 'at console' button
 	}
-	if (inputfuncs->GetKeyDest() & ~kdm_game)
-		cmd->buttons |= 2;	//add in the 'at console' button
 
 	//FIXME: q3 generates a new command every video frame, but a new packet at a more limited rate.
 	//FIXME: we should return here if its not yet time for a network frame.
@@ -931,7 +991,7 @@ void CLQ3_SendCmd(struct ftenet_connections_s *socket, usercmd_t *cmd, unsigned 
 	if (i < ccs.netchan.outgoing_sequence-Q3CMD_MASK)
 		i = ccs.netchan.outgoing_sequence-Q3CMD_MASK;
 	oldsequence = movesequence-1;//cl.outframes[i & Q3CMD_MASK].cmd_sequence;
-	cmdcount = movesequence - oldsequence;
+	cmdcount = cmd ? movesequence - oldsequence : 0;
 	if (cmdcount > Q3CMD_MASK)
 		cmdcount = Q3CMD_MASK;
 
@@ -1047,7 +1107,19 @@ void CLQ3_Established(void)
 
 void CLQ3_Disconnect(struct ftenet_connections_s *socket)
 {
+	qboolean connected = ccs.state >= ca_connected;
+	int i;
+	// Clear state first: error cleanup must not recursively disconnect again.
 	ccs.state = ca_disconnected;
+	if (connected && socket && ccs.netchan.remote_address.type != NA_INVALID &&
+		ccs.numClientCommands - ccs.lastClientCommandNum < Q3TEXTCMD_BACKUP - 1)
+	{
+		CLQ3_SendClientCommand("disconnect");
+		// Reliable UDP commands need a few chances to reach the server on exit.
+		for (i = 0; i < 3; i++)
+			CLQ3_SendCmd(socket, NULL, 0, 0);
+	}
+	CG_Stop();
 }
 #endif
 
