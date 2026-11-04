@@ -36,6 +36,10 @@ def compile_flags(entry):
             continue
         result.append(arg)
         i += 1
+    # GCC can use different contraction defaults for GNU and ISO C.
+    # Compare both dialects with one policy while honoring an explicit build flag.
+    if not any(arg.startswith('-ffp-contract=') for arg in result[1:]):
+        result.append('-ffp-contract=off')
     return result
 
 
