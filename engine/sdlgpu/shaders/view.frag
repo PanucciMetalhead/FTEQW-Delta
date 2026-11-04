@@ -1,6 +1,6 @@
 #version 450
 layout(set=2,binding=0) uniform sampler2D scene;
-layout(set=3,binding=0,std140) uniform Panini { vec4 projection; vec4 quality; } u;
+layout(set=3,binding=0,std140) uniform View { vec4 projection; vec4 quality; } u;
 layout(location=0) in vec2 uv;
 layout(location=0) out vec4 outputcolor;
 // Catmull-Rom reconstruction: group the positive middle weights into
@@ -47,9 +47,34 @@ vec4 reconstruct(sampler2D scene, vec2 source, vec2 texel, float cubicfilter, fl
     // Preserve HDR highlights: only alpha has a unit upper bound.
     return vec4(max(color.rgb, vec3(0.0)), clamp(color.a,0.0,1.0));
 }
+vec2 underwater(vec2 uv, float mode, float time) {
+    if (mode == 2.0) {
+        // WinQuake D_WarpScreen. Keep its 128-pixel period, integer offsets
+        // and six-pixel edge compression in 320x200 reference coordinates.
+        const vec2 reference = vec2(320.0, 200.0);
+        vec2 pixel = uv * reference;
+        vec2 phase = floor(pixel.yx) + floor(time * 20.0);
+        vec2 offset = floor(3.0 + 3.0 * sin(mod(phase, 128.0) * (6.28318 / 128.0)));
+        return (max(pixel - 0.5, vec2(0.0)) + offset) / (reference + 6.0);
+    }
+    // The older FTE shader used a scrolling sine/cosine lookup and edge fade.
+    vec2 edge = min(uv, 1.0 - uv);
+    float fade = sin(min(1.0, min(edge.x, edge.y) * 16.0) * 1.5707963);
+    vec2 phase = (uv.yx + time * 0.25) * 6.2831853;
+    return uv + vec2(sin(phase.x), cos(phase.y)) * (0.016 * min(mode, 4.0) * fade);
+}
 void main() {
-    vec2 p = uv * 2.0 - 1.0;
+    float warp = u.quality.z;
+    vec2 source = warp > 0.0 ? underwater(uv, warp, u.quality.w) : uv;
+    if (u.projection.x == 0.0) {
+        vec2 texel = u.projection.yz;
+        if (warp == 2.0)
+            source = (floor(source / texel) + 0.5) * texel;
+        outputcolor = textureLod(scene, source, 0.0);
+        return;
+    }
+    vec2 p = source * 2.0 - 1.0;
     float scale = (1.0 - u.projection.x) / (1.0 - u.projection.x * p.x * p.x);
-    vec2 source = p * scale * 0.5 + 0.5;
+    source = p * scale * 0.5 + 0.5;
     outputcolor = reconstruct(scene, source, u.projection.yz, u.quality.x, u.projection.w);
 }

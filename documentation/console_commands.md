@@ -2096,7 +2096,7 @@ Jump to [symbols and A–C](#cvars-symbols-and-ac), [D–H](#cvars-dh),
 | `r_viewpreselgun` | `"0"` | HACK: Display the preselected weaponmodel, instead of the current weaponmodel. |
 | `r_wateralpha` | `"1"` | **Different:** Water opacity. Quake 1 liquid surfaces use this; Quake 3 shader-stage blending is defined by the material instead. |
 | `r_waterstyle` | `"1"` | Changes how water, and teleporters are drawn. Possible values are:<br>0: fastturb-style block colour.<br>1: regular q1-style water.<br>2: refraction(ripply and transparent)<br>3: refraction with reflection at an angle<br>4: ripplemapped without reflections (requires particle effects)<br>5: ripples+reflections |
-| `r_waterwarp` | `"1"` | Enables fullscreen warp, preferably via glsl. -1 specifies to force the fov warp fallback instead which can give a smidge more performance. |
+| `r_waterwarp` | `"2"` (SDL3 GPU) | Underwater view distortion. 0 disables it, -1 pulses the field of view, 1 applies a smooth shader ripple, and 2 uses the classic Quake warp on SDL3 GPU. The Simple and Fast graphics presets select 0. |
 | `r_wireframe_smooth` | `"0"` | Wireframe line-smoothing preference retained by renderer code; backend support varies. |
 | `r_zProj` | on demand | **Q3:** Legacy Quake 3 gamecode stereo projection-distance lookup; not the engine's FOV setting. |
 | `rank_autoadd` | `"1"` | Automatically register players into the ranking system |

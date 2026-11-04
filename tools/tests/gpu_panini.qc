@@ -41,11 +41,15 @@ void(vector position, vector size, vector angles) view = {
         setproperty(11, '0 0 0'); setproperty(15, '0 0 0');
         setproperty(19, 0); addentity(preview);
     }
+    if (cvar("gpu_panini_layout") >= 5) {
+        setproperty(11, position_x ? '0 2816 -70' : '128 2816 -170');
+        setproperty(15, '20 0 0');
+    }
     setproperty(8, [cvar("gpu_panini_fov"), 85, 0]);
     renderscene();
 };
 void(float width, float height, float do2d) CSQC_UpdateView = {
-    if (cvar("gpu_panini_layout") == 1) {
+    if (cvar("gpu_panini_layout") == 1 || cvar("gpu_panini_layout") == 6) {
         view('0 0 0', [width/2, height, 0], '10 160 0');
         view([width/2, 0, 0], [width/2, height, 0], '0 60 0');
     } else if (cvar("gpu_panini_layout") == 2) {

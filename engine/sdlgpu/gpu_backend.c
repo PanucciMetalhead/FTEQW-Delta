@@ -133,7 +133,7 @@ void GPU_CheckLightingSettings(void)
 
 typedef struct pipeline_s {
     unsigned bits, cull;
-    qboolean lines, panini;
+    qboolean lines, composite;
     SDL_GPUTextureFormat format;
     SDL_GPUGraphicsPipeline *pipeline;
     struct pipeline_s *next;
@@ -149,40 +149,47 @@ static gpu_target_t *targets;
 
 /* One cached source per view, including split-screen and CSQC render targets.
  * A later view must not overwrite an image referenced by an earlier warp. */
-struct gpu_panini_view_s {
+struct gpu_composite_view_s {
     SDL_GPUTexture *color, *depth, *destination, *destinationdepth;
     SDL_GPUTextureFormat format;
     unsigned width, height, requestedwidth, requestedheight, destinationwidth, destinationheight;
+    unsigned levels, requestedlevels;
     pxrect_t rect;
-    float warp;
+    float paniniwarp;
     qboolean used, populated;
     size_t firstdraw;
-    struct gpu_panini_view_s *next;
+    struct gpu_composite_view_s *next;
 };
-static gpu_panini_view_t *paniniviews;
+static gpu_composite_view_t *compositeviews;
 
-gpu_panini_view_t *GPU_BeginPaniniView(float fovx)
+gpu_composite_view_t *GPU_BeginCompositeView(qboolean panini, float fovx)
 {
-    gpu_panini_view_t *view, *available = NULL;
+    gpu_composite_view_t *view, *available = NULL;
     SDL_GPUTextureCreateInfo ci = {0};
     unsigned basewidth = max(1, r_refdef.pxrect.width), baseheight = max(1, r_refdef.pxrect.height);
-    unsigned width, height;
-    GPU_PaniniDimensions(basewidth, baseheight, r_panini_scale.value, &width, &height);
-    for (view = paniniviews; view; view = view->next) if (!view->used) {
+    unsigned width = basewidth, height = baseheight, levels = 1;
+    if (panini) {
+        GPU_PaniniDimensions(basewidth, baseheight, r_panini_scale.value, &width, &height);
+        levels = GPU_PaniniLevels(width, height);
+    }
+    for (view = compositeviews; view; view = view->next) if (!view->used) {
         if (!available) available = view;
-        if (view->requestedwidth == width && view->requestedheight == height && view->format == gpu.targetformat) break;
+        if (view->requestedwidth == width && view->requestedheight == height &&
+            view->requestedlevels == levels && view->format == gpu.targetformat) break;
     }
     if (!view) view = available;
     if (!view) {
-        view = Z_Malloc(sizeof(*view)); view->next = paniniviews; paniniviews = view;
+        view = Z_Malloc(sizeof(*view)); view->next = compositeviews; compositeviews = view;
     }
     view->used = true; view->firstdraw = gpu.numdraws;
-    if (!view->color || view->requestedwidth != width || view->requestedheight != height || view->format != gpu.targetformat) {
+    if (!view->color || view->requestedwidth != width || view->requestedheight != height ||
+        view->requestedlevels != levels || view->format != gpu.targetformat) {
         if (view->color) SDL_ReleaseGPUTexture(gpu.device, view->color);
         if (view->depth) SDL_ReleaseGPUTexture(gpu.device, view->depth);
         view->requestedwidth = width; view->requestedheight = height;
+        view->requestedlevels = levels;
         ci.type = SDL_GPU_TEXTURETYPE_2D; ci.width = width; ci.height = height;
-        ci.layer_count_or_depth = 1; ci.num_levels = GPU_PaniniLevels(width, height);
+        ci.layer_count_or_depth = 1; ci.num_levels = levels;
         ci.sample_count = SDL_GPU_SAMPLECOUNT_1;
         ci.format = gpu.targetformat; ci.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
         view->color = SDL_CreateGPUTexture(gpu.device, &ci);
@@ -196,13 +203,14 @@ gpu_panini_view_t *GPU_BeginPaniniView(float fovx)
             if (view->color) SDL_ReleaseGPUTexture(gpu.device, view->color);
             if (view->depth) SDL_ReleaseGPUTexture(gpu.device, view->depth);
             width = basewidth; height = baseheight; ci.width = width; ci.height = height;
-            ci.num_levels = GPU_PaniniLevels(width, height); ci.format = gpu.targetformat; ci.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
+            levels = GPU_PaniniLevels(width, height);
+            ci.num_levels = levels; ci.format = gpu.targetformat; ci.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
             view->color = SDL_CreateGPUTexture(gpu.device, &ci);
             ci.num_levels = 1; ci.format = gpu.depthformat; ci.usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET;
             view->depth = SDL_CreateGPUTexture(gpu.device, &ci);
         }
-        if (!view->color || !view->depth) GPU_Error("create Panini view");
-        view->width = width; view->height = height; view->format = gpu.targetformat;
+        if (!view->color || !view->depth) GPU_Error("create view composite source");
+        view->width = width; view->height = height; view->levels = levels; view->format = gpu.targetformat;
     }
     view->destination = gpu.target; view->destinationdepth = gpu.targetdepth;
     view->destinationwidth = gpu.targetwidth; view->destinationheight = gpu.targetheight;
@@ -210,8 +218,8 @@ gpu_panini_view_t *GPU_BeginPaniniView(float fovx)
     /* Standard Panini (D=1): x=2*tan(longitude/2). Screen fitting preserves
      * horizontal coverage and keeps every output sample inside the source.
      * The same factor on both axes preserves proportions at screen center. */
-    view->warp = tan(bound(0.001f, fovx, 179.0f) * M_PI / 720.0);
-    view->warp *= view->warp;
+    view->paniniwarp = panini ? tan(bound(0.001f, fovx, 179.0f) * M_PI / 720.0) : 0;
+    view->paniniwarp *= view->paniniwarp;
     gpu.target = view->color; gpu.targetdepth = view->depth;
     gpu.targetwidth = view->width; gpu.targetheight = view->height;
     r_refdef.pxrect.x = r_refdef.pxrect.y = 0;
@@ -219,7 +227,7 @@ gpu_panini_view_t *GPU_BeginPaniniView(float fovx)
     return view;
 }
 
-void GPU_EndPaniniView(gpu_panini_view_t *view)
+void GPU_EndCompositeView(gpu_composite_view_t *view, float waterwarp)
 {
     gpu_draw_t *draw;
     size_t i;
@@ -232,17 +240,23 @@ void GPU_EndPaniniView(gpu_panini_view_t *view)
         gpu.draws = BZ_Realloc(gpu.draws, gpu.maxdraws*sizeof(*gpu.draws));
     }
     draw = &gpu.draws[gpu.numdraws++]; memset(draw, 0, sizeof(*draw));
-    draw->panini = true; draw->projection[0] = view->warp;
+    draw->composite = true; draw->projection[0] = view->paniniwarp;
     draw->projection[1] = 1.0f / view->width; draw->projection[2] = 1.0f / view->height;
-    draw->projection[3] = isfinite(r_panini_sharpen.value) ? bound(0, r_panini_sharpen.value, 1) : 0;
-    draw->projection[4] = r_panini_filter.ival == 1;
-    draw->projection[5] = GPU_PaniniLevels(view->width, view->height) > 1;
+    if (view->paniniwarp) {
+        draw->projection[3] = isfinite(r_panini_sharpen.value) ? bound(0, r_panini_sharpen.value, 1) : 0;
+        draw->projection[4] = r_panini_filter.ival == 1;
+        draw->projection[5] = view->levels > 1;
+    }
+    draw->projection[6] = waterwarp;
+    /* 32 seconds is a whole number of cycles for both underwater effects. */
+    draw->projection[7] = waterwarp ? fmod(cl.time, 32.0) : 0;
     draw->target = view->destination; draw->depth = view->destinationdepth; draw->format = view->format;
     draw->viewport.x = view->rect.x; draw->viewport.y = view->rect.y;
     draw->viewport.w = view->rect.width; draw->viewport.h = view->rect.height;
     draw->viewport.max_depth = 1;
     draw->scissor.w = view->destinationwidth; draw->scissor.h = view->destinationheight;
-    draw->samplers[0].texture = view->color; draw->samplers[0].sampler = gpu.paninisampler;
+    draw->samplers[0].texture = view->color;
+    draw->samplers[0].sampler = view->paniniwarp ? gpu.paninisampler : gpu.postsampler;
     gpu.target = view->destination; gpu.targetdepth = view->destinationdepth;
     gpu.targetwidth = view->destinationwidth; gpu.targetheight = view->destinationheight;
     r_refdef.pxrect = view->rect;
@@ -250,8 +264,8 @@ void GPU_EndPaniniView(gpu_panini_view_t *view)
 
 void GPU_PaniniInfo(void)
 {
-    gpu_panini_view_t *view;
-    for (view = paniniviews; view; view = view->next) if (view->used)
+    gpu_composite_view_t *view;
+    for (view = compositeviews; view; view = view->next) if (view->used && view->paniniwarp)
         Con_Printf("Panini view %ux%u: source %ux%u, %s, sharpening %.2f\n",
             view->rect.width, view->rect.height, view->width, view->height,
             r_panini_filter.ival == 1 ? "bicubic" : "bilinear",
@@ -343,7 +357,7 @@ static SDL_GPUGraphicsPipeline *GPU_Pipeline(unsigned bits, unsigned cull, qbool
     /* Alpha test is a fragment uniform, so it needn't multiply pipeline variants. */
     bits &= ~SBITS_ATEST_BITS;
     for (p = pipelines; p; p = p->next)
-        if (!p->panini && p->bits == bits && p->cull == cull && p->lines == lines && p->format == format) return p->pipeline;
+        if (!p->composite && p->bits == bits && p->cull == cull && p->lines == lines && p->format == format) return p->pipeline;
     buffer.pitch = sizeof(gpu_vertex_t); buffer.input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX;
     info.vertex_shader = gpu.vertexshader; info.fragment_shader = gpu.fragmentshader;
     info.vertex_input_state.vertex_buffer_descriptions = &buffer;
@@ -387,22 +401,22 @@ static SDL_GPUGraphicsPipeline *GPU_Pipeline(unsigned bits, unsigned cull, qbool
     return p->pipeline;
 }
 
-static SDL_GPUGraphicsPipeline *GPU_PaniniPipeline(SDL_GPUTextureFormat format)
+static SDL_GPUGraphicsPipeline *GPU_CompositePipeline(SDL_GPUTextureFormat format)
 {
     SDL_GPUGraphicsPipelineCreateInfo info = {0};
     SDL_GPUColorTargetDescription color = {0};
     pipeline_t *p;
-    for (p = pipelines; p; p = p->next) if (p->panini && p->format == format) return p->pipeline;
-    info.vertex_shader = gpu.postvertex; info.fragment_shader = gpu.paninifragment;
+    for (p = pipelines; p; p = p->next) if (p->composite && p->format == format) return p->pipeline;
+    info.vertex_shader = gpu.postvertex; info.fragment_shader = gpu.viewfragment;
     info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
     info.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
     info.multisample_state.sample_count = SDL_GPU_SAMPLECOUNT_1;
     color.format = format;
     info.target_info.color_target_descriptions = &color; info.target_info.num_color_targets = 1;
     info.target_info.has_depth_stencil_target = true; info.target_info.depth_stencil_format = gpu.depthformat;
-    p = Z_Malloc(sizeof(*p)); p->panini = true; p->format = format;
+    p = Z_Malloc(sizeof(*p)); p->composite = true; p->format = format;
     p->pipeline = SDL_CreateGPUGraphicsPipeline(gpu.device, &info);
-    if (!p->pipeline) GPU_Error("create Panini pipeline");
+    if (!p->pipeline) GPU_Error("create view composite pipeline");
     p->next = pipelines; pipelines = p;
     return p->pipeline;
 }
@@ -420,7 +434,7 @@ void GPU_BackendInit(void)
     gpu.postvertex = GPU_Shader(gpu_post_vert_spv, sizeof(gpu_post_vert_spv), gpu_post_vert_msl, SDL_GPU_SHADERSTAGE_VERTEX, 0, 0, 0);
     gpu.postfragment = GPU_Shader(gpu_post_frag_spv, sizeof(gpu_post_frag_spv), gpu_post_frag_msl, SDL_GPU_SHADERSTAGE_FRAGMENT, 2, 1, 0);
     gpu.bloomshader = GPU_Shader(gpu_bloom_frag_spv, sizeof(gpu_bloom_frag_spv), gpu_bloom_frag_msl, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 1, 0);
-    gpu.paninifragment = GPU_Shader(gpu_panini_frag_spv, sizeof(gpu_panini_frag_spv), gpu_panini_frag_msl, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 1, 0);
+    gpu.viewfragment = GPU_Shader(gpu_view_frag_spv, sizeof(gpu_view_frag_spv), gpu_view_frag_msl, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 1, 0);
     pi.vertex_shader = gpu.postvertex; pi.fragment_shader = gpu.postfragment;
     pi.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
     pi.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
@@ -515,13 +529,13 @@ void GPU_BackendShutdown(void)
         if (gpu.bloompipeline[i]) SDL_ReleaseGPUGraphicsPipeline(gpu.device, gpu.bloompipeline[i]);
     if (gpu.bloomshader) SDL_ReleaseGPUShader(gpu.device, gpu.bloomshader);
     GPU_FreeWaterViews();
-    while (paniniviews) {
-        gpu_panini_view_t *view = paniniviews;
-        paniniviews = view->next;
+    while (compositeviews) {
+        gpu_composite_view_t *view = compositeviews;
+        compositeviews = view->next;
         SDL_ReleaseGPUTexture(gpu.device, view->color); SDL_ReleaseGPUTexture(gpu.device, view->depth);
         Z_Free(view);
     }
-    if (gpu.paninifragment) SDL_ReleaseGPUShader(gpu.device, gpu.paninifragment);
+    if (gpu.viewfragment) SDL_ReleaseGPUShader(gpu.device, gpu.viewfragment);
     while ((p = pipelines)) {
         pipelines = p->next; SDL_ReleaseGPUGraphicsPipeline(gpu.device, p->pipeline); Z_Free(p);
     }
@@ -569,7 +583,7 @@ void GPU_BeginFrame(void)
     GPU_LightingBeginFrame();
     collectshadowonly = false;
     gpu.sceneonlygamma = !!vid_sceneonlygamma.ival;
-    for (gpu_panini_view_t *view = paniniviews; view; view = view->next) view->used = false;
+    for (gpu_composite_view_t *view = compositeviews; view; view = view->next) view->used = false;
     numwaterviews = 0; currentwater = NULL; clipenabled = false;
     if (vid_vsync.modified) {
         SDL_GPUPresentMode present = vid_vsync.ival ? SDL_GPU_PRESENTMODE_VSYNC : SDL_GPU_PRESENTMODE_IMMEDIATE;
@@ -780,8 +794,8 @@ static void GPU_DrawCommands(SDL_GPURenderPass *pass, size_t first, size_t end, 
         gpu_draw_t *d = &gpu.draws[i];
         SDL_GPUGraphicsPipeline *pipeline;
         if (d->shadowonly || (gpu.sceneonlygamma && d->screenoverlay) != overlays) continue;
-        if (d->panini) {
-            SDL_BindGPUGraphicsPipeline(pass, GPU_PaniniPipeline(d->format));
+        if (d->composite) {
+            SDL_BindGPUGraphicsPipeline(pass, GPU_CompositePipeline(d->format));
             SDL_SetGPUViewport(pass, &d->viewport); SDL_SetGPUScissor(pass, &d->scissor);
             SDL_PushGPUFragmentUniformData(gpu.command, 0, d->projection, sizeof(d->projection));
             SDL_BindGPUFragmentSamplers(pass, 0, d->samplers, 1);
@@ -898,11 +912,11 @@ void GPU_EndFrame(void)
     GPU_UploadGeometry();
     GPU_LightingUpload();
     GPU_DrawShadows();
-    for (gpu_panini_view_t *view = paniniviews; view; view = view->next) if (view->used && !view->populated) {
+    for (gpu_composite_view_t *view = compositeviews; view; view = view->next) if (view->used && !view->populated) {
         color.texture = view->color; color.load_op = SDL_GPU_LOADOP_CLEAR;
         color.store_op = SDL_GPU_STOREOP_STORE; color.clear_color.a = 1;
         pass = SDL_BeginGPURenderPass(gpu.command, &color, 1, NULL);
-        if (!pass) GPU_Error("clear Panini source");
+        if (!pass) GPU_Error("clear view composite source");
         SDL_EndGPURenderPass(pass);
     }
     /* Consecutive draws retain their destination. A target may be sampled after
@@ -927,7 +941,7 @@ void GPU_EndFrame(void)
          * Bilinear compatibility mode samples level zero and skips this work. */
         for (j = first; j < end; ++j) {
             gpu_draw_t *d = &gpu.draws[j];
-            if (d->panini && d->projection[4] && d->projection[5])
+            if (d->composite && d->projection[4] && d->projection[5])
                 SDL_GenerateMipmapsForGPUTexture(gpu.command, d->samplers[0].texture);
         }
         color.texture = initial->target; color.load_op = seen ? SDL_GPU_LOADOP_LOAD : SDL_GPU_LOADOP_CLEAR;

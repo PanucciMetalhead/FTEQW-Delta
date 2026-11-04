@@ -1,7 +1,7 @@
 #include <metal_stdlib>
 using namespace metal;
 struct Input { float4 position [[position]]; float2 uv; };
-struct Panini { float4 projection; float4 quality; };
+struct View { float4 projection; float4 quality; };
 // Catmull-Rom reconstruction: group the positive middle weights into
 // linear samples, leaving the negative outer lobes separate (nine reads).
 float4 cubic(texture2d<float> scene, sampler s, float2 uv, float2 texel) {
@@ -46,10 +46,33 @@ float4 reconstruct(texture2d<float> scene, sampler s, float2 source, float2 texe
     // Preserve HDR highlights: only alpha has a unit upper bound.
     return float4(max(color.rgb, float3(0.0)), clamp(color.a,0.0,1.0));
 }
-fragment float4 main0(Input v [[stage_in]], constant Panini &u [[buffer(0)]],
+float2 underwater(float2 uv, float mode, float time) {
+    if (mode == 2.0f) {
+        // WinQuake D_WarpScreen, using 320x200 reference coordinates.
+        const float2 reference = float2(320.0f, 200.0f);
+        float2 pixel = uv * reference;
+        float2 phase = floor(pixel.yx) + floor(time * 20.0f);
+        float2 wrapped = phase - floor(phase / 128.0f) * 128.0f;
+        float2 offset = floor(3.0f + 3.0f * sin(wrapped * (6.28318f / 128.0f)));
+        return (max(pixel - 0.5f, float2(0.0f)) + offset) / (reference + 6.0f);
+    }
+    float2 edge = min(uv, 1.0f - uv);
+    float fade = sin(min(1.0f, min(edge.x, edge.y) * 16.0f) * 1.5707963f);
+    float2 phase = (uv.yx + time * 0.25f) * 6.2831853f;
+    return uv + float2(sin(phase.x), cos(phase.y)) * (0.016f * min(mode, 4.0f) * fade);
+}
+fragment float4 main0(Input v [[stage_in]], constant View &u [[buffer(0)]],
     texture2d<float> scene [[texture(0)]], sampler s [[sampler(0)]]) {
-    float2 p = v.uv * 2.0f - 1.0f;
+    float warp = u.quality.z;
+    float2 source = warp > 0.0f ? underwater(v.uv, warp, u.quality.w) : v.uv;
+    if (u.projection.x == 0.0f) {
+        float2 texel = u.projection.yz;
+        if (warp == 2.0f)
+            source = (floor(source / texel) + 0.5f) * texel;
+        return scene.sample(s, source, level(0.0f));
+    }
+    float2 p = source * 2.0f - 1.0f;
     float scale = (1.0f - u.projection.x) / (1.0f - u.projection.x * p.x * p.x);
-    float2 source = p * scale * 0.5f + 0.5f;
+    source = p * scale * 0.5f + 0.5f;
     return reconstruct(scene, s, source, u.projection.yz, u.quality.x, u.projection.w);
 }

@@ -72,8 +72,8 @@ typedef struct gpu_draw_s {
     unsigned bits, cull;
     SDL_GPUBuffer *vertexbuffer; /* NULL selects the frame's streamed vertices. */
     gpu_lightview_t *lighting;
-    qboolean lines, castshadow, shadowonly, screenoverlay, panini, vertexlit;
-    float projection[8]; /* warp, source texel size, sharpening; filter, padding */
+    qboolean lines, castshadow, shadowonly, screenoverlay, composite, vertexlit;
+    float projection[8]; /* Panini warp, source texel size, sharpening; filter, mips, water warp, time */
     SDL_GPUTexture *target, *depth;
     SDL_GPUTextureFormat format;
     SDL_GPUViewport viewport;
@@ -90,7 +90,7 @@ typedef struct {
     SDL_GPUTextureFormat colorformat, depthformat, sceneformat, targetformat;
     SDL_GPUTexture *target, *targetdepth;
     unsigned targetwidth, targetheight;
-    SDL_GPUShader *vertexshader, *fragmentshader, *postvertex, *postfragment, *shadowvertex, *shadowfragment, *paninifragment;
+    SDL_GPUShader *vertexshader, *fragmentshader, *postvertex, *postfragment, *shadowvertex, *shadowfragment, *viewfragment;
     SDL_GPUGraphicsPipeline *postpipeline, *shadowpipeline;
     SDL_GPUSampler *postsampler, *paninisampler, *shadowsampler;
     SDL_GPUShader *bloomshader;
@@ -143,9 +143,9 @@ void GPU_LightingInfo(void);
 qboolean GPU_ClusterLights(gpu_draw_t *);
 unsigned GPU_ShadowSlot(dlight_t *, float params[4]);
 void GPU_Set2D(void);
-typedef struct gpu_panini_view_s gpu_panini_view_t;
-gpu_panini_view_t *GPU_BeginPaniniView(float fovx);
-void GPU_EndPaniniView(gpu_panini_view_t *view);
+typedef struct gpu_composite_view_s gpu_composite_view_t;
+gpu_composite_view_t *GPU_BeginCompositeView(qboolean panini, float fovx);
+void GPU_EndCompositeView(gpu_composite_view_t *view, float waterwarp);
 void GPU_PaniniInfo(void);
 void GPU_SelectMode(backendmode_t);
 void GPU_DrawMeshList(shader_t *, int, mesh_t **, vbo_t *, texnums_t *, unsigned);

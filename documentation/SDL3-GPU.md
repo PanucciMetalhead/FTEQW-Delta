@@ -101,7 +101,8 @@ The lighting menu retains upstream's Apply/video restart behavior.
 | Classic dynamic lightmaps | `r_dynamic 0/1` | Retains the generic engine lightmap path. |
 | Static lightmap contribution with RT lights | `r_shadow_realtime_world_lightmaps` | Zero removes the static contribution; one retains it fully. |
 | Water surfaces | `r_waterstyle 0/1/2/3` | Flat, classic, refraction, reflection + refraction. Per-fluid overrides include `r_slimestyle`, `r_lavastyle`, and `r_telestyle`. |
-| Water movement/transparency | `r_waterwarp`, `r_wateralpha` | Refractive surfaces retain their configured opacity too, including custom mod liquids. Alpha 1 keeps the texture opaque; lower alpha reveals refraction. Subject to server visibility rules and map overrides. |
+| Underwater view warp | `r_waterwarp 0/-1/1/2` | Disabled, FOV Warp, Shader, or Classic (Quake). Changes apply immediately when the camera is submerged. |
+| Water transparency | `r_wateralpha` | Refractive surfaces retain their configured opacity too, including custom mod liquids. Alpha 1 keeps the texture opaque; lower alpha reveals refraction. Subject to server visibility rules and map overrides. |
 | Slime/lava transparency | `r_slimealpha`, `r_lavaalpha` | Empty inherits `r_wateralpha`. These overrides use the same opacity rules as other liquids, including refractive styles; lower alpha allows refraction to show through. |
 | Bloom | `r_bloom 0/1` | Nonzero values set its strength; `gl_bloom` is an alias. |
 | Floating-point scene buffer | `r_hdr_framebuffer 0/1` | Selects RGBA16F when supported; SDR display output. |
@@ -110,6 +111,20 @@ The lighting menu retains upstream's Apply/video restart behavior.
 | Texture filtering | `gl_texturemode`, `gl_texturemode2d`, `gl_texture_anisotropic_filtering` | Separate world/UI filtering, mip limits and anisotropy. |
 | Display adjustments | `gamma`, `contrast`, `brightness`, `v_contrastboost` | Applied in the GPU presentation shader. |
 | Scene-only display adjustments | `vid_sceneonlygamma 0/1` | **Options → Video → Scene-Only Gamma**. Off adjusts the full image; on adjusts the 3D view before drawing HUD, menu, console, and other screen overlays. Takes effect immediately and is saved in configs. |
+
+**Classic (Quake)** adapts the original software renderer's [screen warp](https://github.com/id-Software/Quake/blob/master/WinQuake/d_scan.c).
+It shifts rows and columns in stepped sine waves and crops slightly at the
+edges. It uses a 320×200 reference grid for the wave pattern and samples the
+SDL3 GPU scene at its render resolution. **Shader** applies FTE's smoother
+screen ripple, which fades toward the edges. **FOV Warp** gently pulses the
+horizontal and vertical camera angles without a screen-space pass. Earlier
+SDL3 GPU builds used that FOV effect for both Shader and FOV Warp.
+
+Spasm, Vanilla, Normal, Nice, and Realtime select **Classic (Quake)**. Simple
+and Fast (QuakeWorld deathmatch) select **Disabled**. Existing saved values
+are read as-is, so choose Classic in Rendering Options or enter
+`seta r_waterwarp 2` to update a saved configuration. Water Surfaces separately
+controls the appearance of the liquid itself.
 
 The old Gamma Mode selector has been replaced by Scene-Only Gamma. SDL3 GPU
 always uses shader correction; legacy `vid_hardwaregamma` values do not select
