@@ -336,8 +336,8 @@ extern cvar_t r_speeds;
 extern cvar_t r_waterwarp;
 
 #ifdef BEF_PUSHDEPTH
-cvar_t	r_polygonoffset_submodel_factor = CVARD("r_polygonoffset_submodel_factor", "0", "z-fighting avoidance. Pushes submodel depth values slightly towards the camera depending on the slope of the surface.");
-cvar_t	r_polygonoffset_submodel_offset = CVARD("r_polygonoffset_submodel_offset", "0", "z-fighting avoidance. Pushes submodel depth values slightly towards the camera by a consistent distance.");
+cvar_t	r_polygonoffset_submodel_factor = CVARD("r_polygonoffset_submodel_factor", "0", "Slope-dependent depth bias for brush submodels. Positive values push them away from the camera to reduce z-fighting.");
+cvar_t	r_polygonoffset_submodel_offset = CVARD("r_polygonoffset_submodel_offset", "0", "Constant depth bias for brush submodels. Positive values push them away from the camera to reduce z-fighting.");
 cvar_t	r_polygonoffset_submodel_maps = CVARD("r_polygonoffset_submodel_map", "e?m? r?m? hip?m?", "List of maps on which z-fighting reduction should be used. wildcards accepted.");
 #endif
 cvar_t	r_polygonoffset_shadowmap_offset = CVAR("r_polygonoffset_shadowmap_factor", "0.05");

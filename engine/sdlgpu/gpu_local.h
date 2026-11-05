@@ -70,6 +70,7 @@ typedef struct gpu_draw_s {
     vec3_t mins, maxs;
     qboolean boundsvalid;
     unsigned bits, cull;
+    polyoffset_t depthbias;
     SDL_GPUBuffer *vertexbuffer; /* NULL selects the frame's streamed vertices. */
     gpu_lightview_t *lighting;
     qboolean lines, castshadow, shadowonly, screenoverlay, composite, vertexlit;

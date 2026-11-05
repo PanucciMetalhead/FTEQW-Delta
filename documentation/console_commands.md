@@ -2016,9 +2016,9 @@ Jump to [symbols and A–C](#cvars-symbols-and-ac), [D–H](#cvars-dh),
 | `r_polygonoffset_shadowmap_offset` | `"0"` | Slope/constant depth-bias settings for shadow-map geometry. |
 | `r_polygonoffset_stencil_factor` | `"0.01"` | Legacy slope/constant polygon-offset settings for stencil-shadow rendering. |
 | `r_polygonoffset_stencil_offset` | `"1"` | Legacy slope/constant polygon-offset settings for stencil-shadow rendering. |
-| `r_polygonoffset_submodel_factor` | Q1: `"0.05"`; Q3: `"0"` | z-fighting avoidance. Pushes submodel depth values slightly towards the camera depending on the slope of the surface. |
+| `r_polygonoffset_submodel_factor` | Q1: `"0.05"`; Q3: `"0"` | Slope-dependent depth bias for brush submodels. Positive values push them away from the camera to reduce z-fighting. |
 | `r_polygonoffset_submodel_map` | `"e?m? r?m? hip?m?"` | List of maps on which z-fighting reduction should be used. wildcards accepted. |
-| `r_polygonoffset_submodel_offset` | Q1: `"25"`; Q3: `"0"` | z-fighting avoidance. Pushes submodel depth values slightly towards the camera by a consistent distance. |
+| `r_polygonoffset_submodel_offset` | Q1: `"25"`; Q3: `"0"` | Constant depth bias for brush submodels. Positive values push them away from the camera to reduce z-fighting. |
 | `r_postprocshader` | `""` | Specifies a custom shader to use as a post-processing shader |
 | `r_powerupglow` | `"1"` | **Q1 target:** enable dynamic-light glow around powerup-bearing entities. |
 | `r_projection` | `"0"` | 0: regular perspective.<br>1: stereographic.<br>2: fisheye.<br>3: panoramic.<br>4: lambert azimuthal equal-area.<br>5: equirectangular.<br>6: panini. The native menu exposes only Regular (0) and Panini (6). Other legacy projection code remains for reference; the SDL3 GPU implementation is described in SDL3-GPU.md. |

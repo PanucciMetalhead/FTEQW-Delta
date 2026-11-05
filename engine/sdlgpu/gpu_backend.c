@@ -133,6 +133,7 @@ void GPU_CheckLightingSettings(void)
 
 typedef struct pipeline_s {
     unsigned bits, cull;
+    polyoffset_t depthbias;
     qboolean lines, composite;
     SDL_GPUTextureFormat format;
     SDL_GPUGraphicsPipeline *pipeline;
@@ -339,7 +340,7 @@ static SDL_GPUBlendFactor GPU_BlendFactor(unsigned bits)
     return bits < countof(factors) ? factors[bits] : SDL_GPU_BLENDFACTOR_ONE;
 }
 
-static SDL_GPUGraphicsPipeline *GPU_Pipeline(unsigned bits, unsigned cull, qboolean lines, SDL_GPUTextureFormat format)
+static SDL_GPUGraphicsPipeline *GPU_Pipeline(const gpu_draw_t *draw, SDL_GPUTextureFormat format)
 {
     SDL_GPUGraphicsPipelineCreateInfo info = {0};
     SDL_GPUColorTargetDescription color = {0};
@@ -355,20 +356,27 @@ static SDL_GPUGraphicsPipeline *GPU_Pipeline(unsigned bits, unsigned cull, qbool
     };
     pipeline_t *p;
     /* Alpha test is a fragment uniform, so it needn't multiply pipeline variants. */
-    bits &= ~SBITS_ATEST_BITS;
+    unsigned bits = draw->bits & ~SBITS_ATEST_BITS;
+    unsigned cull = draw->cull;
+    polyoffset_t bias = draw->depthbias;
     for (p = pipelines; p; p = p->next)
-        if (!p->composite && p->bits == bits && p->cull == cull && p->lines == lines && p->format == format) return p->pipeline;
+        if (!p->composite && p->bits == bits && p->cull == cull && p->lines == draw->lines &&
+            p->format == format && p->depthbias.unit == bias.unit && p->depthbias.factor == bias.factor)
+            return p->pipeline;
     buffer.pitch = sizeof(gpu_vertex_t); buffer.input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX;
     info.vertex_shader = gpu.vertexshader; info.fragment_shader = gpu.fragmentshader;
     info.vertex_input_state.vertex_buffer_descriptions = &buffer;
     info.vertex_input_state.num_vertex_buffers = 1;
     info.vertex_input_state.vertex_attributes = attrs;
     info.vertex_input_state.num_vertex_attributes = countof(attrs);
-    info.primitive_type = lines ? SDL_GPU_PRIMITIVETYPE_LINELIST : SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+    info.primitive_type = draw->lines ? SDL_GPU_PRIMITIVETYPE_LINELIST : SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
     info.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
     info.rasterizer_state.front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE;
     info.rasterizer_state.cull_mode = (cull & SHADER_CULL_FRONT) ? SDL_GPU_CULLMODE_FRONT :
         (cull & SHADER_CULL_BACK) ? SDL_GPU_CULLMODE_BACK : SDL_GPU_CULLMODE_NONE;
+    info.rasterizer_state.enable_depth_bias = bias.unit != 0 || bias.factor != 0;
+    info.rasterizer_state.depth_bias_constant_factor = bias.unit;
+    info.rasterizer_state.depth_bias_slope_factor = bias.factor;
     info.multisample_state.sample_count = SDL_GPU_SAMPLECOUNT_1;
     info.depth_stencil_state.enable_depth_test = !(bits & SBITS_MISC_NODEPTHTEST);
     info.depth_stencil_state.enable_depth_write = !!(bits & SBITS_MISC_DEPTHWRITE);
@@ -394,7 +402,8 @@ static SDL_GPUGraphicsPipeline *GPU_Pipeline(unsigned bits, unsigned cull, qbool
     info.target_info.color_target_descriptions = &color; info.target_info.num_color_targets = 1;
     info.target_info.has_depth_stencil_target = true;
     info.target_info.depth_stencil_format = gpu.depthformat;
-    p = Z_Malloc(sizeof(*p)); p->bits = bits; p->cull = cull; p->lines = lines; p->format = format;
+    p = Z_Malloc(sizeof(*p)); p->bits = bits; p->cull = cull; p->lines = draw->lines; p->format = format;
+    p->depthbias = bias;
     p->pipeline = SDL_CreateGPUGraphicsPipeline(gpu.device, &info);
     if (!p->pipeline) GPU_Error("create material pipeline");
     p->next = pipelines; pipelines = p;
@@ -806,7 +815,7 @@ static void GPU_DrawCommands(SDL_GPURenderPass *pass, size_t first, size_t end, 
         /* Overlay pipelines target the corrected SDR image, including when
          * world rendering used an HDR scene buffer. Blend after correction so
          * translucent UI retains its source colors and alpha. */
-        pipeline = GPU_Pipeline(d->bits, d->cull, d->lines, overlays ? gpu.colorformat : d->format);
+        pipeline = GPU_Pipeline(d, overlays ? gpu.colorformat : d->format);
         if (vb.buffer != (d->vertexbuffer ? d->vertexbuffer : gpu.vertices)) {
             vb.buffer = d->vertexbuffer ? d->vertexbuffer : gpu.vertices;
             SDL_BindGPUVertexBuffers(pass, 0, &vb, 1);
@@ -1303,6 +1312,17 @@ static void GPU_DrawMesh(shader_t *shader, mesh_t *mesh, vbo_t *vbo, texnums_t *
         d->cull = gpu.drawing2d || flags & BEF_FORCETWOSIDED ? 0 : shader->flags & SHADER_CULL_FLIP;
         if (r_refdef.flipcull && d->cull) d->cull ^= SHADER_CULL_FLIP;
         d->lines = (flags & BEF_LINES) || (p->shaderbits & SBITS_LINES);
+#ifdef BEF_PUSHDEPTH
+        if ((flags & BEF_PUSHDEPTH) && !(d->bits & SBITS_MISC_NODEPTHTEST) && !d->lines) {
+            extern cvar_t r_polygonoffset_submodel_offset, r_polygonoffset_submodel_factor;
+            float unit = r_polygonoffset_submodel_offset.value;
+            float factor = r_polygonoffset_submodel_factor.value;
+            /* Retracted doors and lowered platforms can sit flush with the world.
+             * Positive bias lets the wall or floor win the depth test. */
+            d->depthbias.unit = isfinite(unit) ? unit : 0;
+            d->depthbias.factor = isfinite(factor) ? factor : 0;
+        }
+#endif
         d->viewport.x = r_refdef.pxrect.x; d->viewport.y = r_refdef.pxrect.y;
         d->viewport.w = r_refdef.pxrect.width; d->viewport.h = r_refdef.pxrect.height;
         d->viewport.min_depth = 0; d->viewport.max_depth = entity->flags & RF_DEPTHHACK ? 0.3f : 1;
