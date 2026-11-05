@@ -114,6 +114,24 @@ static void GPU_VideoModes(const char *driver, const char *output, void (*cb)(in
     SDL_free(modes);
 }
 
+static qboolean GPU_SelectFullscreenMode(SDL_DisplayID display, const rendererstate_t *info, SDL_DisplayMode *mode)
+{
+    if (!SDL_GetClosestFullscreenDisplayMode(display, info->width, info->height, info->rate, true, mode))
+        return false;
+    if (info->rate || !mode->refresh_rate)
+        return true;
+
+    const SDL_DisplayMode *desktop = SDL_GetDesktopDisplayMode(display);
+    if (!desktop || mode->refresh_rate + 0.5f >= desktop->refresh_rate)
+        return true;
+
+    /* SDL prioritizes resolution over refresh. In automatic mode, keep the
+     * desktop mode if the closest fullscreen resolution would lower its rate. */
+    Con_Printf("SDL3 GPU: using desktop fullscreen at %.2f Hz (closest mode %dx%d runs at %.2f Hz)\n",
+        desktop->refresh_rate, mode->w, mode->h, mode->refresh_rate);
+    return false;
+}
+
 static void GPU_VideoShutdown(void)
 {
     Cmd_RemoveCommand("gpu_info");
@@ -159,7 +177,7 @@ static qboolean GPU_VideoInit(rendererstate_t *info, unsigned char *palette)
     if (info->fullscreen) {
         if (info->fullscreen == 1) {
             SDL_DisplayMode mode;
-            if (SDL_GetClosestFullscreenDisplayMode(display, info->width, info->height, info->rate, true, &mode))
+            if (GPU_SelectFullscreenMode(display, info, &mode))
                 SDL_SetWindowFullscreenMode(sdlwindow, &mode);
         }
         if (!SDL_SetWindowFullscreen(sdlwindow, true)) goto fail;
