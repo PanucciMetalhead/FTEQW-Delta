@@ -34,11 +34,21 @@ jobs:
       - name: macOS MIDI dependency
         if: runner.os == 'macOS'
         run: brew install fluid-synth
+      - name: Get FluidSynth 2.6.2 vcpkg port
+        if: runner.os == 'Windows'
+        uses: actions/checkout@v4
+        with:
+          repository: microsoft/vcpkg
+          # The runner's bundled 2.6.1 port predates the DSP hang fix.
+          ref: f6b176237025d9c70a625f9573d5fcd29130c7be
+          path: build-deps/vcpkg
+          sparse-checkout: ports/fluidsynth
+          persist-credentials: false
       - name: Windows MIDI dependency
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          & "$env:VCPKG_INSTALLATION_ROOT/vcpkg.exe" install fluidsynth:x64-windows
+          & "$env:VCPKG_INSTALLATION_ROOT/vcpkg.exe" install fluidsynth:x64-windows --overlay-ports=build-deps/vcpkg/ports/fluidsynth
           "CMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" >> $env:GITHUB_ENV
       - name: Stage pinned MIDI instrument bank
         run: python3 tools/package_soundfont.py --download --out build-deps/soundfonts
