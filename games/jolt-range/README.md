@@ -1,22 +1,26 @@
-# Jolt Range: Rockfall
+# Rockfall tutorial
 
-Jolt Range is a single-player physics test for FTEQW-Delta, built on [Arcane
+Rockfall is a single-player Jolt test level. Its console map name is
+`jolt_range`. You'll climb a 30° ramp, fight grunts, and dodge or shatter
+boulders on the way to the summit teleporter. The level uses [Arcane
 Dimensions 1.80 Patch 1](https://www.simonoc.com/pages/design/sp/ad.html) by
-Simon O'Callaghan and the AD team. The map starts you with the two shotguns,
-grenade launcher, rocket launcher, ammo, and armor. Try a shotgun on the grunt
-on the starting apron, then head uphill. All eight grunts can pursue you.
-Each yellow stripe marks a rockfall trigger on the continuous 30° ramp.
-Strafe across the boulder's path or shatter it with an explosive.
-The teal teleporter at the summit opens the completion screen. F8 restarts the
-range.
+Simon O'Callaghan and the AD team for its projectile shotguns and grunt AI.
 
-Build the engine with `-DFTE_PLUG_JOLT=ON` and keep its matching plugin next to
-the engine. See the [Jolt setup guide](../../documentation/JoltPhysics.md) for the
-pinned dependency and build options. You also need Python 3.9 or later, FTEQCC,
-ericw-tools, full Quake 1 data, and the original AD 1.80 Patch 1 files
-(`pak0.pak`, `pak1.pak`, `pak2.pak`).
-The builder makes a separate game directory with symlinks to the original
-archives and generates the map, models, and QuakeC locally.
+## 1. Build the engine and stage the range
+
+The Jolt integration is on `master`. Desktop CI builds it, and a local build
+enables it with `-DFTE_PLUG_JOLT=ON`. Follow the [Jolt build
+instructions](../../documentation/JoltPhysics.md#build) for the pinned
+dependency. Build `fteqw`, `plug_jolt`, and `fteqcc` in the same build tree.
+For the server smoke test, enable `-DFTE_ENGINE_SERVER_ONLY=ON` and build
+`fteqw-sv` too. Keep the matching plugin beside each engine executable.
+
+The range builder needs Python 3.9 or later, the ericw-tools `qbsp` and
+`light` binaries, full Quake 1 data (`id1/pak0.pak` and `id1/pak1.pak`), and
+AD 1.80 Patch 1 (`pak0.pak`, `pak1.pak`, and `pak2.pak`). The `vis` step
+is optional. Run the builder from the repository root with an empty output
+directory. It compiles the overlay and symlinks the original game archives
+into the staging directory.
 
 ```sh
 python3 games/jolt-range/build_range.py \
@@ -28,40 +32,112 @@ python3 games/jolt-range/build_range.py \
   --out build/jolt-range
 ```
 
-Run `build/jolt-range/Play Jolt Range.command`, or run the engine from the
-directory containing its Jolt plugin:
+On macOS or Linux, run the generated `build/jolt-range/Play Jolt Range.command`
+from a shell, or run the engine from the directory containing its Jolt plugin.
 
 ```sh
 ./fteqw -nohome -quake -basedir /absolute/path/to/build/jolt-range \
   -game ad -game jolt_range +set plug_loaddefault 0 +exec jolt_range.cfg
 ```
 
-For the repeatable server check, add `--smoke-server /path/to/jolt-build/fteqw-sv`
-when building into an empty directory. The check uses actual AD pellets, rockets
-and grenades. It checks that a grunt can walk the full ramp and that a fatal
-pellet leaves a ragdoll. It also checks grunt displacement and facing,
-recovery from a nonlethal blast, corpse clearance, and the normal gib threshold.
-It also checks downhill roll direction, acceleration and bounce, contact
-damage, and shattering with either launcher. It writes `smoke.log` to the
-staging folder.
+`-game ad -game jolt_range` loads the overlay over AD.
+[`jolt_range.cfg`](jolt_range.cfg) loads the plugin, sets
+`physics_jolt_enabled 1`, selects `jolt_range.dat`, and then runs
+`map jolt_range`. Jolt is opt-in at runtime as well as at build time.
+`range_init` checks physics support on this map before the overlay creates
+any bodies.
 
-The QuakeC hooks are active only on `jolt_range`. AD still handles projectile
-flight, hits, damage, and its normal gib threshold. Pellet impacts apply a
-short force along the pellet's incoming direction. The grunt keeps its facing
-through the handoff to Jolt and then resumes ordinary AI movement. Fatal
-pellets and explosive hits can both hand the grunt to a nine-body rig.
-The collision boxes enclose
-the skinned mesh and contact the ramp and boulders. The joints control the
-limbs without limb-on-limb contacts. A surviving grunt gets up after about two
-seconds, and a fatal non-gib hit leaves a corpse.
+## 2. Play the range
 
-Boulders use an irregular convex hull built from the same vertices as the
-visible mesh. The mesh follows the hull's rotation through a single bone.
-The quartz seam stays fixed to the rock surface as it tumbles.
-Gravity drives the roll, and the facets and contact restitution produce small
-hops. Explosives break them into separate simulated chips. The editable map
-and WAD are in `source/`.
+1. Fire the shotgun at the grunt on the starting apron. A surviving grunt
+   slides a short distance along the pellet's incoming direction, keeps its
+   facing through the hit, and resumes walking. A fatal shotgun hit can leave
+   a ragdoll.
+2. Try a grenade or rocket near a grunt. A survivor can be thrown down and get
+   up again. A lethal hit can leave a ragdoll or gib the grunt, depending on
+   the damage.
+3. Cross a yellow stripe to release a boulder from farther uphill. Watch the
+   seam on the rock as it turns, picks up speed, and rebounds off the ramp.
+   Strafe across its path or hit it with explosives to break it into
+   simulated fragments.
+4. Enter the teal teleporter at the summit to reach the completion screen.
+   Press F8 to restart.
 
-The overlay QuakeC uses GPL v2 or later, like the AD source it extends. The
-builder uses the local AD and Quake assets to make a personal test install; it
-does not vendor the assets or modify either source installation.
+## 3. Trace the handoff from QuakeC to Jolt
+
+Start in [`range.qc`](range.qc). The range hooks run in server-side QuakeC
+(SSQC) on `jolt_range`. The game code decides what gets hurt, when to create
+a rigid body, and when to return control to the grunt's AI. Jolt advances the
+bodies and resolves gravity, contacts, friction, and joint constraints.
+[`patch_source`](build_range.py) installs the hooks into a local copy of
+AD's projectile, damage, soldier, and world code.
+
+### Pellet hits
+
+AD's projectile touch handler saves the pellet's incoming velocity before
+removing the projectile. AD applies damage, then `range_soldier_hit` uses
+the captured direction and speed to accumulate a push. For a surviving
+grunt, the hook saves its facing, switches its collision box from
+`MOVETYPE_STEP` to `MOVETYPE_PHYSICS`, and pauses its AI think. On each
+`StartFrame`, `range_frame` applies part of the push with
+`physics_addforce` at the box's world-space center. Applying force at the
+center keeps torque low. The solver computes displacement against the ramp
+and other solid surfaces. After roughly 0.28 seconds, `range_end_push`
+restores ordinary movement and the saved facing. Pellet speed scales the
+physical push, and AD supplies the projectile and damage rules.
+
+### Ragdoll hits
+
+For rocket and grenade hits, `range_soldier_hit` uses the direction away from
+the blast to launch the grunt. AD's death hook calls `range_ragdoll_death`
+for fatal pellet or explosive hits that leave an intact body. AD handles its
+usual gibs. `range_ragdoll` also handles a living grunt knocked down by a
+blast.
+
+The rig uses nine fitted box bodies from `range_limb`, connected by
+`range_joint`. The generated `source/qc/range_grunt.qh` pairs the bodies
+with the bones in `range_grunt.md5mesh`. The builder generates this
+ragdoll mesh from AD's grunt model. Live grunts use AD's original model.
+Collision dimensions let the boxes contact the ramp and boulders while the
+joints govern movement between limbs. `EndFrame` copies the simulated pose
+into the visible skeleton. After about two seconds, a surviving grunt can
+stand up on a clear spot and resume its AI.
+
+### Rolling boulders
+
+Each stripe targets an uphill `range_boulder_spawner`. After a short
+warning, `range_release` creates a `MOVETYPE_PHYSICS` prop at rest.
+The prop uses `GEOMTYPE_COMPOUND` with an authored shape file,
+`progs/range_boulder.jolt`. That file contains a single irregular convex
+hull made from the same points as `range_boulder.md5mesh`. The visible
+mesh's root bone takes its orientation from the body in `EndFrame`.
+Gravity accelerates the rock downhill, and the facets and restitution
+produce small hops. The contact callback uses impact speed to determine
+player damage. When explosive damage breaks the boulder, `range_rock_break`
+replaces it with five convex fragments shaped from `range_chip.md5mesh`.
+
+The map uses a continuous sloped BSP brush. Jolt uses the world geometry for
+body contacts, while the player uses the engine's normal movement. The
+incline camera fix in [`cl_pred.c`](../../engine/client/cl_pred.c) follows
+the ground plane so walking uphill feels smooth.
+
+## 4. Verify and experiment
+
+Add `--smoke-server /path/to/jolt-build/fteqw-sv` to the build command and
+use a fresh output directory. The dedicated server uses AD pellets, rockets,
+and grenades to check grunt traversal, knockback, facing, ragdoll recovery,
+corpse clearance, and gib handling. It also checks boulder roll direction,
+acceleration, bounce, contact damage, and shattering with either launcher.
+Look for `RANGE_SMOKE_OK` in `smoke.log` in the staging directory.
+
+To see how restitution affects the rock, lower `rock.bouncefactor` in
+`range_release`, rebuild into a fresh directory, and watch the first
+boulder's contacts from the same spot. The smoke test's bounce check is
+tuned to the original settings. The generated `source/jolt_range.map` and
+`source/range.wad` let you inspect the ramp, trigger brushes, and spawn
+positions in a map editor. The builder's `make_map` function defines the
+layout for subsequent builds.
+
+The overlay QuakeC uses GPL v2 or later, like the AD source it extends.
+The staging directory is a personal test install built from local Quake
+and AD assets. The original installations stay intact.

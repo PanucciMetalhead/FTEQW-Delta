@@ -1,15 +1,19 @@
 # Experimental Jolt Physics
 
-The `dev/jolt` milestone adds an **optional rigid-body plugin** for QuakeC mods.
-It is off by default at build time and at runtime. It does not replace classic
-Quake player movement, prediction, projectiles, or ordinary entity physics.
-ODE remains available as a reference and fallback; the legacy Bullet backend
-is retained during the transition. Quake 3's qagame physics is
-not redirected to Jolt.
+FTEQW Delta includes an **optional Jolt rigid-body plugin** for QuakeC mods on
+`master`. Desktop CI builds and tests it on macOS, Windows, and Linux. Local
+builds and games opt in separately. The engine continues to handle classic
+Quake movement, prediction, projectiles, ordinary entity physics, and Quake 3
+game physics. ODE remains available as a reference and fallback, and the
+legacy Bullet backend is retained during the transition.
 
-## Scope of this milestone
+For a hands-on example, start with the [Rockfall tutorial](../games/jolt-range/README.md).
+It uses Arcane Dimensions projectiles and AI with Jolt bodies, joints, and
+contacts in a playable Quake map.
 
-Supported through the existing SSQC/CSQC rigid-body interface:
+## Supported features
+
+The existing SSQC/CSQC rigid-body interface supports the following.
 
 - Dynamic boxes, spheres, capsules and cylinders, including explicit X/Y/Z axes.
 - Explicit model-derived convex hulls and authored compounds of convex pieces.
@@ -899,8 +903,21 @@ collision detection for dynamic primitives and avoids updating all ordinary
 entities as kinematic bodies. The Bullet code has incomplete/commented motor,
 softness and joint paths, so those fragments are not used as a correctness oracle.
 
-Bullet and ODE will be removed, including their build options, plugins, source,
-console registrations and documentation references, once Jolt passes the
-replacement gates. Remaining gates include additional real-mod acceptance and
-many-body CPU/bandwidth checks. ODE remains a useful
-comparison during that work. No classic player-movement or Quake 3 qagame-physics conversion is implied.
+The [Rockfall tutorial](../games/jolt-range/README.md) validates Jolt with
+Arcane Dimensions projectiles, AI, ragdolls, and rigid props. Retiring the
+legacy backends also requires checking the mods and builds that select them
+today.
+
+- Migrate and test launch profiles and mods that explicitly load a legacy
+  backend. The Half-Life 2 and GMod 9 profiles still request ODE in
+  [`engine/common/fs.c`](../engine/common/fs.c).
+- Decide how to supply Jolt on build and distribution paths that offer
+  legacy plugins. The [plugin Makefile](../plugins/Makefile) builds both
+  plugins. The inherited [Flatpak manifest](../dist/linux/org.fteqw.fteqw.yml)
+  builds upstream FTE with both libraries as dependencies.
+- Validate more existing mods and measure server CPU time and client
+  skeletal network traffic with many active bodies and ragdolls.
+
+The removal can then cover the legacy plugins, build options, package
+entries, console registrations, comparison tests, and backend documentation.
+ODE serves as a comparison while that work is in progress.

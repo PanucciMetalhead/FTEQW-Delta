@@ -56,6 +56,10 @@ interact with Jolt props and rigs; classic movement stays in the engine.
 Independent client-side QuakeC worlds are covered by original headless fixtures
 and optional native GPU captures.
 
+[Rockfall](games/jolt-range/README.md) is a playable Jolt tutorial built on
+Arcane Dimensions. It walks through projectile knockback, articulated grunt
+ragdolls, and destructible boulders on a continuous slope.
+
 The [console command and cvar reference](documentation/console_commands.md) covers
 Quake 1 and Quake 3/OpenArena, including shared settings, game-specific behavior,
 and client/server availability.

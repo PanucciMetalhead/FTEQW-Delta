@@ -270,10 +270,13 @@ Dawn of the Machine uses `-game mg3`:
 ./build/fteqw -basedir "/path/to/Quake Enhanced" -quake_rerel -game mg3
 ```
 
-## Experimental Jolt rigid bodies
+## Jolt Physics for rigid bodies and ragdolls
 
 `FTE_PLUG_JOLT=ON` and `FTE_JOLT_SOURCE_DIR=/path/to/JoltPhysics` build the
-optional `plug_jolt` module from an external source checkout. It defaults to off
-and does not require or modify an installed ODE library. Use a separate build
-directory. See [JoltPhysics.md](JoltPhysics.md) for the pinned dependency,
-`jolt-check-deps` / CTest commands, runtime opt-in and current limitations.
+optional `plug_jolt` module from an external source checkout. It supports
+rigid props, joints, and experimental skeletal ragdolls. Desktop CI enables
+it. Local builds and games opt in separately.
+
+See the [Jolt Physics guide](JoltPhysics.md) for the pinned dependency, build
+and test commands, and runtime setup. The [Rockfall tutorial](../games/jolt-range/README.md)
+shows how QuakeC hands rolling boulders and articulated grunt ragdolls to Jolt.
