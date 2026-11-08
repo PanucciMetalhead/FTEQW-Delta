@@ -309,9 +309,17 @@ def main():
     if args.test or args.run:
         logpath=out/'humanoid.log'
         env=dict(os.environ,ASAN_OPTIONS='detect_leaks=0',UBSAN_OPTIONS='halt_on_error=1:print_stacktrace=1')
-        with logpath.open('w') as log:
-            subprocess.run(command,cwd=out,stdout=log,stderr=subprocess.STDOUT,env=env,
-                           check=True,timeout=90 if args.test or args.capture else None)
+        timeout = 90 if args.capture else None
+        if args.test:
+            # Shared sanitizer runners can take much longer than simulation time.
+            timeout = 180
+        try:
+            with logpath.open('w') as log:
+                subprocess.run(command,cwd=out,stdout=log,stderr=subprocess.STDOUT,env=env,
+                               check=True,timeout=timeout)
+        except subprocess.TimeoutExpired as exc:
+            text=logpath.read_text(errors='replace')
+            raise RuntimeError(f'Humanoid test exceeded {timeout} seconds: {logpath}\n{text[-5000:]}') from exc
         text=logpath.read_text(errors='replace')
         if re.search(r'HUMANOID_FAIL|AddressSanitizer:|UndefinedBehaviorSanitizer:|runtime error:|Host_Error|Sys_Error|Jolt .* rejected',text):
             raise RuntimeError(f'Engine/rig/sanitizer failure: {logpath}\n{text[-5000:]}')

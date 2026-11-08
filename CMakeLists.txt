@@ -1700,7 +1700,8 @@ if(BUILD_TESTING AND TARGET fte-jolt-adapter)
                 --server $<TARGET_FILE:fteqw-sv> --qcc $<TARGET_FILE:fteqcc>
                 --plugin $<TARGET_FILE:plug_jolt> --test
                 --out "${CMAKE_BINARY_DIR}/physics-humanoid/$<CONFIG>")
-        set_tests_properties(jolt-humanoid PROPERTIES TIMEOUT 150)
+        # Leave room for fixture compilation and the inner 180-second watchdog.
+        set_tests_properties(jolt-humanoid PROPERTIES TIMEOUT 240)
         add_test(NAME jolt-kinematic
             COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/physics_kinematic.py"
                 --server $<TARGET_FILE:fteqw-sv> --qcc $<TARGET_FILE:fteqcc>
