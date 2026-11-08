@@ -189,6 +189,10 @@ extern size_t numreverbproperties;
  { 0.3645f, 1.0000f, 0.3162f, 0.0100f, 1.0000f, 1.4900f, 0.1000f, 1.0000f, 0.5963f, 0.0070f, { 0.0000f, 0.0000f, 0.0000f }, 7.0795f, 0.0110f, { 0.0000f, 0.0000f, 0.0000f }, 0.2500f, 0.0000f, 1.1800f, 0.3480f, 0.9943f, 5000.0000f, 250.0000f, 0.0000f, 0x1 }
 
 void S_Init (void);
+#ifdef AVAIL_MIDI
+void S_MIDI_Init(void);
+qboolean S_MIDI_SoundFontPath(char *path, size_t size);
+#endif
 void S_Startup (void);
 void S_EnumerateDevices(void);
 void S_Shutdown (qboolean final);

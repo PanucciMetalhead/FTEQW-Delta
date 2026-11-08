@@ -72,6 +72,11 @@ Binding the `+` form sends the release automatically. Typing `+forward` manually
 keeps moving until `-forward` is executed. The gamecode defines attack, use,
 gesture and weapon behavior; shared input names do not imply identical physics.
 
+For a working Quake 1 setup using `weapon`, `cl_weaponpreselect`,
+`cl_weaponhide`, and `+fire`, see the [weapon-script guide](WeaponScripts.md).
+It covers behavior similar to ezQuake, priority lists, hiding preferences,
+and the distinction between `weapon` and `impulse` bindings.
+
 ## Availability and scope
 
 | Where | Meaning |
@@ -255,6 +260,7 @@ Jump to [input actions](#held-input-actions), [menus](#built-in-menu-entry-point
 | `menu_main` | Client | Open the built-in main menu. In Quake 3 this is the engine menu, separate from the bundled gamecode UI. |
 | `menu_media` | Client | Open the built-in media playlist menu. In Quake 3 this is the engine menu, separate from the bundled gamecode UI. |
 | `menu_mediafiles` | Client | Open the built-in media file browser menu. In Quake 3 this is the engine menu, separate from the bundled gamecode UI. |
+| `menu_midi` | Client with FluidSynth | Open the SoundFont picker shared by native and QuakeC audio menus. Scans loose SF2/SF3 files in soundfonts folders; choosing one saves it and restarts audio. |
 | `menu_mods` | Client | Open the built-in game/mod selection menu. In Quake 3 this is the engine menu, separate from the bundled gamecode UI. |
 | `menu_multi` | Client | Open the built-in multiplayer menu. In Quake 3 this is the engine menu, separate from the bundled gamecode UI. |
 | `menu_network` | Client | Open the built-in network options menu. In Quake 3 this is the engine menu, separate from the bundled gamecode UI. |
@@ -320,12 +326,12 @@ Jump to [input actions](#held-input-actions), [menus](#built-in-menu-entry-point
 | `capturedemo` | Client | capturedemo foo.dem foo.avi - Captures a named demo to a named video file. Demo capturing is performed offscreen when possible, allowing arbitrary video sizes or smooth captures on underpowered hardware. |
 | `capturepause` | Client | Pauses the video capture, allowing you to avoid capturing uninteresting parts. This is a toggle, so reuse the same command to resume capturing again. |
 | `capturestop` | Client | Stop the current video capture and close its output. |
-| `cd` | Client | Control numbered CD/music tracks. Subcommands include `play`, `loop`, `stop`, `pause`, `resume`, `info`, and `remap`; physical CD support depends on the platform/backend. |
+| `cd` | Client | File music controls: `play <track>`, `loop <track> [looptrack]`, `stop`, `remap [replacement1 replacement2 ...]`, `remaptrack <1-255> <replacement>`, and `reset`. Remapping works without a CD drive; physical CD playback is unavailable in the supported SDL3 build. See [track remapping](MIDI.md#track-remapping). |
 | `centerview` | Client | Return the player's view pitch toward its centered position. |
 | `cfg_load` | Both | Execute console commands from a configuration file: `exec myconfig.cfg`. |
 | `cfg_reset` | Both | Reset cvar values to their defaults by executing `cvarreset *`; does not reset bindings or aliases. |
 | `cfg_save` | Both | Write settings, bindings, and aliases to a configuration file. No filename uses the normal config; an explicit name writes under `configs/`. |
-| `cfg_save_ifmodified` | Both | Save the configuration only if an archived cvar has been modified. |
+| `cfg_save_ifmodified` | Both | Save the configuration only when saved configuration state has changed, including archived cvars, bindings, and music mappings. |
 | `changelevel` | Both | Continues the game on a different map. The current map can be reentered later when a starting position for the new map is specified as a second argument. |
 | `changing` | Client | Part of network protocols. This command should not be used manually. |
 | `chat` | Both | **Q3:** Dedicated qagame console: send a chat-style announcement. |
@@ -544,7 +550,7 @@ Jump to [input actions](#held-input-actions), [menus](#built-in-menu-entry-point
 | `mod_usetexture` | Client | Replace a named loaded brush texture with a solid RGB color for debugging: `mod_usetexture <texture> <red> <green> <blue>`. |
 | `modelviewer` | Client | Open the model viewer to inspect a model and its animations/materials. |
 | `msg_trigger` | Client | Define or inspect an alias-based trigger for incoming message text: `msg_trigger <name> "string" [-l <level>]`. |
-| `music` | Client | Play a named music track, optionally with a separate looping track: `music <initial-track> [loop-track]`; requires a suitable audio decoder. |
+| `music` | Client | Play a named music track, optionally with a separate looping track: `music <initial-track> [loop-track]`. MIDI (`.mid`/`.midi`) uses optional FluidSynth; see [MIDI music](MIDI.md). |
 | `music_fforward` | Client | Seek forward in the current media track by a number of seconds, defaulting to 15. |
 | `music_next` | Client | Advance to the next music/media playlist track. |
 | `music_rewind` | Client | Seek backward in the current media track by a number of seconds, defaulting to 15. |
@@ -1190,7 +1196,7 @@ Jump to [symbols and A–C](#cvars-symbols-and-ac), [D–H](#cvars-dh),
 | `cl_loopbackprotocol` | `"qw"` | Which protocol to use for single-player/the internal client. Should be one of: qw, qwid, nqid, nq, fitz, bjp3, dp6, dp7, auto. If 'auto', will use qw protocols for qw mods, and nq protocols for nq mods. |
 | `cl_maxfps` | `"250"` | Sets the maximum allowed framerate. If you're using vsync or want to uncap framerates entirely then you should probably set this to 0. Set cl_yieldcpu 0 if you're trying to benchmark. |
 | `cl_maxfps_slop` | `"3"` | If a frame is delayed (eg because of poor system timer precision), this is how much sooner to pretend the frame happened (in milliseconds). If it is set too low then the average framerate will drop below the target, while too high may result in excessively fast frames. |
-| `cl_maxPing` | on demand | **Q3:** OpenArena UI maximum-ping filter for server searches; distinct from the native sb_* browser filters. |
+| `cl_maxPing` | `800` | **Q3:** OpenArena UI maximum-ping filter for server searches, in milliseconds; distinct from the native sb_* browser filters. |
 | `cl_model_bobbing` | `"0"` | Makes rotating pickup items bob too. |
 | `cl_movement` | `"1"` | Specifies whether to send movement sequence info over DPP7 protocols (other protocols are unaffected). Unlike cl_nopred, this can result in different serverside behaviour. |
 | `cl_movespeedkey` | `"2.0"` | Movement-speed multiplier while the speed modifier is held. |
@@ -1232,7 +1238,7 @@ Jump to [symbols and A–C](#cvars-symbols-and-ac), [D–H](#cvars-dh),
 | `cl_sbar` | `"0"` | **Q1 target:** force the classic status bar layout rather than the heads-up variant. |
 | `cl_sbaralpha` (alias: `scr_sbaralpha`) | `"0.75"` | Specifies the transparency of the status bar. Only Takes effect when cl_sbar is set to 2. |
 | `cl_sendchatstate` | `"1"` | Announce your chat state to the server in a privacy-violating kind of way. This allows other players to see your afk/at-console status. |
-| `cl_sendguid` | `""` | Send a randomly generated 'globally unique' id to servers, which can be used by servers for score rankings and stuff. Different servers will see different guids. Delete the 'qkey' file in order to appear as a different user.<br>If set to 2, all servers will see the same guid. Be warned that this can show other people the guid that you're using. |
+| `cl_sendguid` | `""` | Send a randomly generated 'globally unique' id to servers, which can be used by servers for score rankings and stuff. Different servers will see different guids. Delete the 'qkey' file in order to appear as a different user.<br>The empty default supplies a per-server GUID for Quake 3/OpenArena; 0 disables it.<br>If set to 2, all servers will see the same guid. Be warned that this can show other people the guid that you're using. |
 | `cl_serveraddress` | `"none"` | The address of the last server you connected to |
 | `cl_servername` | `""` | The hostname of the last server you connected to |
 | `cl_shownet` | `"0"` | Debugging var. 0 shows nothing. 1 shows incoming packet sizes. 2 shows individual messages. 3 shows entities too. |
@@ -1551,6 +1557,10 @@ Jump to [symbols and A–C](#cvars-symbols-and-ac), [D–H](#cvars-dh),
 | `gl_texture_anisotropy` (alias: `gl_texture_anisotropic_filtering`) | `"4"` | Allows for higher quality textures on surfaces that slope away from the camera (like the floor). Set to 16 or something. Only supported with trilinear filtering. |
 | `gl_texturemode` (alias: `r_texturemode`) | `"nll"` | Filter world/model textures. Every built-in graphics tier defaults to Crisp Pixels (`nll`); changing filtering afterward is allowed. Typically 3 letters eg nll or lll.<br>First letter can be l(inear) or n(earest) and says how to upscale low-res textures (n for the classic look - often favoured for embedded textures, l for blurry - best for high-res textures).<br>The middle letter can be set to '.' to disable mipmaps, or n for ugly banding with distance, or l for smooth mipmap transitions.<br>The third letter says what to do when the texture is too high resolution, and should generally be set to 'l' to reduce sparkles including when aiming for the classic lego look. |
 | `gl_texturemode2d` | `"GL_NEAREST"` | Filter HUD/menu images. Defaults to Crisp Pixels in every built-in graphics tier; `GL_LINEAR` selects smooth filtering. Font smoothing is controlled separately. |
+| `gpu_bloom_pyramid` | `"1"` | SDL GPU bloom: 1 uses a downsample/upsample pyramid; 0 selects the original full-resolution filter for comparison. Applies immediately; not archived. |
+| `gpu_clustered` | `"1"` | SDL GPU lighting: 1 uses CPU-binned clustered forward lighting with GPU storage buffers; 0 selects ranked 32-light-per-mesh lighting; 2 evaluates the full per-view list for validation. Overflow cells retain all visible lights. Applies immediately; not archived. |
+| `gpu_shadowcull` | `"1"` | Cull shadow caster bounds against each light sphere and cubemap face. Zero submits all casters for comparison. Applies immediately; not archived. |
+| `gpu_staticgeometry` | `"1"` | Cache immutable world vertices in GPU buffer pages. Zero streams all vertices for comparison. Animated/generated attributes retain their streaming path. Applies immediately; not archived. |
 | `hand` | `""` | For gamecode to know which hand to fire from.<br>0: Right<br>1: Left<br>2: Chest |
 | `handicap` | `"100"` | **Q3:** player handicap percentage, reducing starting health and damage potential according to gamecode; other mods may also read this userinfo. |
 | `headmodel` | `"sarge"` | **Q3:** separate head model/skin selection. |
@@ -2014,9 +2024,9 @@ Jump to [symbols and A–C](#cvars-symbols-and-ac), [D–H](#cvars-dh),
 | `r_polygonoffset_shadowmap_offset` | `"0"` | Slope/constant depth-bias settings for shadow-map geometry. |
 | `r_polygonoffset_stencil_factor` | `"0.01"` | Legacy slope/constant polygon-offset settings for stencil-shadow rendering. |
 | `r_polygonoffset_stencil_offset` | `"1"` | Legacy slope/constant polygon-offset settings for stencil-shadow rendering. |
-| `r_polygonoffset_submodel_factor` | Q1: `"0.05"`; Q3: `"0"` | z-fighting avoidance. Pushes submodel depth values slightly towards the camera depending on the slope of the surface. |
+| `r_polygonoffset_submodel_factor` | Q1: `"0.05"`; Q3: `"0"` | Slope-dependent depth bias for brush submodels. Positive values push them away from the camera to reduce z-fighting. |
 | `r_polygonoffset_submodel_map` | `"e?m? r?m? hip?m?"` | List of maps on which z-fighting reduction should be used. wildcards accepted. |
-| `r_polygonoffset_submodel_offset` | Q1: `"25"`; Q3: `"0"` | z-fighting avoidance. Pushes submodel depth values slightly towards the camera by a consistent distance. |
+| `r_polygonoffset_submodel_offset` | Q1: `"25"`; Q3: `"0"` | Constant depth bias for brush submodels. Positive values push them away from the camera to reduce z-fighting. |
 | `r_postprocshader` | `""` | Specifies a custom shader to use as a post-processing shader |
 | `r_powerupglow` | `"1"` | **Q1 target:** enable dynamic-light glow around powerup-bearing entities. |
 | `r_projection` | `"0"` | 0: regular perspective.<br>1: stereographic.<br>2: fisheye.<br>3: panoramic.<br>4: lambert azimuthal equal-area.<br>5: equirectangular.<br>6: panini. The native menu exposes only Regular (0) and Panini (6). Other legacy projection code remains for reference; the SDL3 GPU implementation is described in SDL3-GPU.md. |
@@ -2094,7 +2104,7 @@ Jump to [symbols and A–C](#cvars-symbols-and-ac), [D–H](#cvars-dh),
 | `r_viewpreselgun` | `"0"` | HACK: Display the preselected weaponmodel, instead of the current weaponmodel. |
 | `r_wateralpha` | `"1"` | **Different:** Water opacity. Quake 1 liquid surfaces use this; Quake 3 shader-stage blending is defined by the material instead. |
 | `r_waterstyle` | `"1"` | Changes how water, and teleporters are drawn. Possible values are:<br>0: fastturb-style block colour.<br>1: regular q1-style water.<br>2: refraction(ripply and transparent)<br>3: refraction with reflection at an angle<br>4: ripplemapped without reflections (requires particle effects)<br>5: ripples+reflections |
-| `r_waterwarp` | `"1"` | Enables fullscreen warp, preferably via glsl. -1 specifies to force the fov warp fallback instead which can give a smidge more performance. |
+| `r_waterwarp` | `"2"` (SDL3 GPU) | Underwater view distortion. 0 disables it, -1 pulses the field of view, 1 applies a smooth shader ripple, and 2 uses the classic Quake warp on SDL3 GPU. The Simple and Fast graphics presets select 0. |
 | `r_wireframe_smooth` | `"0"` | Wireframe line-smoothing preference retained by renderer code; backend support varies. |
 | `r_zProj` | on demand | **Q3:** Legacy Quake 3 gamecode stereo projection-distance lookup; not the engine's FOV setting. |
 | `rank_autoadd` | `"1"` | Automatically register players into the ranking system |
@@ -2279,6 +2289,7 @@ Jump to [symbols and A–C](#cvars-symbols-and-ac), [D–H](#cvars-dh),
 | `snd_ignorecueloops` | Q1: `"0"`; Q3: `"1"` | Ignores cue commands in wav files, for q3 compat. |
 | `snd_ignoregamespeed` | `"0"` | When set, allows sounds to desynchronise with game time or demo speeds. |
 | `snd_loadasstereo` | `"0"` | Force mono sounds to load as if stereo ones, to waste memory. Not normally useful. |
+| `snd_midi_soundfont` | `"soundfonts/FluidR3_GM.sf2"` | Client with FluidSynth: loose SoundFont path, relative to the executable/game/home directory or absolute. Use `snd_restart` after changing it. Servers cannot set it. See [MIDI music](MIDI.md). |
 | `snd_playbackrate` | `"1"` | Debugging cvar that changes the playback rate of all new sounds. [cheat/ruleset restricted.] |
 | `spawn` | `""` | **Q1 target:** spawn-setting compatibility value exposed to gamecode. |
 | `spectator` | `""` | **Different:** **Different:** Quake 1/QuakeWorld spectator request/userinfo. Quake 3 uses team spectator instead. |

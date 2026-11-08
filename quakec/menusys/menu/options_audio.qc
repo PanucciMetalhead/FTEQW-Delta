@@ -57,6 +57,10 @@ nonstatic void(mitem_desktop desktop) M_Options_Audio =
 	if (engine!=E_QSS)
 	fr.add(menuitemslider_spawn(_("Self Volume"),		"s_localvolume",	'0 1 0.1', 		'280 8'),		fl, [0, pos], [0, 8]), pos += 8;
 	fr.add(menuitemslider_spawn(_("Music Volume"),		"bgmvolume",		'0 0.5 0.05', 	'280 8'),		fl, [0, pos], [0, 8]), pos += 8;
+	if (cvar_type("snd_midi_soundfont"))
+	{
+		fr.add(spawn(mitem_text, item_text:_("MIDI SoundFont"), item_command:"menu_midi", item_scale:8, item_flags:IF_RIGHTALIGN), RS_X_MIN_PARENT_MIN|RS_Y_MIN_PARENT_MIN | RS_X_MAX_PARENT_MID|RS_Y_MAX_OWN_MIN, [0, pos], [-8, 8]); pos += 8;
+	}
 	if (engine!=E_QSS)
 	fr.add(menuitemcombo_spawn(_("Channels"),			"s_numspeakers",					'280 8', _(
 																"1 \"Mono\" "

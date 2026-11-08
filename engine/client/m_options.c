@@ -751,6 +751,9 @@ void M_Menu_Audio_f (void)
 		MB_SLIDER("Ambient Fade", ambient_fade, 0, 1000, 1, NULL),
 		MB_CHECKBOXCVAR("Static Sounds", cl_staticsounds, 0),
 		MB_SLIDER("Music Volume", bgmvolume, 0, 1, 0.1, NULL),
+#ifdef AVAIL_MIDI
+		MB_CONSOLECMD("MIDI SoundFont", "menu_midi\n", "Choose a SoundFont from the soundfonts folder. Selecting one applies it and restarts audio."),
+#endif
 		MB_SLIDER("Doppler Factor", snd_doppler, 0, 10, 0.1, NULL),
 		// removed music buffer
 		// removed precache
@@ -988,7 +991,11 @@ const char *presetexec[] =
 	"gl_flashblend 0;"
 	"cl_nolerp 0;"	//projectiles lerped at least.
 	"r_noframegrouplerp 1;" //flames won't lerp
+#ifdef SDL_GPUQUAKE
+	"r_waterwarp 2;"
+#else
 	"r_waterwarp 1;"
+#endif
 	"r_drawflame 1;"
 	"v_gunkick 1;"
 	"cl_rollangle 2.0;"
@@ -1639,6 +1646,9 @@ void M_Menu_Render_f (void)
 		"Disabled",
 		"FOV Warp",
 		"Shader",
+#ifdef SDL_GPUQUAKE
+		"Classic (Quake)",
+#endif
 		NULL
 	};
 	static const char *warpvalues[] =
@@ -1646,6 +1656,9 @@ void M_Menu_Render_f (void)
 		"0",
 		"-1",
 		"1",
+#ifdef SDL_GPUQUAKE
+		"2",
+#endif
 		NULL
 	};
 
@@ -1680,7 +1693,7 @@ void M_Menu_Render_f (void)
 		MB_CHECKBOXCVAR("Disable Framegroup Lerp", r_noframegrouplerp, 0),
 		MB_CHECKBOXCVAR("Model Bobbing", cl_item_bobbing, 0),
 		MB_COMBOCVAR("Scene Cache", r_temporalscenecache, scenecacheopts,scenecachevalues, "Cache scene data to significantly optimise highly complex scenes or unvised maps.\nThis may result in offscreen surfaces getting rendered."),
-		MB_COMBOCVAR("Water Warp", r_waterwarp, warpopts, warpvalues, NULL),
+		MB_COMBOCVAR("Water Warp", r_waterwarp, warpopts, warpvalues, "Distortion when the camera is underwater. FOV Warp pulses the camera, Shader ripples the rendered view, and Classic uses Quake's stepped waves."),
 		MB_COMBOCVAR("Water Surfaces", r_waterstyle, wateropts, watervalues, "Choose flat, classic, refractive, or reflective water surfaces."),
 		MB_SLIDER("Water Alpha", r_wateralpha, 0, 1, 0.1, NULL),
 		MB_SLIDER("Viewmodel Alpha", r_drawviewmodel, 0, 1, 0.1, NULL),

@@ -3,7 +3,7 @@ name: SDL3 GPU desktop build
 on:
   workflow_dispatch:
   push:
-    branches: ["master", "dev/c17", "dev/jolt"]
+    branches: ["master", "dev/c17", "dev/midi", "dev/jolt"]
   pull_request:
     branches: [master]
 jobs:
@@ -30,7 +30,28 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxkbcommon-dev libwayland-dev libasound2-dev libpulse-dev libudev-dev libpng-dev libjpeg-dev zlib1g-dev libgnutls28-dev libode-dev pkg-config libxss-dev libxtst-dev libxdamage-dev libgl1-mesa-dev libegl1-mesa-dev libgbm-dev libdrm-dev libdecor-0-dev wayland-protocols
+          sudo apt-get install -y ninja-build libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxkbcommon-dev libwayland-dev libasound2-dev libpulse-dev libudev-dev libpng-dev libjpeg-dev zlib1g-dev libgnutls28-dev libfluidsynth-dev libode-dev pkg-config libxss-dev libxtst-dev libxdamage-dev libgl1-mesa-dev libegl1-mesa-dev libgbm-dev libdrm-dev libdecor-0-dev wayland-protocols
+      - name: macOS MIDI dependency
+        if: runner.os == 'macOS'
+        run: brew install fluid-synth
+      - name: Get FluidSynth 2.6.2 vcpkg port
+        if: runner.os == 'Windows'
+        uses: actions/checkout@v4
+        with:
+          repository: microsoft/vcpkg
+          # The runner's bundled 2.6.1 port predates the DSP hang fix.
+          ref: f6b176237025d9c70a625f9573d5fcd29130c7be
+          path: build-deps/vcpkg
+          sparse-checkout: ports/fluidsynth
+          persist-credentials: false
+      - name: Windows MIDI dependency
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_INSTALLATION_ROOT/vcpkg.exe" install fluidsynth:x64-windows --overlay-ports=build-deps/vcpkg/ports/fluidsynth
+          "CMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" >> $env:GITHUB_ENV
+      - name: Stage pinned MIDI instrument bank
+        run: python3 tools/package_soundfont.py --download --out build-deps/soundfonts
       - name: Select Linux compiler
         if: runner.os == 'Linux'
         shell: bash
@@ -57,7 +78,7 @@ jobs:
           path: build-deps/Jolt
       - name: Configure fork
         shell: bash
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/build-deps/install" -DFTE_WERROR=OFF -DFTE_TOOL_QCCGUI=OFF -DFTE_TOOL_QCVM=ON -DFTE_ENGINE_CLIENT_ONLY=ON -DBUILD_TESTING=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DFTE_PLUG_JOLT=ON -DFTE_JOLT_SOURCE_DIR="$GITHUB_WORKSPACE/build-deps/Jolt"
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/build-deps/install" -DFTE_WERROR=OFF -DFTE_TOOL_QCCGUI=OFF -DFTE_TOOL_QCVM=ON -DFTE_ENGINE_CLIENT_ONLY=ON -DBUILD_TESTING=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DFTE_DEP_FLUIDSYNTH=ON -DFTE_MIDI_SOUNDFONT="$GITHUB_WORKSPACE/build-deps/soundfonts/FluidR3_GM.sf2" -DFTE_PLUG_JOLT=ON -DFTE_JOLT_SOURCE_DIR="$GITHUB_WORKSPACE/build-deps/Jolt"
       - name: Compile engine, server and tools
         run: cmake --build build --config Release --parallel 2
       - name: Run data-free regression checks
@@ -74,16 +95,27 @@ jobs:
       - name: Configure sanitizer engine and tools
         if: runner.os != 'Windows'
         shell: bash
-        run: cmake -S . -B build-sanitize -DCMAKE_BUILD_TYPE=Debug -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/build-deps/install" -DFTE_SANITIZERS=ON -DFTE_ENGINE=ON -DFTE_ENGINE_SERVER_ONLY=ON -DFTE_ENGINE_CLIENT_ONLY=ON -DFTE_TOOL_QCCGUI=OFF -DFTE_TOOL_QCVM=ON -DBUILD_TESTING=ON -DFTE_PLUG_JOLT=ON -DFTE_JOLT_SOURCE_DIR="$GITHUB_WORKSPACE/build-deps/Jolt"
+        run: cmake -S . -B build-sanitize -DCMAKE_BUILD_TYPE=Debug -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/build-deps/install" -DFTE_SANITIZERS=ON -DFTE_ENGINE=ON -DFTE_ENGINE_SERVER_ONLY=ON -DFTE_ENGINE_CLIENT_ONLY=ON -DFTE_TOOL_QCCGUI=OFF -DFTE_TOOL_QCVM=ON -DBUILD_TESTING=ON -DFTE_DEP_FLUIDSYNTH=ON -DFTE_MIDI_SOUNDFONT="$GITHUB_WORKSPACE/build-deps/soundfonts/FluidR3_GM.sf2" -DFTE_PLUG_JOLT=ON -DFTE_JOLT_SOURCE_DIR="$GITHUB_WORKSPACE/build-deps/Jolt"
       - name: Build sanitizer engine and tools
         if: runner.os != 'Windows'
-        run: cmake --build build-sanitize --target fteqw fteqw-sv fteqcc qcvm c17-endian-check jolt-check-deps --parallel 2
+        run: cmake --build build-sanitize --target fteqw fteqw-sv fteqcc qcvm c17-endian-check gpu-renderer-math midi-tests jolt-check-deps --parallel 2
       - name: Run sanitizer engine, compiler, VM and parser checks
         if: runner.os != 'Windows'
         env:
           ASAN_OPTIONS: detect_leaks=0
           UBSAN_OPTIONS: halt_on_error=1
         run: ctest --test-dir build-sanitize --output-on-failure
+      - name: Collect macOS crash reports
+        if: failure() && runner.os == 'macOS'
+        shell: bash
+        run: |
+          mkdir -p build/crash-reports
+          sleep 3
+          for report in "$HOME"/Library/Logs/DiagnosticReports/fteqw*.ips "$HOME"/Library/Logs/DiagnosticReports/fteqw*.crash /Library/Logs/DiagnosticReports/fteqw*.ips /Library/Logs/DiagnosticReports/fteqw*.crash; do
+            if [ -f "$report" ]; then
+              cp "$report" build/crash-reports/
+            fi
+          done
       - name: Preserve failed regression logs
         if: failure()
         uses: actions/upload-artifact@v4
@@ -91,6 +123,7 @@ jobs:
           name: diagnostics-${{ matrix.os }}-${{ matrix.cc || 'default' }}
           path: |
             build/Testing/Temporary/LastTest.log
+            build/crash-reports/
             build/qcc-tests/*.log
             build/physics-tests/**
             build/physics-humanoid/**
@@ -117,5 +150,19 @@ jobs:
             build/package-tests/
             build-sanitize/engine-sanitize-tests/
             build/network-tests/
+            build/midi-integration/**/engine.log
+            build/midi-integration/**/results.json
+            build-sanitize/midi-integration/**/engine.log
+            build-sanitize/midi-integration/**/results.json
+            build/midi-picker/**/engine.log
+            build/midi-picker/**/results.json
+            build/music-remap/**/engine.log
+            build/music-remap/**/reload*.log
+            build/music-remap/**/configs/*.cfg
+            build-sanitize/midi-picker/**/engine.log
+            build-sanitize/midi-picker/**/results.json
+            build-sanitize/music-remap/**/engine.log
+            build-sanitize/music-remap/**/reload*.log
+            build-sanitize/music-remap/**/configs/*.cfg
             build/c17-compat/
           if-no-files-found: ignore

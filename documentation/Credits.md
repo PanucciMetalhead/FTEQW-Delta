@@ -29,6 +29,14 @@
 - **TimeServ** - Many Additions & Bugfixes
 - **[Xylemon](https://github.com/Xylemon)** - Technical support, Enthusiast
 
+### Optional MIDI dependencies
+
+MIDI synthesis uses [FluidSynth](https://github.com/FluidSynth/fluidsynth),
+LGPL-2.1-or-later. The selected default instrument bank is FluidR3 GM 3.1 by
+Frank Wen and contributors, under the MIT license. Its original notices and
+source/checksum record are in [dist/soundfonts/FluidR3-GM](../dist/soundfonts/FluidR3-GM)
+and accompany packaged SoundFonts. See [MIDI.md](MIDI.md) for packaging details.
+
 ### Optional physics dependency
 
 The experimental Jolt plugin uses Jolt Physics by Jorrit Rouwe and contributors

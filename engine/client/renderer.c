@@ -235,8 +235,13 @@ cvar_t r_slimealpha							= CVARF  ("r_slimealpha", "",
 												CVAR_ARCHIVE | CVAR_SHADERSYSTEM);
 cvar_t r_telealpha							= CVARF  ("r_telealpha", "",
 												CVAR_ARCHIVE | CVAR_SHADERSYSTEM);
-cvar_t r_waterwarp							= CVARFD ("r_waterwarp", "1",
-												CVAR_ARCHIVE, "Enables fullscreen warp, preferably via glsl. -1 specifies to force the fov warp fallback instead which can give a smidge more performance.");
+#ifdef SDL_GPUQUAKE
+cvar_t r_waterwarp = CVARFD("r_waterwarp", "2", CVAR_ARCHIVE,
+	"Underwater view warp. 0 disables it, -1 pulses the field of view, 1 uses a smooth shader ripple, and 2 uses classic Quake ripples (SDL3 GPU).");
+#else
+cvar_t r_waterwarp = CVARFD("r_waterwarp", "1", CVAR_ARCHIVE,
+	"Underwater view warp. 0 disables it, -1 pulses the field of view, and 1 uses a screen-space shader where supported.");
+#endif
 
 cvar_t r_replacemodels						= CVARFD ("r_replacemodels", IFMINIMAL("","md3 md2 md5mesh"),
 												CVAR_ARCHIVE, "A list of filename extensions to attempt to use instead of mdl.");
@@ -331,8 +336,8 @@ extern cvar_t r_speeds;
 extern cvar_t r_waterwarp;
 
 #ifdef BEF_PUSHDEPTH
-cvar_t	r_polygonoffset_submodel_factor = CVARD("r_polygonoffset_submodel_factor", "0", "z-fighting avoidance. Pushes submodel depth values slightly towards the camera depending on the slope of the surface.");
-cvar_t	r_polygonoffset_submodel_offset = CVARD("r_polygonoffset_submodel_offset", "0", "z-fighting avoidance. Pushes submodel depth values slightly towards the camera by a consistent distance.");
+cvar_t	r_polygonoffset_submodel_factor = CVARD("r_polygonoffset_submodel_factor", "0", "Slope-dependent depth bias for brush submodels. Positive values push them away from the camera to reduce z-fighting.");
+cvar_t	r_polygonoffset_submodel_offset = CVARD("r_polygonoffset_submodel_offset", "0", "Constant depth bias for brush submodels. Positive values push them away from the camera to reduce z-fighting.");
 cvar_t	r_polygonoffset_submodel_maps = CVARD("r_polygonoffset_submodel_map", "e?m? r?m? hip?m?", "List of maps on which z-fighting reduction should be used. wildcards accepted.");
 #endif
 cvar_t	r_polygonoffset_shadowmap_offset = CVAR("r_polygonoffset_shadowmap_factor", "0.05");

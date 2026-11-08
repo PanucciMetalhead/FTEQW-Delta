@@ -29,6 +29,8 @@ def main():
     (game/'declarations.qh').write_text((ROOT/'tools/tests/physics_fixture.qc').read_text().split('float simulated,phase')[0])
     shutil.copyfile(ROOT/('tools/tests/physics_rig_save.qc' if args.skeletal else 'tools/tests/physics_save.qc'),game/'fixture.qc')
     env=dict(os.environ,ASAN_OPTIONS='detect_leaks=0',UBSAN_OPTIONS='halt_on_error=1:print_stacktrace=1')
+    if args.legacy:
+        env['SDL_VIDEODRIVER']='dummy'
     with (out/'compile.log').open('w') as log:
         subprocess.run([str(args.qcc.resolve()),'-srcfile','fixture.qc','-o','progs.dat'],cwd=game,env=env,stdout=log,stderr=subprocess.STDOUT,check=True,timeout=30)
     shutil.copyfile(args.plugin.resolve(),out/args.plugin.name)

@@ -313,6 +313,120 @@ static struct
 	const char *broker;
 } ui_pings[MAX_PINGREQUESTS];
 
+#ifdef CL_MASTER
+static qboolean ui_masterquery_pending;
+static unsigned int ui_masterquery_startms;
+
+static int UI_ServerCount(void)
+{
+	int count;
+	// API 4 menus send their own pings. Poll the requested master's reply here
+	// and report "pending" until a reply or the menu's discovery deadline.
+	// QueryServers would also query unrelated masters from FTE's shared list.
+	masterfuncs->CheckPollSockets();
+	count = masterfuncs->TotalCount();
+	if (count || (unsigned int)plugfuncs->GetMilliseconds() - ui_masterquery_startms >= 5000)
+		ui_masterquery_pending = false;
+	return ui_masterquery_pending ? -1 : count;
+}
+#endif
+
+#ifdef CL_MASTER
+static void UI_AppendServerInfo(char *buf, size_t size, const char *key, const char *value)
+{
+	// Avoid SetInfoKey's noisy overflow path and keep every pair complete.
+	if (!*key || !*value || strpbrk(key, "\\;\"") || strpbrk(value, "\\;\""))
+		return;
+	if (strlen(buf) + strlen(key) + strlen(value) + 2 >= size)
+		return;
+	worldfuncs->SetInfoKey(buf, key, value, size);
+}
+
+static void UI_WriteServerInfo(char *buf, size_t size, serverinfo_t *info)
+{
+	const char *raw, *start;
+	size_t len;
+	char key[1024], value[1024];
+	static const char *const browserkeys[] = {"gametype", "game", "g_needpass", "punkbuster", "minPing", "maxPing"};
+	size_t i;
+	if (!size)
+		return;
+	*buf = 0;
+	if (!info || !info->moreinfo)
+		return;
+	// Reserve room for the fields the browser needs before optional metadata.
+	UI_AppendServerInfo(buf, size, "clients", va("%i", info->players));
+	UI_AppendServerInfo(buf, size, "sv_maxclients", va("%i", info->maxplayers));
+	UI_AppendServerInfo(buf, size, "g_humanplayers", va("%i", info->numhumans));
+	if (info->adr.prot == NP_DGRAM)
+		UI_AppendServerInfo(buf, size, "nettype", info->adr.type == NA_IPV6 ? "2" : info->adr.type == NA_IP ? "1" : "0");
+	UI_AppendServerInfo(buf, size, "hostname", info->name);
+	UI_AppendServerInfo(buf, size, "mapname", info->map);
+	raw = info->moreinfo->info;
+	if (!raw)
+		return;
+	for (i = 0; i < sizeof(browserkeys)/sizeof(*browserkeys); i++)
+		UI_AppendServerInfo(buf, size, browserkeys[i], worldfuncs->GetInfoKey(raw, browserkeys[i]));
+	while (*raw)
+	{
+		if (*raw == '\\') raw++;
+		start = raw;
+		while (*raw && *raw != '\\') raw++;
+		len = raw - start;
+		if (!*raw) break;
+		if (len >= sizeof(key))
+			*key = 0;
+		else
+		{
+			memcpy(key, start, len);
+			key[len] = 0;
+		}
+		start = ++raw;
+		while (*raw && *raw != '\\') raw++;
+		len = raw - start;
+		if (*key && len < sizeof(value) && !*worldfuncs->GetInfoKey(buf, key))
+		{
+			memcpy(value, start, len);
+			value[len] = 0;
+			UI_AppendServerInfo(buf, size, key, value);
+		}
+	}
+}
+#endif
+
+static void UI_ClearPing(int num)
+{
+	memset(&ui_pings[num], 0, sizeof(ui_pings[num]));
+	ui_pings[num].adr.type = NA_INVALID;
+	ui_pings[num].adr.prot = NP_INVALID;
+}
+
+static void UI_QueueCommand(const char *text)
+{
+	char token[1024];
+	const char *args = cmdfuncs->ParseToken(text, token, sizeof(token), NULL);
+#ifdef CL_MASTER
+	if (!strcmp(token, "globalservers"))
+	{
+		ui_masterquery_pending = true;
+		ui_masterquery_startms = plugfuncs->GetMilliseconds();
+	}
+	else if (!strcmp(token, "localservers"))
+		ui_masterquery_pending = false;
+#endif
+	if (!strcmp(token, "connect") && args)
+	{
+		cmdfuncs->ParseToken(args, token, sizeof(token), NULL);
+		if (*token)
+		{
+			// FTE owns the connection/loading screen. An opaque Q3 browser
+			// otherwise hides its progress, failures and even the joined game.
+			Q3_SetKeyCatcher(keycatcher & ~2);
+		}
+	}
+	cmdfuncs->AddText(text, false);
+}
+
 #define UITAGNUM 2452
 
 struct q3refEntity_s {
@@ -968,7 +1082,7 @@ static qintptr_t UI_SystemCalls(void *offset, quintptr_t mask, qintptr_t fn, con
 			}
 			else
 #endif
-				cmdfuncs->AddText(cmdtext, false);
+				UI_QueueCommand(cmdtext);
 		}
 		break;
 
@@ -1259,7 +1373,7 @@ static qintptr_t UI_SystemCalls(void *offset, quintptr_t mask, qintptr_t fn, con
 	case UI_LAN_CLEARPING:	//clear ping
 		//void (int pingnum)
 		if (VM_LONG(arg[0])>= 0 && VM_LONG(arg[0]) < MAX_PINGREQUESTS)
-			ui_pings[VM_LONG(arg[0])].adr.type = NA_INVALID, ui_pings[VM_LONG(arg[0])].adr.prot = NP_INVALID;
+			UI_ClearPing(VM_LONG(arg[0]));
 		break;
 	case UI_LAN_GETPING:
 		//void (int pingnum, char *buffer, int buflen, int *ping)
@@ -1281,11 +1395,14 @@ static qintptr_t UI_SystemCalls(void *offset, quintptr_t mask, qintptr_t fn, con
 			else
 				info = NULL;
 			Q_strncpyz(buf, ui_pings[i].adrstring, bufsize);
+			*ping = 0;
+			if (!*buf)
+				break;
 
 			if (info && /*(info->status & SRVSTATUS_ALIVE) &&*/ info->moreinfo)
 			{
 				VM_LONG(ret) = true;
-				*ping = (info->ping == PING_UNKNOWN)?1:info->ping;
+				*ping = (info->ping == PING_UNKNOWN || !info->ping)?1:info->ping;
 				break;
 			}
 			i = plugfuncs->GetMilliseconds()-ui_pings[i].startms;
@@ -1296,44 +1413,17 @@ static qintptr_t UI_SystemCalls(void *offset, quintptr_t mask, qintptr_t fn, con
 		break;
 	case UI_LAN_GETPINGINFO:
 		//void (int pingnum, char *buffer, int buflen)
-		if ((int)arg[1] + VM_LONG(arg[2]) >= mask || VM_POINTER(arg[1]) < offset)
-			break;	//out of bounds.
-		if ((int)arg[3] + sizeof(int) >= mask || VM_POINTER(arg[3]) < offset)
+		if ((int)arg[1] + VM_LONG(arg[2]) >= mask || VM_POINTER(arg[1]) < offset || VM_LONG(arg[2]) < 1)
 			break;	//out of bounds.
 
+		*(char *)VM_POINTER(arg[1]) = 0;
 		masterfuncs->CheckPollSockets();
 		if (VM_LONG(arg[0])>= 0 && VM_LONG(arg[0]) < MAX_PINGREQUESTS)
 		{
 			int i = VM_LONG(arg[0]);
-			char *buf = VM_POINTER(arg[1]);
-			size_t bufsize = VM_LONG(arg[2]);
-			char *adr;
 			serverinfo_t *info = masterfuncs->InfoForServer(&ui_pings[i].adr, ui_pings[i].broker);
-
-			if (info && /*(info->status & SRVSTATUS_ALIVE) &&*/ info->moreinfo)
-			{
-				adr = info->moreinfo->info;
-				if (!adr)
-					adr = "";
-				if (strlen(adr) < bufsize)
-				{
-					strcpy(buf, adr);
-					worldfuncs->SetInfoKey(buf, "mapname", info->map, bufsize);
-					worldfuncs->SetInfoKey(buf, "hostname", info->name, bufsize);
-					worldfuncs->SetInfoKey(buf, "g_humanplayers", va("%i", info->numhumans), bufsize);
-					worldfuncs->SetInfoKey(buf, "sv_maxclients", va("%i", info->maxplayers), bufsize);
-					worldfuncs->SetInfoKey(buf, "clients", va("%i", info->players), bufsize);
-					if (info->adr.type == NA_IPV6 && info->adr.prot == NP_DGRAM)
-						worldfuncs->SetInfoKey(buf, "nettype", "2", bufsize);
-					else if (info->adr.type == NA_IP && info->adr.prot == NP_DGRAM)
-						worldfuncs->SetInfoKey(buf, "nettype", "1", bufsize);
-					else
-						worldfuncs->SetInfoKey(buf, "nettype", "", bufsize);
-					VM_LONG(ret) = true;
-				}	
-			}
-			else
-				strcpy(buf, "");
+			UI_WriteServerInfo(VM_POINTER(arg[1]), VM_LONG(arg[2]), info);
+			VM_LONG(ret) = info && info->moreinfo;
 		}
 		break;
 
@@ -1374,8 +1464,7 @@ static qintptr_t UI_SystemCalls(void *offset, quintptr_t mask, qintptr_t fn, con
 
 	case UI_LAN_GETSERVERCOUNT:	//LAN Get server count
 		//int (int source)
-		masterfuncs->CheckPollSockets();
-		VM_LONG(ret) = masterfuncs->TotalCount();
+		VM_LONG(ret) = UI_ServerCount();
 		break;
 	case UI_LAN_GETSERVERADDRESSSTRING:	//LAN get server address
 		//void (int source, int svnum, char *buffer, int buflen)
@@ -1855,8 +1944,11 @@ void UI_Start (void)
 
 	UI_Stop();
 
+#ifdef CL_MASTER
+	ui_masterquery_pending = false;
+#endif
 	for (i = 0; i < MAX_PINGREQUESTS; i++)
-		ui_pings[i].adr.type = NA_INVALID;
+		UI_ClearPing(i);
 
 	uimenu.drawmenu = UI_DrawMenu;
 	uimenu.mousemove = UI_MousePosition;
@@ -1941,6 +2033,9 @@ vm_t *UI_GetUIVM(void)
 
 void UI_Init (void)
 {
+	// Q3's engine normally owns this cvar. Without it OpenArena reads zero
+	// and clamps its browser filter to 100 ms, hiding most remote servers.
+	cvarfuncs->GetNVFDG("cl_maxPing", "800", CVAR_ARCHIVE, "Maximum server-browser ping in milliseconds.", "Q3 Compat");
 	cl_shownet_ptr = cvarfuncs->GetNVFDG("cl_shownet", "", 0, NULL, "Q3 Compat");
 	cl_c2sdupe_ptr = cvarfuncs->GetNVFDG("cl_c2sdupe", "", 0, NULL, "Q3 Compat");
 	cl_nodelta_ptr = cvarfuncs->GetNVFDG("cl_nodelta", "", 0, NULL, "Q3 Compat");

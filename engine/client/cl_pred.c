@@ -469,6 +469,35 @@ void CL_CatagorizePosition (playerview_t *pv, float *org)
 	PM_CategorizePosition ();
 	pv->onground = pmove.onground;
 }
+
+// Carry the camera's existing step offset along a continuous incline.
+// Only the change in height relative to the ground plane is a step.
+static void CL_FollowGroundSlope(playerview_t *pv)
+{
+	vec3_t delta, start, end;
+	trace_t ground;
+	float rise, slope;
+
+	if (!pv->onground)
+		return;
+
+	VectorSubtract(pv->simorg, pv->oldorigin, delta);
+	rise = -DotProduct(delta, pv->gravitydir);
+	if (fabsf(rise) <= 0.125f || DotProduct(delta, delta) > 48*48)
+		return;
+
+	// Start above the hull's current position to allow for network quantization.
+	VectorMA(pv->simorg, -1, pv->gravitydir, start);
+	VectorMA(pv->simorg, 2, pv->gravitydir, end);
+	ground = PM_PlayerTrace(start, end, MASK_PLAYERSOLID);
+	if (ground.startsolid || ground.fraction == 1 || ground.entnum != 0)
+		return;
+
+	slope = -DotProduct(ground.plane.normal, pv->gravitydir);
+	if (slope >= 0.7f && slope < 0.999f && fabsf(DotProduct(ground.plane.normal, delta)) <= 0.25f)
+		pv->oldz += rise;
+}
+
 //Smooth out stair step ups.
 //Called before CL_EmitEntities so that the player's lightning model origin is updated properly
 void CL_CalcCrouch (playerview_t *pv)
@@ -1425,6 +1454,7 @@ void CL_PredictMovePNum (int seat)
 	else
 		CL_CatagorizePosition(pv, to.state->origin);
 
+	CL_FollowGroundSlope(pv);
 	CL_CalcCrouch (pv);
 	pv->waterlevel = pmove.waterlevel;
 	if (!DotProduct(pmove.gravitydir,pmove.gravitydir))

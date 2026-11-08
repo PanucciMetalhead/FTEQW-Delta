@@ -2,7 +2,8 @@
 using namespace metal;
 struct Input { float4 position [[position]]; float2 uv; };
 struct Post { float4 settings,color,reserved; };
-fragment float4 main0(Input v [[stage_in]],constant Post &u [[buffer(0)]], texture2d<float> scene [[texture(0)]],sampler s [[sampler(0)]]) {
+fragment float4 main0(Input v [[stage_in]],constant Post &u [[buffer(0)]], texture2d<float> scene [[texture(0)]],sampler s [[sampler(0)]],
+    texture2d<float> bloomimage [[texture(1)]],sampler bls [[sampler(1)]]) {
     float3 c=scene.sample(s,v.uv).rgb;
 
     if(u.reserved.x>0) {
@@ -22,7 +23,8 @@ fragment float4 main0(Input v [[stage_in]],constant Post &u [[buffer(0)]], textu
             float l=dot(r2,luma); c=(l<lo || l>hi)?r1:r2;
         }
     }
-    if(u.settings.z>0) {
+    if(u.settings.z>0 && u.reserved.y>0) c+=bloomimage.sample(bls,v.uv).rgb*u.settings.z;
+    else if(u.settings.z>0) {
         float3 bloom=float3(0); float total=0;
         for(int x=-3;x<=3;x++) for(int y=-3;y<=3;y++) {
             float w=exp(-float(x*x+y*y)/6);

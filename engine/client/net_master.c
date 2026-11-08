@@ -43,7 +43,7 @@ void Master_DetermineMasterTypes(void)
 
 			if (!strcmp(game, "Quake2"))
 				sb_enablequake2 = true;
-			if (!strcmp(game, "Quake3"))
+			if (!strcmp(game, "Quake3") || !strcmp(game, "Quake3Arena"))
 				sb_enablequake3 = true;
 			//for DP compatibility, we consider these separate(ish) games.
 			if (!strcmp(game, "Quake") || !strcmp(game, "Hipnotic") || !strcmp(game, "Rogue"))
@@ -2367,20 +2367,20 @@ void Master_CheckPollSockets(void)
 #ifdef HAVE_IPV6
 			if (!strncmp(s, "getserversResponse6", 19) && (s[19] == '\\' || s[19] == '/'))	//parse a bit more...
 			{
-				net_message.currentbit = (c+19-1)<<3;
+				net_message.currentbit = c+((19-1)<<3);
 				CL_MasterListParse(NA_IPV6, SS_GETINFO, true);
 				continue;
 			}
 #endif
 			if (!strncmp(s, "getserversExtResponse", 21) && (s[21] == '\\' || s[21] == '/'))	//parse a bit more...
 			{
-				net_message.currentbit = (c+21-1)<<3;
+				net_message.currentbit = c+((21-1)<<3);
 				CL_MasterListParse(NA_IP, SS_GETINFO, true);
 				continue;
 			}
 			if (!strncmp(s, "getserversResponse", 18) && (s[18] == '\\' || s[18] == '/'))	//parse a bit more...
 			{
-				net_message.currentbit = (c+18-1)<<3;
+				net_message.currentbit = c+((18-1)<<3);
 				CL_MasterListParse(NA_IP, SS_GETINFO, true);
 				continue;
 			}
@@ -4002,6 +4002,23 @@ static void NetQ3_LocalServers_f(void)
 	}
 #endif
 }
+static size_t NetQ3_MasterForSlot(size_t slot)
+{
+	static const char *prefixes[] = {"net_q3master", "net_master"};
+	char name[32];
+	size_t p, i;
+	if (slot >= 8)
+		return countof(net_masterlist);
+	for (p = 0; p < countof(prefixes); p++)
+	{
+		Q_snprintfz(name, sizeof(name), "%s%u", prefixes[p], (unsigned int)slot+1);
+		for (i = 0; i < countof(net_masterlist); i++)
+			if (net_masterlist[i].cv.name && !strcmp(net_masterlist[i].cv.name, name) && *net_masterlist[i].cv.string)
+				return i;
+	}
+	return countof(net_masterlist);
+}
+
 static void NetQ3_GlobalServers_Request(size_t masternum, int protocol, const char *keywords)
 {
 #ifdef WEBCLIENT
@@ -4028,14 +4045,21 @@ static void NetQ3_GlobalServers_Request(size_t masternum, int protocol, const ch
 #if POLLTOTALSOCKETS>0
 	if (masternum >= countof(net_masterlist))
 		return; //erk
-	if (net_masterlist[masternum].protocol == MP_QUAKE3)
+	if (net_masterlist[masternum].protocol == MP_QUAKE3 || net_masterlist[masternum].protocol == MP_DPMASTER)
 	{
 		netadr_t adr[16];
 		char *str;
+		char game[64];
 		size_t i, n;
 		COM_Parse(net_masterlist[masternum].cv.string);	//only want the first one
 		n = NET_StringToAdr2(com_token, 0, adr, countof(adr), NULL);
-		str = va("%c%c%c%cgetservers %u %s\n", 255, 255, 255, 255, protocol, keywords);
+		// Legacy Q3 masters assume Quake3. Other names must match the master
+		// registry; OpenArena, for example, is registered as Quake3Arena.
+		COM_ParseOut(com_protocolname.string, game, sizeof(game));
+		if (!Q_strcasecmp(game, "Quake3"))
+			*game = 0;
+		str = va("%c%c%c%cgetservers %s%s%u %s\n", 255, 255, 255, 255,
+			game, *game?" ":"", protocol, keywords);
 		for (i = 0; i < n; i++)
 			NET_SendPollPacket (strlen(str), str, adr[i]);
 	}
@@ -4046,18 +4070,24 @@ static void NetQ3_GlobalServers_f(void)
 	size_t masternum = atoi(Cmd_Argv(1));
 	int protocol = atoi(Cmd_Argv(2));
 	char *keywords;
+	size_t masterindex = NetQ3_MasterForSlot(masternum);
 	MasterInfo_Refresh(true);
 
 	Cmd_ShiftArgs(2, false);
 	keywords = Cmd_Args();
 
-	if (!masternum)
+	// Q3 UI master numbers are zero-based slots, not indices into FTE's mixed
+	// QW/DP/Q2/Q3 registry. Honour an explicitly configured slot before using
+	// the built-in Q3 fallback masters (which may list incompatible games).
+	if (masterindex < countof(net_masterlist))
+		NetQ3_GlobalServers_Request(masterindex, protocol, keywords);
+	else if (!masternum)
 	{
-		for (masternum = 0; masternum <= countof(net_masterlist); masternum++)
-			NetQ3_GlobalServers_Request(masternum, protocol, keywords);
+		for (masternum = 0; masternum < countof(net_masterlist); masternum++)
+			if (net_masterlist[masternum].protocol == MP_QUAKE3)
+				NetQ3_GlobalServers_Request(masternum, protocol, keywords);
+		NetQ3_GlobalServers_Request(countof(net_masterlist), protocol, keywords);
 	}
-	else
-		NetQ3_GlobalServers_Request(masternum-1, protocol, keywords);
 }
 #else
 static void NetQ3_LocalServers_f(void){}

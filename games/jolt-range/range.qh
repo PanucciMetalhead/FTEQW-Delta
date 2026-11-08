@@ -1,0 +1,16 @@
+// FTE extensions used by this overlay. AD supplies the other physics and skeleton declarations.
+float() physics_supported = #0;
+.float geomtype, friction, damp_linear, damp_angular, basebone;
+.float range_push_until, range_force_left, range_yaw, range_saved_solid;
+.vector range_launch, range_impact, range_pellets;
+.entity range_parts, range_next, range_joints, range_soldier, range_visual;
+.string physics_shape;
+.float dimension_solid, dimension_hit;
+.float range_bone, range_recover, range_fatal_shot;
+.void() range_saved_think;
+void() range_init, range_frame;
+float(entity target, entity source, float amount) range_hit;
+float(entity target, entity source, entity attacker, float amount) range_soldier_hit;
+float(entity soldier) range_knockdown;
+void(entity soldier) range_end_push;
+float() range_ragdoll_death;

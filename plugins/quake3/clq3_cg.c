@@ -1351,7 +1351,7 @@ static qintptr_t EXPORT_FN CG_SystemCallsNative(qintptr_t arg, ...)
 
 int CG_Refresh(double time)
 {
-	if (!cgvm)
+	if (!cgvm || ccs.state != ca_active)
 		return false;
 
 	ccs.time = time;
@@ -1364,14 +1364,14 @@ int CG_Refresh(double time)
 
 void CG_Stop (void)
 {
+	vm_t *oldvm = cgvm;
+	cgvm = NULL;	// shutdown can trigger error cleanup again
 	Q3_SetKeyCatcher(Q3_GetKeyCatcher()&~2);
-	if (cgvm)
+	if (oldvm)
 	{
-		vmfuncs->Call(cgvm, CG_SHUTDOWN);
-		vmfuncs->Destroy(cgvm);
+		vmfuncs->Call(oldvm, CG_SHUTDOWN);
+		vmfuncs->Destroy(oldvm);
 		VM_fcloseall(1);
-		cgvm = NULL;
-
 	}
 }
 

@@ -150,14 +150,17 @@ static int cdpausedtrack;	//currently paused cd track
 //info about (fake)cd tracks that we want to play
 int cdplaytracknum;
 
-//info about (fake)cd tracks that we could play if asked.
+static qboolean cdenabled;
+static int cdnumtracks;		//maximum cd track we can play.
+#endif
+
+#ifndef NOMEDIA
+//Numbered file-music replacements are independent of physical CD support.
 #define REMAPPED_TRACKS 256
 static struct
 {
 	char fname[MAX_QPATH];
 } cdremap[REMAPPED_TRACKS];
-static qboolean cdenabled;
-static int cdnumtracks;		//maximum cd track we can play.
 #endif
 
 
@@ -333,6 +336,7 @@ qboolean Media_CleanupTrackName(const char *track, int *out_track, char *result,
 	{
 		"music/",
 		"sound/cdtracks/",
+		"midi/", /* Hexen II's original music directory. */
 		"",
 		NULL
 	};
@@ -363,19 +367,24 @@ qboolean Media_CleanupTrackName(const char *track, int *out_track, char *result,
 		//".s3m",	//some variant of mod that noone cares about. listed because of qs.
 		//".umx",	//wtf? qs is weird.
 #endif
+#ifdef AVAIL_MIDI
+		".mid",
+		".midi",
+#endif
 		NULL
 	};
 	unsigned int tracknum;
 	char *trackend;
 	unsigned int ip, ie;
 	int bestdepth = 0x7fffffff, d;
+	qboolean bestismidi = false;
 	char tryname[MAX_QPATH];
 
 	//check if its a proper number (0123456789 without any other weird stuff. if so, we can use fake track paths or actual cd tracks)
 	tracknum = strtoul(track, &trackend, 10);
 	if (*trackend)
 		tracknum = 0;	//not a single integer
-#ifdef HAVE_CDPLAYER
+#ifndef NOMEDIA
 	if (tracknum > 0 && tracknum < REMAPPED_TRACKS && *cdremap[tracknum].fname)
 	{	//remap the track if its remapped.
 		track = cdremap[tracknum].fname;
@@ -404,10 +413,12 @@ qboolean Media_CleanupTrackName(const char *track, int *out_track, char *result,
 					for(ie = 0; ext[ie]; ie++)
 					{
 						Q_snprintfz(tryname, sizeof(tryname), "%strack%03u%s", path[ip], tracknum, ext[ie]);
+						qboolean ismidi = !strncmp(ext[ie], ".mid", 4);
 						d = COM_FDepthFile(tryname, false);
-						if (d < bestdepth)
+						if (d < bestdepth || (d == bestdepth && bestismidi && !ismidi))
 						{
 							bestdepth = d;
+							bestismidi = ismidi;
 							Q_strncpy(result, tryname, resultsize);
 						}
 					}
@@ -417,10 +428,12 @@ qboolean Media_CleanupTrackName(const char *track, int *out_track, char *result,
 					for(ie = 0; ext[ie]; ie++)
 					{
 						Q_snprintfz(tryname, sizeof(tryname), "%strack%02u%s", path[ip], tracknum, ext[ie]);
+						qboolean ismidi = !strncmp(ext[ie], ".mid", 4);
 						d = COM_FDepthFile(tryname, false);
-						if (d < bestdepth)
+						if (d < bestdepth || (d == bestdepth && bestismidi && !ismidi))
 						{
 							bestdepth = d;
+							bestismidi = ismidi;
 							Q_strncpy(result, tryname, resultsize);
 						}
 					}
@@ -432,10 +445,12 @@ qboolean Media_CleanupTrackName(const char *track, int *out_track, char *result,
 			for(ie = 0; ext[ie]; ie++)
 			{
 				Q_snprintfz(tryname, sizeof(tryname), "%s%s%s", path[ip], track, ext[ie]);
+				qboolean ismidi = !strncmp(ext[ie], ".mid", 4);
 				d = COM_FDepthFile(tryname, false);
-				if (d < bestdepth)
+				if (d < bestdepth || (d == bestdepth && bestismidi && !ismidi))
 				{
 					bestdepth = d;
+					bestismidi = ismidi;
 					Q_strncpy(result, tryname, resultsize);
 				}
 			}
@@ -570,20 +585,30 @@ void Media_SetPauseTrack(qboolean paused)
 #endif
 }
 
-#ifdef HAVE_CDPLAYER
+#ifndef NOMEDIA
+static void Media_RemapTrack(unsigned int track, const char *replacement)
+{
+	if (strcmp(cdremap[track].fname, replacement))
+	{
+		Q_strncpyz(cdremap[track].fname, replacement, sizeof(cdremap[track].fname));
+		Cvar_ConfigChanged();
+	}
+}
+
 void Media_SaveTracks(vfsfile_t *outcfg)
 {
 	unsigned int n;
 	char buf[MAX_QPATH*4];
+	//Clear old mappings when loading, including when the saved table is empty.
+	VFS_PRINTF(outcfg, "cd reset\n");
 	for (n = 1; n < REMAPPED_TRACKS; n++)
 		if (*cdremap[n].fname)
-			Con_Printf("cd remap %u %s\n", n, COM_QuotedString(cdremap[n].fname, buf, sizeof(buf), false));
+			VFS_PRINTF(outcfg, "cd remaptrack %u %s\n", n, COM_QuotedString(cdremap[n].fname, buf, sizeof(buf), false));
 }
-void CD_f (void)
+static void CD_f(void)
 {
-	char	*command;
-	int		ret;
-	int		n;
+	const char *command;
+	int ret, n;
 
 	if (Cmd_Argc() < 2)
 		return;
@@ -616,18 +641,54 @@ void CD_f (void)
 			return;
 		}
 		for (n = 1; n <= ret && n < REMAPPED_TRACKS; n++)
-			Q_strncpyz(cdremap[n].fname, Cmd_Argv (n+1), sizeof(cdremap[n].fname));
+			Media_RemapTrack(n, Cmd_Argv(n+1));
+		return;
+	}
+
+	if (Q_strcasecmp(command, "remaptrack") == 0)
+	{
+		const char *arg = Cmd_Argv(2);
+		char *end;
+		unsigned long track = strtoul(arg, &end, 10);
+		if (Cmd_Argc() != 4 || *arg < '0' || *arg > '9' || *end || track < 1 || track >= REMAPPED_TRACKS)
+		{
+			Con_Printf("Usage: cd remaptrack <1-255> <replacement> (use \"\" to clear)\n");
+			return;
+		}
+		if (strlen(Cmd_Argv(3)) >= sizeof(cdremap[track].fname))
+		{
+			Con_Printf("Music track replacement is too long\n");
+			return;
+		}
+		Media_RemapTrack(track, Cmd_Argv(3));
+		return;
+	}
+
+	if (Q_strcasecmp(command, "reset") == 0)
+	{
+		for (n = 1; n < REMAPPED_TRACKS; n++)
+			Media_RemapTrack(n, "");
+#ifdef HAVE_CDPLAYER
+		cdenabled = true;
+		if (cdplayingtrack || cdpausedtrack)
+			CDAudio_Stop();
+		cdplayingtrack = cdpausedtrack = cdplaytracknum = 0;
+		cdnumtracks = 0;
+#endif
 		return;
 	}
 
 	if (Q_strcasecmp(command, "stop") == 0)
 	{
 		*media_playtrack = *media_loopingtrack = 0;
+		#ifdef HAVE_CDPLAYER
 		cdplaytracknum = 0;
+		#endif
 		Media_Changed(MEDIA_GAMEMUSIC);
 		return;
 	}
 
+#ifdef HAVE_CDPLAYER
 	if (!bgmvolume.value)
 	{
 		Con_Printf("Background music is disabled: %s is 0\n", bgmvolume.name);
@@ -655,17 +716,6 @@ void CD_f (void)
 		*media_playtrack = *media_loopingtrack = 0;
 		cdplaytracknum = 0;
 		Media_Changed(MEDIA_GAMEMUSIC);
-		return;
-	}
-
-	if (Q_strcasecmp(command, "reset") == 0)
-	{
-		cdenabled = true;
-		if (cdplayingtrack || cdpausedtrack)
-			CDAudio_Stop();
-		for (n = 0; n < REMAPPED_TRACKS; n++)
-			strcpy(cdremap[n].fname, "");
-		cdnumtracks = CDAudio_GetAudioDiskInfo();
 		return;
 	}
 
@@ -718,6 +768,9 @@ void CD_f (void)
 			Con_Printf("Paused %s track %u\n", *media_loopingtrack ? "looping" : "playing", cdpausedtrack);
 		return;
 	}
+#else
+	Con_Printf("Physical CD playback is unavailable. Use cd play, loop, stop, remap, remaptrack or reset.\n");
+#endif
 }
 #endif
 
@@ -5084,8 +5137,10 @@ void Media_Init(void)
 #endif
 
 
+#ifndef NOMEDIA
+	Cmd_AddCommandD("cd", CD_f, "File music controls: play <track>, loop <track> [looptrack], stop, remap [replacement1 replacement2 ...], remaptrack <1-255> <replacement>, reset. Remap lists or replaces slots starting at 1; remaptrack changes one slot, with an empty replacement clearing it.");
+#endif
 #ifdef HAVE_CDPLAYER
-	Cmd_AddCommand("cd", CD_f);
 	cdenabled = false;
 	if (COM_CheckParm("-nocdaudio"))
 		cdenabled = false;

@@ -83,11 +83,22 @@ LRESULT CALLBACK HeadlessWndProc(HWND wnd, UINT msg, WPARAM wparam, LPARAM lpara
 static qboolean Headless_VID_Init				(rendererstate_t *info, unsigned char *palette)
 {
 	memset(&sh_config, 0, sizeof(sh_config));
-	// A null display still needs a finite viewport for client gamecode.
+	// Menus and client gamecode still need a finite viewport when no display is being rendered.
 	vid.width = vid.fbvwidth = vid.pixelwidth = vid.rotpixelwidth = vid.fbpwidth = info->width > 0 ? info->width : 640;
 	vid.height = vid.fbvheight = vid.pixelheight = vid.rotpixelheight = vid.fbpheight = info->height > 0 ? info->height : 480;
 
 #ifdef FTE_SDL
+		/* Dummy/offscreen video explicitly requests a displayless process. The
+		 * SDL tray backend is independent of the video driver and may otherwise
+		 * create native Cocoa objects even for an audio-only CI test. */
+		const char *driver = SDL_GetCurrentVideoDriver();
+		if (!driver || !*driver) driver = SDL_GetHint(SDL_HINT_VIDEO_DRIVER);
+		if (!driver || !*driver) driver = SDL_getenv("SDL_VIDEODRIVER");
+		if (driver && (!Q_strcasecmp(driver, "dummy") || !Q_strcasecmp(driver, "offscreen")))
+		{
+			Con_Printf("Headless: displayless SDL driver; system tray disabled.\n");
+			return true;
+		}
 		thetray = SDL_CreateTray(NULL, fs_manifest->formalname);
 		if (thetray)
 		{	//don't know how to respond to direct clicks, so create a menu.
@@ -96,7 +107,7 @@ static qboolean Headless_VID_Init				(rendererstate_t *info, unsigned char *pale
 			SDL_SetTrayEntryCallback(entry, Headless_Restore, NULL);
 			return true;
 		}
-		// CI and displayless hosts need no tray; the console can restore rendering.
+		// Displayless hosts can restore rendering through console commands.
 		Con_Printf("Headless: system tray unavailable; console renderer controls remain available.\n");
 		return true;
 #elif defined(_WIN32)
@@ -167,7 +178,7 @@ static qboolean Headless_VID_Init				(rendererstate_t *info, unsigned char *pale
 static void	 Headless_VID_DeInit				(void)
 {
 #ifdef FTE_SDL
-		SDL_DestroyTray(thetray);
+		if (thetray) SDL_DestroyTray(thetray);
 		thetray = NULL;
 #elif defined(_WIN32)
 	//tray icon crap, so the user can still restore the game.

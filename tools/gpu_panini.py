@@ -69,7 +69,19 @@ def prepare(game, out, qcc):
     capture('quality-rtt', 'set gpu_panini_layout 2')
     capture('quality-water', 'set gpu_panini_layout 3', 'r_hdr_framebuffer 1', 'gpu_info')
     capture('menu', 'menu_options')
-    commands += [f'defer {time:g} cfg_save panini-test', f'defer {time+1:g} quit force']
+    commands += [f'defer {time:g} cfg_save panini-test', f'defer {time+0.1:g} closemenu',
+                 f'defer {time+0.2:g} map e1m1', f'defer {time+4:g} pause']
+    time += 5
+    capture('warp-off', 'r_projection 0', 'r_waterwarp 0', 'set gpu_panini_layout 5',
+            'set gpu_panini_overlay 1', 'set gpu_panini_fov 100')
+    capture('warp-fov', 'r_waterwarp -1')
+    capture('warp-shader', 'r_waterwarp 1')
+    capture('warp-classic', 'r_waterwarp 2')
+    capture('warp-panini', 'r_projection 6')
+    capture('warp-panini-off', 'r_waterwarp 0')
+    capture('warp-split-off', 'r_projection 0', 'set gpu_panini_layout 6')
+    capture('warp-split-classic', 'r_waterwarp 2')
+    commands.append(f'defer {time:g} quit force')
     (out / 'id1/gpu-test.cfg').write_text('\n'.join(commands) + '\n')
 
 
@@ -177,6 +189,21 @@ def check(out):
     assert config and re.search(r'r_projection\s+"?6',config[0].read_text()), 'Projection not saved'
     for key,value in (('r_panini_scale','2'),('r_panini_filter','1'),('r_panini_sharpen','0.2')):
         assert re.search(key+r'\s+"?'+re.escape(value),config[0].read_text()), key+' not saved'
+    warp = {mode: image('warp-'+mode) for mode in ('off','fov','shader','classic')}
+    for i, (mode, frame) in enumerate(warp.items()):
+        assert delta(warp['off'].crop(ui), frame.crop(ui)) == 0, (mode, 'underwater warp changed HUD')
+        for other, reference in list(warp.items())[:i]:
+            difference = delta(frame, reference)
+            assert difference > 0.25, (mode, other, 'underwater modes look identical', difference)
+            results[f'warp-{mode}-{other}'] = difference
+    panini, unwarped = image('warp-panini'), image('warp-panini-off')
+    assert delta(panini, unwarped) > 0.25, 'Underwater warp did not compose with Panini'
+    assert delta(panini.crop(ui), unwarped.crop(ui)) == 0, 'Combined warp changed HUD'
+    split, unwarped = image('warp-split-classic'), image('warp-split-off')
+    left = (0, 0, split.width//2, split.height)
+    right = (split.width//2, 0, split.width, split.height)
+    assert delta(split.crop(left), unwarped.crop(left)) > 0.25, 'Submerged split view stayed unwarped'
+    assert delta(split.crop(right), unwarped.crop(right)) == 0, 'Dry split view was warped'
     (out/'panini-results.json').write_text(json.dumps(results,indent=2)+'\n')
     print(json.dumps(results,indent=2))
 

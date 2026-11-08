@@ -39,6 +39,8 @@ def main():
     (game / 'declarations.qh').write_text((ROOT / 'tools/tests/physics_fixture.qc').read_text().split('float simulated,phase')[0])
     shutil.copyfile(ROOT / 'tools/tests/physics_pointanchors.qh', game / 'physics_pointanchors.qh')
     env = dict(os.environ, ASAN_OPTIONS='detect_leaks=0', UBSAN_OPTIONS='halt_on_error=1:print_stacktrace=1')
+    if not args.gpu:
+        env['SDL_VIDEODRIVER'] = 'dummy'
     for side, target in [('server', 'progs.dat'), ('client', 'csprogs.dat')]:
         shutil.copyfile(ROOT / f'tools/tests/physics_csqc_{side}.qc', game / f'{side}.qc')
         with (out / f'compile-{side}.log').open('w') as log:

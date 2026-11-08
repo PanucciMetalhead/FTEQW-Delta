@@ -100,6 +100,10 @@ static void GPU_Info_f(void)
     Con_Printf("Lightmaps: %u/%u loaded, %u draws using fallback\n",loaded,numlightmaps,fallback);
     Con_Printf("Cutouts: %u draws, %u using missing texture, %u shadow caster draws\n",cutouts,missing,cutoutshadows);
     GPU_WaterInfo();
+    GPU_LightingInfo();
+    Con_Printf("Geometry: %u cached, %u streamed vertices, %u bytes uploaded; shadows: %u submitted, %u culled\n",
+        (unsigned)gpu.cachedvertices, (unsigned)gpu.numstreamvertices, (unsigned)gpu.uploadedbytes,
+        (unsigned)gpu.shadowdraws, (unsigned)gpu.shadowculled);
 }
 
 static void GPU_VideoModes(const char *driver, const char *output, void (*cb)(int, int))
@@ -108,6 +112,24 @@ static void GPU_VideoModes(const char *driver, const char *output, void (*cb)(in
     SDL_DisplayMode **modes = SDL_GetFullscreenDisplayModes(SDL_GetPrimaryDisplay(), &count);
     for (i = 0; modes && i < count; ++i) cb(modes[i]->w, modes[i]->h);
     SDL_free(modes);
+}
+
+static qboolean GPU_SelectFullscreenMode(SDL_DisplayID display, const rendererstate_t *info, SDL_DisplayMode *mode)
+{
+    if (!SDL_GetClosestFullscreenDisplayMode(display, info->width, info->height, info->rate, true, mode))
+        return false;
+    if (info->rate || !mode->refresh_rate)
+        return true;
+
+    const SDL_DisplayMode *desktop = SDL_GetDesktopDisplayMode(display);
+    if (!desktop || mode->refresh_rate + 0.5f >= desktop->refresh_rate)
+        return true;
+
+    /* SDL prioritizes resolution over refresh. In automatic mode, keep the
+     * desktop mode if the closest fullscreen resolution would lower its rate. */
+    Con_Printf("SDL3 GPU: using desktop fullscreen at %.2f Hz (closest mode %dx%d runs at %.2f Hz)\n",
+        desktop->refresh_rate, mode->w, mode->h, mode->refresh_rate);
+    return false;
 }
 
 static void GPU_VideoShutdown(void)
@@ -155,7 +177,7 @@ static qboolean GPU_VideoInit(rendererstate_t *info, unsigned char *palette)
     if (info->fullscreen) {
         if (info->fullscreen == 1) {
             SDL_DisplayMode mode;
-            if (SDL_GetClosestFullscreenDisplayMode(display, info->width, info->height, info->rate, true, &mode))
+            if (GPU_SelectFullscreenMode(display, info, &mode))
                 SDL_SetWindowFullscreenMode(sdlwindow, &mode);
         }
         if (!SDL_SetWindowFullscreen(sdlwindow, true)) goto fail;
@@ -249,39 +271,47 @@ void GPU_Set2D(void)
 static void GPU_RenderView(void)
 {
     extern cvar_t r_projection;
-    gpu_panini_view_t *panini = NULL;
-    qboolean project = r_projection.ival == PROJ_PANINI && !r_refdef.recurse &&
-        r_refdef.useperspective && !(r_refdef.flags & RDF_NOWORLDMODEL);
+    gpu_composite_view_t *view = NULL;
     float fx = r_refdef.fov_x, fy = r_refdef.fov_y;
+    float vx = r_refdef.fovv_x, vy = r_refdef.fovv_y;
+    float waterwarp = 0;
+    qboolean worldview, panini;
     if (r_norefresh.value) return;
     if (R2D_Flush) R2D_Flush();
+    GPU_LightingNewScene();
     gpu.drawing2d = false;
-    if (project) {
-        fx = bound(0.001f, fx, 170.0f); fy = bound(0.001f, fy, 170.0f);
-    }
     AngleVectors(r_refdef.viewangles, vpn, vright, vup);
     VectorCopy(r_refdef.vieworg, r_origin);
-    if (r_viewcontents & FTECONTENTS_FLUID && r_waterwarp.value) {
-        fx *= 1 + (sin(cl.time*4.7)+1)*0.015*r_waterwarp.value;
-        fy *= 1 + (sin(cl.time*3.0)+1)*0.015*r_waterwarp.value;
+    GPU_CheckLightingSettings();
+    Surf_SetupFrame();
+    worldview = !r_refdef.recurse && !(r_refdef.flags & RDF_NOWORLDMODEL);
+    if (worldview) {
+        if (r_viewcontents & FTECONTENTS_FLUID) r_refdef.flags |= RDF_UNDERWATER;
+        else r_refdef.flags &= ~RDF_UNDERWATER;
+    }
+    panini = worldview && r_refdef.useperspective && r_projection.ival == PROJ_PANINI;
+    if (panini) {
+        fx = bound(0.001f, fx, 170.0f); fy = bound(0.001f, fy, 170.0f);
+    }
+    if (worldview && r_refdef.useperspective && (r_viewcontents & MASK_WATER) && isfinite(r_waterwarp.value))
+        waterwarp = r_waterwarp.value;
+    if (waterwarp < 0) {
+        float xscale = 1 + (sin(cl.time*4.7)+1)*0.015*waterwarp;
+        float yscale = 1 + (sin(cl.time*3.0)+1)*0.015*waterwarp;
+        fx *= xscale; fy *= yscale;
+        vx *= xscale; vy *= yscale;
     }
     Matrix4x4_CM_ModelViewMatrixFromAxis(r_refdef.m_view, vpn, vright, vup, r_refdef.vieworg);
     Matrix4x4_CM_Projection_Offset(r_refdef.m_projection_std, -fx/2, fx/2, -fy/2, fy/2,
         r_refdef.mindist, r_refdef.maxdist, true);
-    Matrix4x4_CM_Projection_Offset(r_refdef.m_projection_view, -r_refdef.fovv_x/2, r_refdef.fovv_x/2,
-        -r_refdef.fovv_y/2, r_refdef.fovv_y/2, r_refdef.mindist, r_refdef.maxdist, true);
+    Matrix4x4_CM_Projection_Offset(r_refdef.m_projection_view, -vx/2, vx/2,
+        -vy/2, vy/2, r_refdef.mindist, r_refdef.maxdist, true);
     r_refdef.pxrect.x = floor(r_refdef.vrect.x*vid.fbpwidth/vid.width);
     r_refdef.pxrect.y = floor(r_refdef.vrect.y*vid.fbpheight/vid.height);
     r_refdef.pxrect.width = ceil(r_refdef.vrect.width*vid.fbpwidth/vid.width);
     r_refdef.pxrect.height = ceil(r_refdef.vrect.height*vid.fbpheight/vid.height);
-    if (project && r_refdef.pxrect.width > 0 && r_refdef.pxrect.height > 0)
-        panini = GPU_BeginPaniniView(fx);
-    GPU_CheckLightingSettings();
-    Surf_SetupFrame();
-    if (!(r_refdef.flags & RDF_NOWORLDMODEL)) {
-        if (r_viewcontents & FTECONTENTS_FLUID) r_refdef.flags |= RDF_UNDERWATER;
-        else r_refdef.flags &= ~RDF_UNDERWATER;
-    }
+    if ((panini || waterwarp > 0) && r_refdef.pxrect.width > 0 && r_refdef.pxrect.height > 0)
+        view = GPU_BeginCompositeView(panini, fx);
     if (!r_refdef.globalfog.density) {
         extern cvar_t r_fog_linear;
         int fogtype = ((r_refdef.flags & RDF_UNDERWATER) && cl.fog[FOGTYPE_WATER].density) ? FOGTYPE_WATER : FOGTYPE_AIR;
@@ -294,7 +324,7 @@ static void GPU_RenderView(void)
         (r_worldentity.model && r_worldentity.model->loadstate == MLS_LOADED && cl.worldmodel))
         Surf_DrawWorld();
     RQ_RenderBatchClear();
-    if (panini) GPU_EndPaniniView(panini);
+    if (view) GPU_EndCompositeView(view, max(0, waterwarp));
     GPU_Set2D();
 }
 

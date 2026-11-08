@@ -196,7 +196,7 @@ cvar_t  cl_gunangley			= CVAR("cl_gunangley", "0");
 cvar_t  cl_gunanglez			= CVAR("cl_gunanglez", "0");
 
 cvar_t	cl_proxyaddr			= CVAR("cl_proxyaddr", "");
-cvar_t	cl_sendguid				= CVARD("cl_sendguid", "", "Send a randomly generated 'globally unique' id to servers, which can be used by servers for score rankings and stuff. Different servers will see different guids. Delete the 'qkey' file in order to appear as a different user.\nIf set to 2, all servers will see the same guid. Be warned that this can show other people the guid that you're using.");
+cvar_t	cl_sendguid				= CVARD("cl_sendguid", "", "Send a randomly generated 'globally unique' id to servers, which can be used by servers for score rankings and stuff. Different servers will see different guids. Delete the 'qkey' file in order to appear as a different user.\nThe empty default supplies a per-server GUID for Quake 3/OpenArena; 0 disables it.\nIf set to 2, all servers will see the same guid. Be warned that this can show other people the guid that you're using.");
 cvar_t	cl_downloads			= CVARAFD("cl_downloads", "1", /*q3*/"cl_allowDownload", CVAR_NOTFROMSERVER|CVAR_ARCHIVE, "Allows you to block all automatic downloads.");
 cvar_t	cl_download_csprogs		= CVARFD("cl_download_csprogs", "1", CVAR_NOTFROMSERVER|CVAR_ARCHIVE, "Download updated client gamecode if available. Warning: If you clear this to avoid downloading vm code, you should also clear cl_download_packages.");
 cvar_t	cl_download_redirection	= CVARFD("cl_download_redirection", "2", CVAR_NOTFROMSERVER|CVAR_ARCHIVE, "Follow download redirection to download packages instead of individual files. Also allows the server to send nearly arbitary download commands.\n2: allows redirection only to named packages files (and demos/*.mvd), which is a bit safer.");
@@ -555,7 +555,11 @@ char *CL_GUIDString(netadr_t *adr)
 	}
 	else if (cl_sendguid.ival == 2)
 		*serveraddr = 0;
-	else if (cl_sendguid.ival)
+	else if (cl_sendguid.ival
+#ifdef Q3CLIENT
+		|| (!*cl_sendguid.string && connectinfo.protocol == CP_QUAKE3)
+#endif
+		)
 		NET_AdrToString(serveraddr, sizeof(serveraddr), adr);
 	else
 		return NULL;
@@ -809,7 +813,17 @@ static void CL_SendConnectPacket (netadr_t *to)
 	{	//q3 requires some very strange things.
 		//cl.splitclients = 1;
 		if (q3)
-			q3->cl.SendConnectPacket(cls.sockets, to, connectinfo.challenge, connectinfo.qport, cls.userinfo);
+		{
+			infobuf_t userinfo = {0};
+			// OpenArena requires cl_guid for remote players. Keep the generated
+			// per-server identity out of the persistent/shared userinfo buffer.
+			InfoBuf_Clone(&userinfo, &cls.userinfo[0]);
+			info = CL_GUIDString(to);
+			if (info && !*InfoBuf_ValueForKey(&userinfo, "cl_guid"))
+				InfoBuf_SetValueForKey(&userinfo, "cl_guid", info);
+			q3->cl.SendConnectPacket(cls.sockets, to, connectinfo.challenge, connectinfo.qport, &userinfo);
+			InfoBuf_Clear(&userinfo, true);
+		}
 		else
 			CL_ConnectAbort("Q3 plugin not loaded, cannot connect to q3 servers without it.\n");
 		return;
@@ -2518,7 +2532,7 @@ void CL_Disconnect (const char *reason)
 	S_StopAllSounds (true);
 #ifdef VM_CG
 	if (q3)
-		q3->cl.Disconnect(cls.sockets);
+		q3->cl.Disconnect(cls.demoplayback == DPB_NONE ? cls.sockets : NULL);
 #endif
 #ifdef CSQC_DAT
 	CSQC_Shutdown();
@@ -4699,7 +4713,9 @@ void CL_ConnectionlessPacket (void)
 			Con_TPrintf (S_COLOR_GRAY"print\n");
 			Con_Printf ("%s", net_message.data+10);
 
-			if (connectinfo.trying && CL_IsPendingServerBaseAddress(&net_from) == false)
+			if (connectinfo.trying && connectinfo.protocol == CP_QUAKE3 && CL_IsPendingServerAddress(&net_from))
+				CL_ConnectAbort("%s", net_message.data+10);
+			else if (connectinfo.trying && CL_IsPendingServerBaseAddress(&net_from) == false)
 				Cvar_Set(&cl_disconnectreason, net_message.data+10);
 			return;
 		}
@@ -4963,6 +4979,9 @@ void CL_ReadPacket(void)
 #ifdef Q3CLIENT
 		{
 			cactive_t newstate = q3->cl.ParseServerMessage(&net_message);
+			// The Q3 plugin owns its netchan; the core timeout watches this one.
+			// The packet's source has already been checked against our server.
+			cls.netchan.last_received = realtime;
 			if (newstate != cls.state)
 			{
 				cls.state = newstate;

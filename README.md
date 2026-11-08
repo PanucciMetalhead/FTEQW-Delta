@@ -33,6 +33,9 @@ cmake --build build --target fteqw --config Release --parallel
 Requires SDL **3.4 or newer**, CMake, and a C/C++ compiler. See
 [building](documentation/Building.md), [dependencies](documentation/Dependencies.md),
 and [renderer controls and validation](documentation/SDL3-GPU.md).
+Optional [MIDI music playback](documentation/MIDI.md) uses FluidSynth and the
+MIT-licensed FluidR3 GM SoundFont, with verified release packaging and support
+for user-selected SoundFonts.
 Warning audits and expanded sanitizer checks are documented in
 [SafetyChecks.md](documentation/SafetyChecks.md).
 
@@ -56,10 +59,16 @@ and optional native GPU captures.
 The [console command and cvar reference](documentation/console_commands.md) covers
 Quake 1 and Quake 3/OpenArena, including shared settings, game-specific behavior,
 and client/server availability.
+For Quake 1 weapon preselection, priority binds, and automatic weapon hiding
+similar to ezQuake, see the [weapon-script guide](documentation/WeaponScripts.md).
 
 For game and total-conversion development, see
 [Writing Your progs.dat](documentation/writing_progs.md) and the
 [FTEQCC compiler manual](documentation/FTEQCC.md).
+
+For custom Quake maps, see the [texture and packaging guide](documentation/MapTextures.md).
+It covers WAD/BSP fallbacks, true-color PNGs, animated and switchable textures,
+fullbright masks, transparency, and single-file PK3 distribution.
 
 Graphics controls remain available through the in-game Options menus and console.
 Built-in graphics presets default to crisp pixel filtering. The engine menus offer
@@ -68,6 +77,11 @@ see [renderer controls](documentation/SDL3-GPU.md#menu-usability).
 Normal mapping, realtime lighting and shadows, specular and offset mapping, bloom,
 HDR framebuffers, FXAA, and reflective/refractive water have independent controls. Game data and normal/specular
 replacement textures are supplied by the player and are not included here.
+
+The SDL3 GPU backend caches immutable world geometry, uses clustered forward
+lighting, culls shadow casters per light/cubemap face, and builds bloom through
+a downsample/upsample pyramid. See the [comparison with the previous renderer](documentation/SDL3-GPU.md#differences-from-the-previous-renderer)
+for algorithm changes, visual differences, reference controls and measured results.
 
 This is an active renderer migration. The validation record and remaining feature
 work are listed in [SDL3-GPU.md](documentation/SDL3-GPU.md); upstream-wide visual

@@ -16,7 +16,12 @@ layout(set=3,binding=0,std140) uniform Fragment {
     vec4 clipplane;
     mat4 screenmatrix;
     vec4 lightpos[32],lightcolor[32],lightshadow[32],lightparams[32];
+    mat4 lightmatrix; vec4 lightdepth,lightgrid;
 } u;
+struct Light { vec4 position,color,shadow,params; };
+layout(set=2,binding=12,std430) readonly buffer Lights { Light lightdata[]; };
+layout(set=2,binding=13,std430) readonly buffer Cells { uvec2 cells[]; };
+layout(set=2,binding=14,std430) readonly buffer Indices { uint lightindices[]; };
 layout(location=0) in vec2 v_uv;
 layout(location=1) in vec2 v_lmuv;
 layout(location=2) in vec4 v_color;
@@ -94,21 +99,39 @@ void main() {
             lighting*=lambert/baseline;
         }
         result=albedo.rgb*lighting+staticshine;
-        for(int i=0;i<int(u.material.w);i++) {
-            vec3 delta=u.lightpos[i].xyz-v_position;
+        uint lightcount=uint(u.material.w), offset=0;
+        bool indexed=false;
+        if(u.lightgrid.x==1) {
+            vec4 clip=u.lightmatrix*vec4(v_position,1);
+            float depth=dot(u.lightdepth,vec4(v_position,1));
+            vec2 grid=(clip.xy/clip.w*0.5+0.5)*vec2(16,9);
+            if(clip.w>0 && depth>=u.lightgrid.y && depth<u.lightgrid.z &&
+               all(greaterThanEqual(grid,vec2(0))) && all(lessThan(grid,vec2(16,9)))) {
+                uint z=min(23u,uint(log(depth/u.lightgrid.y)*u.lightgrid.w));
+                uvec2 cell=cells[(z*9u+uint(grid.y))*16u+uint(grid.x)];
+                if(cell.y!=0xffffffffu) { offset=cell.x; lightcount=cell.y; indexed=true; }
+            }
+        }
+        for(uint j=0u;j<lightcount;j++) {
+            uint i=indexed ? lightindices[offset+j] : j;
+            vec4 lp,lc,ls,lt;
+            if(u.lightgrid.x>0) {
+                Light l=lightdata[i]; lp=l.position; lc=l.color; ls=l.shadow; lt=l.params;
+            } else { lp=u.lightpos[i]; lc=u.lightcolor[i]; ls=u.lightshadow[i]; lt=u.lightparams[i]; }
+            vec3 delta=lp.xyz-v_position;
             float distance=length(delta);
-            float attenuation=max(0,1-distance/u.lightpos[i].w);
+            float attenuation=max(0,1-distance/lp.w);
             vec3 direction=delta/max(distance,0.00001);
             float lambert=max(0,dot(n,direction));
             float shine=pow(max(0,dot(n,normalize(direction+viewdir))),max(1,u.effects.w*max(spec.a,0.01)))*u.effects.y;
             float visibility=1;
-            if(u.lightcolor[i].w>0) {
-                vec4 p=u.lightshadow[i];
+            if(lc.w>0) {
+                vec4 p=ls;
                 float depth=max(max(abs(delta.x),abs(delta.y)),abs(delta.z));
                 float compare=p.y/(p.y-p.x)-(p.y*p.x)/((p.y-p.x)*max(depth,p.x))-p.z/max(depth,1);
-                visibility=texture(shadows,vec4(-delta,u.lightcolor[i].w-1),compare);
+                visibility=texture(shadows,vec4(-delta,lc.w-1),compare);
             }
-            result+=(albedo.rgb*(u.lightparams[i].x+lambert*u.lightparams[i].y)+spec.rgb*shine*u.lightparams[i].z)*u.lightcolor[i].rgb*attenuation*attenuation*visibility;
+            result+=(albedo.rgb*(lt.x+lambert*lt.y)+spec.rgb*shine*lt.z)*lc.rgb*attenuation*attenuation*visibility;
         }
         result+=texture(glow,tc).rgb;
     }

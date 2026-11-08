@@ -256,6 +256,7 @@ ENDIF()
 # Diagnostics are consistent in optimized and debug builds. Platform APIs are
 # explicit dependencies, rather than an accidental consequence of GNU C mode.
 include(cmake/FTECompilerPolicy.cmake)
+include(cmake/FTEMidi.cmake)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     add_compile_definitions(_POSIX_C_SOURCE=200809L _DEFAULT_SOURCE)
 endif()
@@ -332,6 +333,7 @@ set(FTE_ARCH_FILES
     engine/sdlgpu/gpu_vid.c
     engine/sdlgpu/gpu_image.c
     engine/sdlgpu/gpu_backend.c
+    engine/sdlgpu/gpu_lighting.c
 )
 set(FTESV_DEFINES ${FTESV_DEFINES} MULTITHREAD)
 set(FTESV_LIBS ${FTESV_LIBS} ${SYS_LIBS} ${CMAKE_DL_LIBS})
@@ -578,6 +580,8 @@ SET(FTE_CLIENT_FILES
 	engine/client/snd_mix.c
 	engine/client/snd_mp3.c
 	engine/client/snd_ov.c
+	engine/client/snd_midi.c
+	engine/client/m_midi.c
 	engine/client/textedit.c
 	engine/client/valid.c
 	engine/client/view.c
@@ -1283,27 +1287,6 @@ IF(FTE_PLUG_FFMPEG)
 	ENDIF()
 ENDIF()
 
-SET(FTE_PLUG_TIMIDITY false CACHE BOOL "Compile timidity audio plugin.")
-IF(FTE_PLUG_TIMIDITY)
-	#timidity
-	FIND_PATH(TIMIDITY_INCLUDE_DIR timidity/timidity.h)
-	IF(TIMIDITY_INCLUDE_DIR)
-		FIND_LIBRARY(TIMIDITY_LIBRARY timidity)
-
-		ADD_LIBRARY(plug_timidity MODULE
-			plugins/plugin.c
-			plugins/timidity.c
-		)
-		TARGET_INCLUDE_DIRECTORIES(plug_timidity PUBLIC ${TIMIDITY_INCLUDE_DIR})
-		TARGET_LINK_LIBRARIES(plug_timidity ${SYS_LIBS} ${TIMIDITY_LIBRARY})
-		SET_TARGET_PROPERTIES(plug_timidity PROPERTIES COMPILE_DEFINITIONS "FTEPLUGIN;${FTE_LIB_DEFINES}")
-
-		EMBED_PLUGIN_META(timidity "Timidity Plugin" "Provides support for playback of midi files.")
-	ELSE()
-		MESSAGE(WARNING "timidity library NOT available. We'll just stick to fake-cd music for hexen2.")
-	ENDIF()
-ENDIF()
-
 #openxr plugin
 SET(FTE_PLUG_OPENXR true CACHE BOOL "Compile openxr plugin (for vr support).")
 IF(FTE_PLUG_OPENXR)
@@ -1545,8 +1528,7 @@ IF(FTE_CSADDON AND TARGET fteqcc AND Python3_Interpreter_FOUND)
 		DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/games/quake/id1/")
 ENDIF()
 
-# Windows does not search the SDL installation prefix for runtime DLLs.
-# Keep each runnable SDL client/tool self-contained in its configuration folder.
+# Windows must find SDL beside runnable clients/tools, including MIDI test hosts.
 if(WIN32)
     get_target_property(fte_sdl_type SDL3::SDL3 TYPE)
     if(fte_sdl_type STREQUAL "SHARED_LIBRARY")
@@ -1561,6 +1543,22 @@ if(WIN32)
         unset(fte_sdl_host)
     endif()
     unset(fte_sdl_type)
+endif()
+
+# Stage the selected font with each desktop executable, including multi-config builds.
+if(FTE_MIDI_SOUNDFONT)
+    foreach(fte_midi_host IN ITEMS fteqw fteqw-cl)
+        if(TARGET ${fte_midi_host})
+            add_custom_command(TARGET ${fte_midi_host} POST_BUILD
+                COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_FILE_DIR:${fte_midi_host}>/soundfonts"
+                COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${FTE_MIDI_SOUNDFONT}"
+                    "$<TARGET_FILE_DIR:${fte_midi_host}>/soundfonts/FluidR3_GM.sf2"
+                COMMAND "${CMAKE_COMMAND}" -E copy_directory
+                    "${PROJECT_SOURCE_DIR}/dist/soundfonts/FluidR3-GM"
+                    "$<TARGET_FILE_DIR:${fte_midi_host}>/soundfonts/FluidR3-GM"
+                VERBATIM)
+        endif()
+    endforeach()
 endif()
 
 # A C-only link omits Clang's C++ UBSan runtime (vptr cache/handlers), which
@@ -1578,6 +1576,41 @@ endif()
 # Data-free checks also run in desktop CI; game-data tests remain opt-in.
 include(CTest)
 if(BUILD_TESTING)
+    add_executable(gpu-renderer-math tools/tests/gpu_renderer_math.c)
+    target_include_directories(gpu-renderer-math PRIVATE "${PROJECT_SOURCE_DIR}")
+    if(UNIX)
+        target_link_libraries(gpu-renderer-math PRIVATE m)
+    endif()
+    add_test(NAME gpu-renderer-math COMMAND gpu-renderer-math)
+    if(TARGET fteqw AND Python3_Interpreter_FOUND)
+        add_test(NAME music-remap
+            COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/music_remap.py"
+                --engine $<TARGET_FILE:fteqw> --out "${CMAKE_BINARY_DIR}/music-remap")
+        set_tests_properties(music-remap PROPERTIES TIMEOUT 90)
+    endif()
+    if(TARGET fte-midi-core)
+        add_executable(midi-tests tools/tests/midi_fluid.c)
+        target_link_libraries(midi-tests PRIVATE fte-midi-core)
+        add_test(NAME midi-parser COMMAND midi-tests)
+        if(FTE_MIDI_SOUNDFONT)
+            add_test(NAME midi-synthesis COMMAND midi-tests "${FTE_MIDI_SOUNDFONT}")
+            set_tests_properties(midi-synthesis PROPERTIES TIMEOUT 90)
+            if(TARGET fteqw AND Python3_Interpreter_FOUND)
+                add_test(NAME midi-engine
+                    COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/midi_integration.py"
+                        --engine $<TARGET_FILE:fteqw> --out "${CMAKE_BINARY_DIR}/midi-integration")
+                # Let the child process timeout report and clean up before CTest stops it.
+                set_tests_properties(midi-engine PROPERTIES TIMEOUT 75)
+                if(UNIX)
+                    add_test(NAME midi-picker
+                        COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/midi_menu.py"
+                            --engine $<TARGET_FILE:fteqw> --font "${FTE_MIDI_SOUNDFONT}"
+                            --out "${CMAKE_BINARY_DIR}/midi-picker" --many)
+                    set_tests_properties(midi-picker PROPERTIES TIMEOUT 60 ENVIRONMENT "CC=${CMAKE_C_COMPILER}")
+                endif()
+            endif()
+        endif()
+    endif()
     add_executable(c17-endian-check tools/tests/c17_endian.c)
     target_include_directories(c17-endian-check PRIVATE "${PROJECT_SOURCE_DIR}")
     add_test(NAME c17-endian COMMAND c17-endian-check)
@@ -1586,6 +1619,10 @@ if(BUILD_TESTING)
             COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/parser_sanitizer_tests.py"
                 --cc "${CMAKE_C_COMPILER}" --out "${CMAKE_BINARY_DIR}/parser-tests")
         set_tests_properties(parser-sanitizers PROPERTIES TIMEOUT 180)
+        add_test(NAME q3-ui
+            COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/q3_ui_tests.py"
+                --cc "${CMAKE_C_COMPILER}" --out "${CMAKE_BINARY_DIR}/q3-ui-tests")
+        set_tests_properties(q3-ui PROPERTIES TIMEOUT 60)
         add_test(NAME package-signatures
             COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/package_signature_tests.py"
                 --cc "${CMAKE_C_COMPILER}" --out "${CMAKE_BINARY_DIR}/package-tests")
