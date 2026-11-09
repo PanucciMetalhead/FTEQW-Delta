@@ -298,8 +298,8 @@ cvar_t vid_desktopsettings					= CVARFD ("vid_desktopsettings", "0",
 cvar_t vid_fullscreen						= CVARFD ("vid_fullscreen", "2",	CVAR_ARCHIVE|CVAR_VIDEOLATCH, "Specifies whether the game should be fullscreen or not (requires vid_restart).\n0: Run in a resizable window, which can be manually maximized (with borders).\n1: Traditional fullscreen-exclusive video mode with mode switching and everything.\n2: Simply maximize the window and hide any borders without interfering with any other parts of the system.");
 cvar_t vid_height							= CVARFD ("vid_height", "0",
 												CVAR_ARCHIVE | CVAR_VIDEOLATCH, "The screen height to attempt to use, in physical pixels. 0 means use desktop resolution.");
-cvar_t vid_refreshrate						= CVARF ("vid_displayfrequency", "0",
-												CVAR_ARCHIVE | CVAR_VIDEOLATCH);
+cvar_t vid_refreshrate						= CVARFD ("vid_displayfrequency", "0",
+												CVAR_ARCHIVE | CVAR_VIDEOLATCH, "Requested refresh rate in exclusive fullscreen. Use 0 for automatic selection.");
 cvar_t vid_wndalpha							= CVARD ("vid_wndalpha", "1", "When running windowed, specifies the window's transparency level.");
 #if defined(_WIN32) && defined(MULTITHREAD)
 cvar_t vid_winthread						= CVARFD ("vid_winthread", "", CVAR_ARCHIVE|CVAR_VIDEOLATCH, "When enabled, window messages will be handled by a separate thread. This allows the game to continue rendering when Microsoft Windows blocks while resizing, etc.");
@@ -1380,6 +1380,8 @@ qboolean R_ApplyRenderer_Load (rendererstate_t *newr)
 							Con_TPrintf("Setting mode auto %s\n", newr->renderer->description);
 					}
 				}
+				else if (newr->desktop)
+					Con_TPrintf("Setting a desktop-sized window in %s\n", newr->renderer->description);
 				else
 					Con_TPrintf("Setting windowed mode %i*%i %s\n", newr->width, newr->height, newr->renderer->description);
 			}
@@ -1962,6 +1964,7 @@ qboolean R_BuildRenderstate(rendererstate_t *newr, char *rendererstring)
 
 		if (vid_desktopsettings.value)
 		{
+			newr->desktop = newr->renderer->rtype == QR_SDLGPU && !isPlugin;
 			newr->width = 0;
 			newr->height = 0;
 			newr->rate = 0;

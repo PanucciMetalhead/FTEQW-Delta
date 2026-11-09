@@ -24,6 +24,7 @@ static int batchlightmap = -1;
 extern cvar_t r_shadow_realtime_world_shadows, r_shadow_realtime_dlight_shadows;
 extern cvar_t r_shadow_shadowmapping, r_shadow_shadowmapping_nearclip, r_shadow_shadowmapping_bias;
 extern cvar_t r_shadow_realtime_world_importlightentitiesfrommap;
+extern cvar_t r_shadows;
 static struct {
     dlight_t *light;
     vec3_t origin;
@@ -120,10 +121,14 @@ static gpu_static_mesh_t *GPU_CacheStaticMesh(const mesh_t *mesh, const gpu_vert
 
 void GPU_CheckLightingSettings(void)
 {
-    if (r_shadow_realtime_world.modified || r_shadow_realtime_world_shadows.modified ||
+    qboolean lightingchanged = r_shadow_realtime_world.modified || r_shadow_realtime_world_shadows.modified ||
         r_shadow_realtime_dlight.modified || r_shadow_realtime_dlight_shadows.modified ||
-        r_shadow_shadowmapping.modified || r_shadow_realtime_world_importlightentitiesfrommap.modified) {
+        r_shadow_shadowmapping.modified || r_shadow_realtime_world_importlightentitiesfrommap.modified;
+    if (lightingchanged || r_shadows.modified) {
         Sh_CheckSettings();
+        r_shadows.modified = false;
+    }
+    if (lightingchanged) {
         Sh_PreGenerateLights();
         r_shadow_realtime_world.modified = r_shadow_realtime_world_shadows.modified = false;
         r_shadow_realtime_dlight.modified = r_shadow_realtime_dlight_shadows.modified = false;

@@ -170,6 +170,13 @@ static qboolean GPU_VideoInit(rendererstate_t *info, unsigned char *palette)
             if (!strcmp(info->devicename, SDL_GetDisplayName(displays[i]))) display = displays[i];
         SDL_free(displays);
     }
+    if (info->desktop) {
+        const SDL_DisplayMode *desktop = SDL_GetDesktopDisplayMode(display);
+        if (desktop) {
+            info->width = desktop->w;
+            info->height = desktop->h;
+        }
+    }
     sdlwindow = SDL_CreateWindow(FULLENGINENAME " — SDL3 GPU", info->width, info->height, flags);
     if (!sdlwindow) goto fail;
     SDL_SetWindowPosition(sdlwindow, SDL_WINDOWPOS_CENTERED_DISPLAY(display), SDL_WINDOWPOS_CENTERED_DISPLAY(display));

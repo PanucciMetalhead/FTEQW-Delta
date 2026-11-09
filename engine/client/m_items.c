@@ -590,6 +590,25 @@ static float M_DrawScrollbar(int x, int y, int width, int height, float frac, qb
 	return frac;
 }
 
+static void MC_SyncCvarCombo(menucombo_t *combo)
+{
+	cvar_t *var = combo->cvar;
+	const char *value;
+	int i;
+
+	if (!var)
+		return;
+	value = var->latched_string ? var->latched_string : var->string;
+	for (i = 0; i < combo->numoptions; i++)
+	{
+		if (!strcmp(value, combo->values[i]))
+		{
+			combo->selectedoption = i;
+			break;
+		}
+	}
+}
+
 static void MenuDrawItems(int xpos, int ypos, menuoption_t *option, emenu_t *menu)
 {
 	int i;
@@ -913,6 +932,7 @@ static void MenuDrawItems(int xpos, int ypos, menuoption_t *option, emenu_t *men
 				int x = xpos+option->common.posx;
 				int y = ypos+option->common.posy;
 
+				MC_SyncCvarCombo(&option->combo);
 				Draw_FunStringWidth(x, y, option->combo.caption, option->combo.captionwidth, true, !menu->cursoritem && menu->selecteditem == option);
 				x += option->combo.captionwidth + 3*8;
 
@@ -1315,7 +1335,7 @@ menuedit_t *MC_AddEditCvar(emenu_t *menu, int cx, int ex, int y, const char *tex
 	if (!(cvar->flags & CVAR_ARCHIVE))
 		Con_Printf("Warning: %s is not set for archiving\n", cvar->name);
 #endif
-	Q_strncpyz(n->text, cvar->string, sizeof(n->text));
+	Q_strncpyz(n->text, cvar->latched_string ? cvar->latched_string : cvar->string, sizeof(n->text));
 
 	n->common.next = menu->options;
 	menu->options = (menuoption_t *)n;
@@ -1599,9 +1619,6 @@ menucombo_t *MC_AddCvarCombo(emenu_t *menu, int tx, int cx, int y, const char *c
 		v = values?values[i]:va("%i", i);
 		o = localtext(ops[i]);
 
-		if (!strcmp(v, cvar->string))
-			n->selectedoption = i;
-
 		strcpy(optbuf, o);
 		newops[i] = optbuf;
 		optbuf += strlen(optbuf)+1;
@@ -1612,6 +1629,7 @@ menucombo_t *MC_AddCvarCombo(emenu_t *menu, int tx, int cx, int y, const char *c
 	}
 	newops[i] = NULL;
 	newvalues[i] = NULL;
+	MC_SyncCvarCombo(n);
 
 	return n;
 }
@@ -1838,18 +1856,12 @@ void MC_EditBox_Key(menuedit_t *edit, int key, unsigned int unicode)
 			return;
 		edit->text[len-1] = '\0';
 	}
-	else if (!unicode)
-		return;
 	else
 	{
-		if (unicode < 128)
-		{
-			if (len < sizeof(edit->text))
-			{
-				edit->text[len] = unicode;
-				edit->text[len+1] = '\0';
-			}
-		}
+		if (!unicode || unicode >= 128 || len >= sizeof(edit->text)-1)
+			return;
+		edit->text[len] = unicode;
+		edit->text[len+1] = '\0';
 	}
 
 	edit->modified = true;
@@ -1863,8 +1875,12 @@ void MC_EditBox_Key(menuedit_t *edit, int key, unsigned int unicode)
 
 void MC_Combo_Key(menucombo_t *combo, int key)
 {
+	MC_SyncCvarCombo(combo);
 	if (key == K_DEL && combo->cvar)
+	{
 		Cvar_Set(combo->cvar, combo->cvar->defaultstr);
+		MC_SyncCvarCombo(combo);
+	}
 	else if (key == K_ENTER || key == K_KP_ENTER || key == K_GP_START || key == K_RIGHTARROW || key == K_KP_RIGHTARROW || key == K_GP_DPAD_RIGHT || key == K_GP_LEFT_THUMB_RIGHT ||key == K_GP_DIAMOND_ALTCONFIRM || key == K_MWHEELDOWN || key == K_MOUSE1 || key == K_TOUCHTAP)
 	{
 		combo->selectedoption++;
@@ -1874,6 +1890,7 @@ void MC_Combo_Key(menucombo_t *combo, int key)
 changed:
 		if (combo->cvar && combo->numoptions)
 			Cvar_Set(combo->cvar, (char *)combo->values[combo->selectedoption]);
+		MC_SyncCvarCombo(combo);
 		S_LocalSound ("misc/menu2.wav");
 	}
 	else if (key == K_LEFTARROW || key == K_KP_LEFTARROW || key == K_GP_DPAD_LEFT || key == K_GP_LEFT_THUMB_LEFT || key == K_GP_DIAMOND_CONFIRM || key == K_MWHEELUP)

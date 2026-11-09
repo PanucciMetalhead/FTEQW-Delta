@@ -45,6 +45,7 @@ typedef struct {
 	int width;
 	int height;
 	int fullscreen;	//0 = windowed. 1 = fullscreen (mode changes). 2 = borderless+maximized
+	qboolean desktop;	// use the selected display's desktop size
 	qboolean stereo;
 	int rate;
 	int wait;	//-1 = default, 0 = off, 1 = on, 2 = every other

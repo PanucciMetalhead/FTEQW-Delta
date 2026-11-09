@@ -52,9 +52,11 @@ includes measured before/after results and the remaining platform limits.
 
 ## Menu usability
 
-The engine Video menu offers display mode, resolution, refresh rate, interface
-scaling, and shader-based display adjustments. VSync offers Off and On. FXAA
-and floating-point scene storage are available under Rendering Options.
+The engine Video menu offers display mode, resolution, interface scaling, and
+shader-based display adjustments. The refresh-rate field appears when choosing
+a size in exclusive fullscreen. Enter 0 for automatic refresh selection.
+VSync offers Off and On. FXAA and floating-point scene storage are available
+under Rendering Options.
 
 **Apply Settings** tests the display and interface-size changes for 15 seconds.
 Choose **Keep** to accept them or **Revert** to restore the previous values.
@@ -87,8 +89,8 @@ The lighting menu retains upstream's Apply/video restart behavior.
 
 | Effect | Console controls | Notes |
 | --- | --- | --- |
-| View projection | `r_projection 0/6` | **Options → View Projection**: Regular or Panini. Panini reduces edge stretching at wide FOVs and keeps vertical lines straight. Applies immediately and saves in configs. |
-| Field of view | `fov`, `cg_fov` | **Options → Field of View** offers 70–170. Both console names change the same saved setting, including in OpenArena. Wider console values work; regular perspective renders up to 179 degrees. OpenArena zoom and server FOV limits are preserved. |
+| View projection | `r_projection 0/6` | Choose Regular or Panini under **Options → View Options → View Projection**. Panini reduces edge stretching at wide FOVs and keeps vertical lines straight. Applies immediately and saves in configs. |
+| Field of view | `fov`, `cg_fov` | **Options → View Options → Field of View** offers 70–170. Both console names change the same saved setting, including in OpenArena. Wider console values work; regular perspective renders up to 179 degrees. OpenArena zoom and server FOV limits are preserved. |
 | FOV convention | `scr_fov_mode 4` | The default menu label is **Classic 4:3 / Widescreen**; classic vertical coverage expands sideways on wider screens. |
 | Map lighting | `r_fullbright 0/1` | Zero uses BSP lightmaps; one forces full brightness. |
 | Normal maps | `r_normalmapping 0/1` | Normal textures are loaded independently of this switch so enabling it works immediately. |
@@ -97,7 +99,7 @@ The lighting menu retains upstream's Apply/video restart behavior.
 | Directional lightmaps | `r_deluxemapping 0/1` | Requires a map with directional lightmap data. |
 | Realtime map lights | `r_shadow_realtime_world 0/1` | Uses `.rtlights` or optional imported map lights. |
 | Realtime transient lights | `r_shadow_realtime_dlight 0/1` | Includes game and QuakeC dynamic lights. |
-| Realtime shadows | `r_shadow_realtime_world_shadows 0/1`, `r_shadow_realtime_dlight_shadows 0/1` | Depth cubemap shadows; `r_shadow_shadowmapping 0` disables shadow mapping. |
+| Realtime shadows | `r_shadow_realtime_world_shadows 0/1`, `r_shadow_realtime_dlight_shadows 0/1` | Depth cubemap shadows. Choose **Realtime** or **RT+Shadows** separately for world and dynamic lights in Lighting Options. |
 | Classic dynamic lightmaps | `r_dynamic 0/1` | Retains the generic engine lightmap path. |
 | Static lightmap contribution with RT lights | `r_shadow_realtime_world_lightmaps` | Zero removes the static contribution; one retains it fully. |
 | Water surfaces | `r_waterstyle 0/1/2/3` | Flat, classic, refraction, reflection + refraction. Per-fluid overrides include `r_slimestyle`, `r_lavastyle`, and `r_telestyle`. |
@@ -558,7 +560,7 @@ tested locally; Vulkan runtime validation still requires Windows/Linux hardware.
 
 ## Panini projection
 
-Select **Options → View Projection → Panini**, or enter `r_projection 6`.
+Select **Options → View Options → View Projection → Panini**, or enter `r_projection 6`.
 `r_projection 0` restores Regular. Only those two choices appear in the menu;
 the older projection enums, shaders, and renderer implementations remain in
 the source tree with their original numeric values for reference.
@@ -579,8 +581,8 @@ horizontal lines away from the horizon can curve. It is most apparent at wide
 FOVs. It does not provide a 180°/360° panorama or use the old cubemap renderer.
 Regular does not allocate new projection targets or run a projection pass.
 
-Panini quality controls are directly below **View Projection** in the native
-Options menu (`menu_options` in either Quake 1 or Quake 3/OpenArena):
+Panini quality controls are directly below **View Projection** in **View
+Options** (`menu_view` in either Quake 1 or Quake 3/OpenArena).
 
 | Menu setting | Cvar | Default | Behavior |
 | --- | --- | --- | --- |

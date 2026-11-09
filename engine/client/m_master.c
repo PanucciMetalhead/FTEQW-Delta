@@ -1199,7 +1199,7 @@ static void SL_Remove	(emenu_t *menu)
 
 static qboolean SL_DoRefresh (menuoption_t *opt, emenu_t *menu, int key)
 {
-	if (key == K_MOUSE1 || key == K_TOUCH || key == K_ENTER || key == K_KP_ENTER || key == K_GP_DIAMOND_CONFIRM)
+	if (key == K_MOUSE1 || key == K_TOUCH || key == K_TOUCHTAP || key == K_ENTER || key == K_KP_ENTER || key == K_GP_DIAMOND_CONFIRM)
 	{
 		MasterInfo_Refresh(false);
 		isrefreshing = true;
@@ -1409,18 +1409,12 @@ static void M_QuickConnect_PreDraw(emenu_t *menu)
 	}
 }
 
-static qboolean M_QuickConnect_Key	(emenu_t *menu, int key, unsigned int unicode)
-{
-	return false;
-}
-
-static void M_QuickConnect_Remove	(emenu_t *menu)
-{
-}
-
 static qboolean M_QuickConnect_Cancel (menuoption_t *opt, emenu_t *menu, int key)
 {
-	return false;
+	if (key != K_ENTER && key != K_KP_ENTER && key != K_GP_DIAMOND_CONFIRM && key != K_MOUSE1 && key != K_TOUCHTAP)
+		return false;
+	M_RemoveMenu(menu);
+	return true;
 }
 
 static void M_QuickConnect_DrawStatus (int x, int y, menucustom_t *ths, emenu_t *menu)
@@ -1438,10 +1432,8 @@ void M_QuickConnect_f(void)
 
 	quickconnecttimeout = Sys_DoubleTime() + 5;
 
-	menu = M_CreateMenu(sizeof(serverlist_t));
+	menu = M_CreateMenu(0);
 	menu->predraw = M_QuickConnect_PreDraw;
-	menu->key = M_QuickConnect_Key;
-	menu->remove = M_QuickConnect_Remove;
 
 	cust = MC_AddCustom(menu, 64, 64, NULL, 0, NULL);
 	cust->draw = M_QuickConnect_DrawStatus;
@@ -1449,7 +1441,7 @@ void M_QuickConnect_f(void)
 	cust->common.width = vid.width-8;
 
 	MC_AddCommand(menu, 64, 0, 128, localtext("Refresh"), SL_DoRefresh);
-	MC_AddCommand(menu, 64, 0, 136, localtext("Cancel"), M_QuickConnect_Cancel);
+	menu->selecteditem = (menuoption_t *)MC_AddCommand(menu, 64, 0, 136, localtext("Cancel"), M_QuickConnect_Cancel);
 }
 #endif
 

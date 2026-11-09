@@ -72,14 +72,14 @@ static cvar_t	cl_rollangle			= CVARD("cl_rollangle", "2.0", "Controls the maximu
 static cvar_t	cl_rollalpha			= CVARD("cl_rollalpha", "20", "Controls the speed at which the view rolls according to sideways movement.");
 static cvar_t	v_deathtilt				= CVARD("v_deathtilt", "1", "Specifies whether to tilt the view when dead.");
 
-static cvar_t	cl_bob					= CVARD("cl_bob","0.02", "Controls how much the camera position should bob up down as the player runs around.");
-static cvar_t	cl_bobcycle				= CVAR("cl_bobcycle","0.6");
-static cvar_t	cl_bobup				= CVAR("cl_bobup","0.5");
+cvar_t	cl_bob					= CVARFD("cl_bob", "0.02", CVAR_ARCHIVE, "Controls camera bob and the classic forward weapon motion.");
+cvar_t	cl_bobcycle				= CVARF("cl_bobcycle", "0.6", CVAR_ARCHIVE);
+cvar_t	cl_bobup				= CVARF("cl_bobup", "0.5", CVAR_ARCHIVE);
 
-static cvar_t	cl_bobmodel				= CVARD("cl_bobmodel", "0", "Controls whether the viewmodel should bob up and down as the player runs around.");
-static cvar_t	cl_bobmodel_side		= CVAR("cl_bobmodel_side", "0.15");
-static cvar_t	cl_bobmodel_up			= CVAR("cl_bobmodel_up", "0.06");
-static cvar_t	cl_bobmodel_speed		= CVAR("cl_bobmodel_speed", "7");
+cvar_t	cl_bobmodel				= CVARFD("cl_bobmodel", "0", CVAR_ARCHIVE, "Enables extra sideways and vertical weapon bob.");
+cvar_t	cl_bobmodel_side		= CVARF("cl_bobmodel_side", "0.15", CVAR_ARCHIVE);
+cvar_t	cl_bobmodel_up			= CVARF("cl_bobmodel_up", "0.06", CVAR_ARCHIVE);
+cvar_t	cl_bobmodel_speed		= CVARF("cl_bobmodel_speed", "7", CVAR_ARCHIVE);
 
 static cvar_t	v_kicktime				= CVARD("v_kicktime", "0.5", "This controls how long viewangle changes from taking damage will last.");
 static cvar_t	v_kickroll				= CVARD("v_kickroll", "0.6", "This controls part of the strength of viewangle changes from taking damage.");

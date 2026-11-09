@@ -1371,6 +1371,7 @@ void M_Menu_ServerList2_f(void);
 void M_QuickConnect_f(void);
 
 void M_Menu_MediaFiles_f (void);
+void M_Menu_View_f (void);
 void M_Menu_FPS_f (void);
 void M_Menu_Lighting_f (void);
 void M_Menu_Render_f (void);
@@ -1423,6 +1424,7 @@ void M_Init_Internal (void)
 	Cmd_AddCommand ("menu_main", M_Menu_Main_f);	//I've moved main to last because that way tab give us main and not quit.
 
 	Cmd_AddCommand ("menu_options", M_Menu_Options_f);
+	Cmd_AddCommand ("menu_view", M_Menu_View_f);
 	Cmd_AddCommand ("menu_video", M_Menu_Video_f);
 	Cmd_AddCommand ("menu_audio", M_Menu_Audio_f);
 #ifndef __CYGWIN__
@@ -1483,6 +1485,7 @@ void M_DeInit_Internal (void)
 	Cmd_RemoveCommand ("menu_newmulti");
 
 	Cmd_RemoveCommand ("menu_options");
+	Cmd_RemoveCommand ("menu_view");
 	Cmd_RemoveCommand ("menu_video");
 	Cmd_RemoveCommand ("menu_audio");
 	Cmd_RemoveCommand ("menu_speakers");

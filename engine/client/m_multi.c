@@ -587,7 +587,7 @@ qboolean MultiBeginGame (union menuoption_s *option,struct emenu_s *menu, int ke
 		Cbuf_AddText("disconnect\n", RESTRICT_LOCAL);
 
 	Cbuf_AddText("sv_playerslots \"\"\n", RESTRICT_LOCAL);	//just in case.
-	Cbuf_AddText(va("maxclients \"%s\"\n", numplayeroptions[info->numplayers->selectedoption]), RESTRICT_LOCAL);
+	Cbuf_AddText(va("maxclients %d\n", atoi(info->numplayers->options[info->numplayers->selectedoption])), RESTRICT_LOCAL);
 	if (info->rundedicated->value)
 		Cbuf_AddText("setrenderer dedicated\n", RESTRICT_LOCAL);
 	Cbuf_AddText(va("hostname %s\n", COM_QuotedString(info->hostnameedit->text, quoted, sizeof(quoted), false)), RESTRICT_LOCAL);
@@ -743,12 +743,14 @@ void M_Menu_GameOptions_f (void)
 		"Public (Holepunch)",
 		NULL
 	};
-	extern cvar_t sv_public;
+	extern cvar_t sv_public, hostname;
 	newmultimenu_t *info;
 	emenu_t *menu;
 	int y = 40;
 	int mgt;
-	int players;
+	int players, playerlimit = bound(1, maxclients.ival, MAX_CLIENTS);
+	const char *playeroptions[countof(numplayeroptions)+1];
+	char customplayers[16];
 	struct mapopts_s mapopts = {0};
 
 	menu = M_CreateMenu(sizeof(newmultimenu_t));
@@ -776,7 +778,7 @@ void M_Menu_GameOptions_f (void)
 	MC_AddCommand						(menu, 64, 160, y,	localtext("Start game"), MultiBeginGame);y+=16;
 
 	y+=4;
-	info->hostnameedit	= MC_AddEdit	(menu, 64, 160, y,			localtext("Hostname"), name.string);y+=info->hostnameedit->common.height;
+	info->hostnameedit	= MC_AddEdit	(menu, 64, 160, y,			localtext("Hostname"), hostname.string);y+=info->hostnameedit->common.height;
 	info->publicgame	= MC_AddCombo	(menu, 64, 160, y,			localtext("Public"), publicoptions, bound(0, sv_public.ival+1, 4));y+=8;
 #if defined(HAVE_DTLS)
 	{
@@ -793,13 +795,21 @@ void M_Menu_GameOptions_f (void)
 #endif
 	y+=4;
 
-	for (players = 0; players < sizeof(numplayeroptions)/ sizeof(numplayeroptions[0]); players++)
+	memcpy(playeroptions, numplayeroptions, sizeof(numplayeroptions));
+	for (players = 0; playeroptions[players]; players++)
 	{
-		if (atoi(numplayeroptions[players]) >= maxclients.value)
+		if (atoi(playeroptions[players]) >= playerlimit)
 			break;
 	}
+	if (playerlimit > 1 && (!playeroptions[players] || atoi(playeroptions[players]) != playerlimit))
+	{
+		memmove(playeroptions + players + 1, playeroptions + players,
+			(countof(numplayeroptions) - players) * sizeof(playeroptions[0]));
+		Q_snprintfz(customplayers, sizeof(customplayers), "%d", playerlimit);
+		playeroptions[players] = customplayers;
+	}
 
-	info->numplayers	= MC_AddCombo	(menu, 64, 160, y,			localtext("Max players"), (const char **)numplayeroptions,	players);y+=8;
+	info->numplayers	= MC_AddCombo	(menu, 64, 160, y,			localtext("Max players"), playeroptions,	players);y+=8;
 
 	info->deathmatch	= MC_AddCombo	(menu, 64, 160, y,			localtext("Deathmatch"), (const char **)deathmatchoptions,	deathmatch.value);y+=8;
 	info->teamplay		= MC_AddCombo	(menu, 64, 160, y,			localtext("Teamplay"), (!Q_strcasecmp(FS_GetGamedir(true), "rogue")?(const char **)teamplayoptions_rogue:(const char **)teamplayoptions),		teamplay.value);y+=8;
@@ -1155,6 +1165,8 @@ void M_Menu_Network_f (void)
 	};
 #endif
 	static const char *smoothingvalues[] = {"0", "1", "2", NULL};
+	static const char *redirectopts[] = {"Off", "Packages/Demos", "Permissive", NULL};
+	static const char *redirectvalues[] = {"0", "2", "1", NULL};
 	extern cvar_t cl_download_csprogs, cl_download_redirection, requiredownloads, cl_solid_players;
 	extern cvar_t cl_predict_players, cl_lerp_smooth, cl_predict_extrapolate;
 	static menuresel_t resel;
@@ -1170,8 +1182,8 @@ void M_Menu_Network_f (void)
 		MB_COMBOCVAR("DTLS Encryption", net_enable_dtls, dtlsopts, NULL, "Use this to avoid snooping. Certificates will be pinned."),
 #endif
 		MB_SPACING(4),
-		MB_CHECKBOXCVARTIP("Wait for Downloads", requiredownloads, 0, "Ignore downloaded content sent to the client and connect immediately"),
-		MB_CHECKBOXCVARTIP("Redirect Download", cl_download_redirection, 0, "Whether the client will ignore download redirection from servers"),
+		MB_CHECKBOXCVARTIP("Wait for Downloads", requiredownloads, 0, "Wait for optional downloads to finish before joining."),
+		MB_COMBOCVAR("Redirect Download", cl_download_redirection, redirectopts, redirectvalues, "Packages/Demos is the default. Permissive also allows redirects for other file types."),
 		MB_CHECKBOXCVARTIP("Download CSQC", cl_download_csprogs, 0, "Whether to allow the client to download CSQC (client-side QuakeC) progs from servers"),
 		MB_SPACING(4),
 		MB_COMBOCVAR("Network Smoothing", cl_lerp_smooth, smoothingopts, smoothingvalues, "Smoother gameplay comes at the cost of higher latency. Which do you favour?"),

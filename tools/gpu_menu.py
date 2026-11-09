@@ -47,6 +47,11 @@ static void report(void) {
   cvarfuncs->GetFloat("vid_fullscreen"),cvarfuncs->GetFloat("vid_width"),cvarfuncs->GetFloat("vid_height"),world,ui,pixels[0],pixels[1]);
  plugfuncs->Print(msg);
 }
+static void report_warp(void) {
+ char msg[64];
+ snprintf(msg,sizeof(msg),"QOL_WARP %g\n",cvarfuncs->GetFloat("r_waterwarp"));
+ plugfuncs->Print(msg);
+}
 static void idle(void) {
  int count;char action[32];SDL_Window **windows=SDL_GetWindows(&count);
  cmdfuncs->Argv(1,action,sizeof(action));
@@ -60,6 +65,7 @@ qboolean Plug_Init(void) {
  input=plugfuncs->GetEngineInterface(pluginputfuncs_name,sizeof(*input));
  draw=plugfuncs->GetEngineInterface(plug2dfuncs_name,sizeof(*draw));
  if (!input || !draw || !cmdfuncs->AddCommand("qol_idle",idle,"Isolated minimize/restore test") || !cmdfuncs->AddCommand("qol_key",key,"Isolated menu test input") ||
+  !cmdfuncs->AddCommand("qol_warp",report_warp,"Report the Water Warp menu setting") ||
   !cmdfuncs->AddCommand("qol_report",report,"Isolated menu state report")) return false;
  cmdfuncs->AddText("defer 1 exec qol-tests.cfg\n",false);
  return true;
@@ -83,7 +89,11 @@ commands=['cfg_save_auto 0','m_preset_chosen 1','con_notifytime 0','sv_public 0'
 t=50
 for preset in ['286','fast','spasm','vanilla','normal','nice','realtime']:
  commands += [f'defer {t} fps_preset builtin_{preset}',f'defer {t+.5} qol_report preset-{preset}'];t+=1
-commands += [f'defer {t} gl_texturemode lll',f'defer {t} gl_texturemode2d GL_LINEAR',f'defer {t+.5} qol_report manual',f'defer {t+1} menu_options',f'defer {t+1.1} qol_key downarrow',f'defer {t+1.2} qol_key rightarrow',f'defer {t+1.5} cfg_save_auto',f'defer {t+2} qol_key del',f'defer {t+2.2} cfg_save_auto',f'defer {t+3} menu_video',f'defer {t+3.2} qol_key downarrow 2',f'defer {t+3.4} qol_key rightarrow',f'defer {t+3.6} qol_key f1',f'defer {t+4} screenshot qol-pending.png',f'defer {t+5} quit force']
+commands += [f'defer {t} gl_texturemode lll',f'defer {t} gl_texturemode2d GL_LINEAR',f'defer {t+.5} qol_report manual',f'defer {t+1} menu_options',f'defer {t+1.1} qol_key downarrow',f'defer {t+1.2} qol_key rightarrow',f'defer {t+1.5} cfg_save_auto',f'defer {t+2} qol_key del',f'defer {t+2.2} cfg_save_auto',f'defer {t+3} menu_video',f'defer {t+3.2} qol_key downarrow 2',f'defer {t+3.4} qol_key rightarrow',f'defer {t+3.6} qol_key f1',f'defer {t+4} screenshot qol-pending.png']
+commands += [f'defer {t+5} r_waterwarp 2', f'defer {t+5.2} menu_render',
+             f'defer {t+5.4} qol_key downarrow 6', f'defer {t+5.6} qol_key leftarrow',
+             f'defer {t+5.8} qol_warp', f'defer {t+6} qol_key del', f'defer {t+6.2} qol_warp',
+             f'defer {t+6.4} qol_key rightarrow', f'defer {t+6.6} qol_warp', f'defer {t+7} quit force']
 # Cold shader initialization can outlast startup timers. Start the fixture from
 # the probe's successful initialization, after all its input commands exist.
 (OUT/'id1/qol-tests.cfg').write_text('\n'.join(commands)+'\n')
@@ -114,6 +124,8 @@ box=(0,on.height*2//3,on.width//2,on.height)
 difference=sum(ImageStat.Stat(ImageChops.difference(on.crop(box),off.crop(box))).mean)/3
 assert difference>0.3, ('F1 help did not appear',difference)
 assert '"cfg_save_auto" is "1"' in text and '"cfg_save_auto" is "0"' in text
+warp_values = re.findall(r'QOL_WARP (\S+)', text)
+assert warp_values == ['1', '2', '0'], ('Water Warp dropdown reset/cycle', warp_values)
 print(f'F1 help image difference: {difference:.3f}; Delete reset passed.')
 print(f'Inspect qol-confirm.png and qol-pending.png in {OUT/"fte"} for countdown and pending-value layout.')
 

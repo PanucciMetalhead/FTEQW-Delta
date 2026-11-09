@@ -104,7 +104,7 @@ has the same name as a qagame command. On a remote server, use authorized
 | Task | Shared interface / game-specific behavior |
 | --- | --- |
 | Open this fork's settings | `menu_options`: native Options in either game. OpenArena's Escape menu belongs to its UI VM; it need not expose the native FOV slider. |
-| Change field of view | `fov 120` or `cg_fov 120`: one saved setting. Native Options slider: 70–170, immediately below FOV Mode. Console values can exceed 170; Regular perspective renders up to 179. OpenArena zoom/server limits remain respected. |
+| Change field of view | `fov 120` or `cg_fov 120` changes the same saved setting. The slider in **Options → View Options** covers 70–170. Regular perspective renders console values up to 179. OpenArena zoom and server limits still apply. |
 | Use normal world lighting | `r_fullbright 0`: Quake 1 BSP lightmaps and Quake 3 baked lightmaps/vertex lighting. |
 | Choose graphics preset | `fps_preset normal` (faithful) or `fps_preset vanilla`; presets can change multiple cvars in either game. |
 | Start a local map | `map e1m1` for Quake 1, `map oa_dm1` for OpenArena, with the corresponding game data selected. |
@@ -265,7 +265,7 @@ Jump to [input actions](#held-input-actions), [menus](#built-in-menu-entry-point
 | `menu_multi` | Client | Open the built-in multiplayer menu. In Quake 3 this is the engine menu, separate from the bundled gamecode UI. |
 | `menu_network` | Client | Open the built-in network options menu. In Quake 3 this is the engine menu, separate from the bundled gamecode UI. |
 | `menu_newmulti` | Client | Open the built-in multiplayer game setup/hosting menu. In Quake 3 this is the engine menu, separate from the bundled gamecode UI. |
-| `menu_options` | Client | Open FTEQW’s native **Options** menu. In Quake 1 this is the engine Options page. In Quake 3/OpenArena it opens the same engine page even though Escape normally opens the game’s bundled UI. **Panini Resolution**, **Panini Filter** and **Panini Sharpening** are directly below **View Projection**. **Field of View** is directly below **FOV Mode**, with a 70–170 slider; use the console for wider values. It does not mean “open the OpenArena gamecode options page.” |
+| `menu_options` | Client | Open FTEQW’s native **Options** menu in Quake 1 or Quake 3/OpenArena. OpenArena’s Escape menu belongs to the game’s UI VM. |
 | `menu_particles` | Client | Open the built-in particle options menu. In Quake 3 this is the engine menu, separate from the bundled gamecode UI. |
 | `menu_quit` | Client | Open the built-in quit confirmation menu. In Quake 3 this is the engine menu, separate from the bundled gamecode UI. |
 | `menu_render` | Client | Open the built-in rendering options menu. In Quake 3 this is the engine menu, separate from the bundled gamecode UI. |
@@ -288,6 +288,7 @@ Jump to [input actions](#held-input-actions), [menus](#built-in-menu-entry-point
 | `menu_teamplay_team_fortress` | Client | **Q1 target:** Open the built-in Team Fortress teamplay naming menu. In Quake 3 this is the engine menu, separate from the bundled gamecode UI. |
 | `menu_teamplay_weapons` | Client | **Q1 target:** Open the built-in teamplay weapon naming menu. In Quake 3 this is the engine menu, separate from the bundled gamecode UI. |
 | `menu_textures` | Client | Open the built-in texture options menu. In Quake 3 this is the engine menu, separate from the bundled gamecode UI. |
+| `menu_view` | Client | Open **Options → View Options** directly. Contains projection, Panini quality, FOV mode and angle, and camera and weapon bob settings for Quake-style views. |
 | `menu_video` | Client | Open the engine video/display menu in either game. Apply Settings starts a 15-second Keep/Revert test; Escape or timeout restores the previous display/interface values. F1 shows setting help. In Quake 3 this is separate from the bundled gamecode UI. |
 
 ### 0–C
@@ -1119,13 +1120,13 @@ Jump to [symbols and A–C](#cvars-symbols-and-ac), [D–H](#cvars-dh),
 | `cl_backspeed` | `""` | The base speed that you move backwards at. If empty, uses the value of cl_forwardspeed instead. |
 | `cl_beam_alpha` (alias: `r_shaftalpha`) | `"1"` | Specifies the translucency of the lightning beam segments. |
 | `cl_beam_trace` | `"0"` | Clips the length of any beams according to any walls they may have impacted. |
-| `cl_bob` | `"0.02"` | Controls how much the camera position should bob up down as the player runs around. |
-| `cl_bobcycle` | `"0.6"` | **Q1 target:** duration of the view-bobbing cycle. |
-| `cl_bobmodel` | `"0"` | Controls whether the viewmodel should bob up and down as the player runs around. |
-| `cl_bobmodel_side` | `"0.15"` | **Q1 target:** sideways/vertical weapon-model bob amplitude. |
-| `cl_bobmodel_speed` | `"7"` | **Q1 target:** speed of weapon-model bobbing. |
-| `cl_bobmodel_up` | `"0.06"` | **Q1 target:** sideways/vertical weapon-model bob amplitude. |
-| `cl_bobup` | `"0.5"` | **Q1 target:** fraction of the bob cycle spent rising. |
+| `cl_bob` | `"0.02"` | **Q1 target:** Camera bob strength and classic forward weapon motion. Set to 0 for a steady camera. |
+| `cl_bobcycle` | `"0.6"` | **Q1 target:** Duration of the camera bob cycle in seconds. Zero stops the timer shared with weapon bob. |
+| `cl_bobmodel` | `"0"` | **Q1 target:** Enable extra sideways and vertical weapon bob relative to the camera. |
+| `cl_bobmodel_side` | `"0.15"` | **Q1 target:** Sideways weapon bob amplitude. |
+| `cl_bobmodel_speed` | `"7"` | **Q1 target:** Speed of the extra weapon bob. |
+| `cl_bobmodel_up` | `"0.06"` | **Q1 target:** Vertical weapon bob amplitude. |
+| `cl_bobup` | `"0.5"` | **Q1 target:** Fraction of the camera bob cycle spent rising. |
 | `cl_c2sdupe` | `"0"` | Send duplicate copies of packets to the server. This avoids extra latency caused by packetloss, but could also make the problem worse. |
 | `cl_c2sImpulseBackup` | `"3"` | Prevents the cl_c2spps setting from dropping redundant packets that contain impulses, in an attempt to keep impulses more reliable. |
 | `cl_c2sMaxRedundancy` | `"5"` | This is the maximum number of input frames to send in each input packet. Values greater than 1 provide redundancy and avoid prediction misses, though you might find cl_c2sdupe provides equivelent result and at lower latency. It is locked at 3 for vanilla quakeworld, and locked at 1 for vanilla netquake. |
@@ -1402,7 +1403,7 @@ Jump to [symbols and A–C](#cvars-symbols-and-ac), [D–H](#cvars-dh),
 | `ffov` | `""` | Allows you to set a specific field of view for when a custom projection is specified. If empty, will use regular fov cvar, which might get messy. |
 | `filterban` | `"1"` | If 0, players will be kicked by default unless there is a rule that allows them. Also affects the default action of addip. |
 | `forceqmenu` | `"0"` | Select/force the Quake-style native menu instead of automatic game-specific menu selection. |
-| `fov` (alias: `cg_fov`) | `"90"` | Shared saved field of view; `cg_fov` is a real console alias. Native **Options → Field of View** offers 70–170 in steps of 5. Console values above 170 work; Regular perspective renders up to 179. **Different:** Quake 1 uses engine view calculation; Quake 3/OpenArena uses cgame with this fork’s wide-FOV adjustment. Gamecode zoom, intermission cameras and server-enforced FOV limits are preserved. |
+| `fov` (alias: `cg_fov`) | `"90"` | Shared saved field of view; `cg_fov` is a real console alias. Native **Options → View Options → Field of View** offers 70–170 in steps of 5. Console values above 170 work; Regular perspective renders up to 179. **Different:** Quake 1 uses engine view calculation; Quake 3/OpenArena uses cgame with this fork’s wide-FOV adjustment. Gamecode zoom, intermission cameras and server-enforced FOV limits are preserved. |
 | `fraglimit` | `""` | **Different:** Frag/score limit. Quake 1 interpretation depends on QuakeC; Quake 3 qagame owns match scoring and completion. |
 | `fraglog_public` | `"1"` | Enables support for connectionless fraglog requests |
 | `fs_basepath` | not exposed | Provided for Q2/Q3 compat. System path of the base directory. |
@@ -2008,9 +2009,9 @@ Jump to [symbols and A–C](#cvars-symbols-and-ac), [D–H](#cvars-dh),
 | `r_part_density` | `"1"` | Engine particle-density multiplier. |
 | `r_part_maxdecals` | `"8192"` | Maximum number of engine particle decals. |
 | `r_part_maxparticles` | `"65536"` | Maximum number of engine particles. |
-| `r_panini_filter` | `"1"` | Panini reconstruction in either game: 0 selects original bilinear filtering; 1 selects bicubic filtering for magnified areas and anisotropic mip filtering for reduced areas. Applies immediately to SDL3 GPU Panini (`r_projection 6`), including offscreen/split views; does not affect Regular projection or HUD/menu rendering. Archived; **Options → Panini Filter**. |
-| `r_panini_scale` | `"1.25"` | Panini source width/height multiplier, clamped to 1–2. Larger sources preserve more detail but cost GPU time and memory; 2 requests four times the native pixel count. Limited to 16 million level-zero pixels and 8192 pixels per axis, without reducing an already larger native view. Allocation failure falls back to native size. `gpu_info` reports actual dimensions. Applies immediately, archived; **Options → Panini Resolution** in either game. |
-| `r_panini_sharpen` | `"0.2"` | Panini local-contrast sharpening, clamped to 0–1. Zero disables it. Limits overshoot, fades out in reduced areas and preserves HDR highlights. Cannot recover missing source detail at extreme FOVs. Applies immediately, archived; **Options → Panini Sharpening** in either game. |
+| `r_panini_filter` | `"1"` | Panini reconstruction in either game: 0 selects original bilinear filtering; 1 selects bicubic filtering for magnified areas and anisotropic mip filtering for reduced areas. Applies immediately to SDL3 GPU Panini (`r_projection 6`), including offscreen/split views; does not affect Regular projection or HUD/menu rendering. Archived; **View Options → Panini Filter**. |
+| `r_panini_scale` | `"1.25"` | Panini source width/height multiplier, clamped to 1–2. Larger sources preserve more detail but cost GPU time and memory; 2 requests four times the native pixel count. Limited to 16 million level-zero pixels and 8192 pixels per axis, without reducing an already larger native view. Allocation failure falls back to native size. `gpu_info` reports actual dimensions. Applies immediately, archived; **View Options → Panini Resolution** in either game. |
+| `r_panini_sharpen` | `"0.2"` | Panini local-contrast sharpening, clamped to 0–1. Zero disables it. Limits overshoot, fades out in reduced areas and preserves HDR highlights. Cannot recover missing source detail at extreme FOVs. Applies immediately, archived; **View Options → Panini Sharpening** in either game. |
 | `r_part_rain` | `"0"` | Enable particle effects to emit off of surfaces. Mainly used for weather or lava/slime effects. |
 | `r_part_rain_quantity` | `"1"` | Quantity of particles generated for weather/rain effects. |
 | `r_part_sparks` | `"1"` | Enable particle spark effects. |

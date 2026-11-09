@@ -68,7 +68,7 @@ def prepare(game, out, qcc):
             'gamma 1', 'contrast 1', 'brightness 0', 'vid_sceneonlygamma 0', 'r_panini_scale 2')
     capture('quality-rtt', 'set gpu_panini_layout 2')
     capture('quality-water', 'set gpu_panini_layout 3', 'r_hdr_framebuffer 1', 'gpu_info')
-    capture('menu', 'menu_options')
+    capture('menu', 'menu_view')
     commands += [f'defer {time:g} cfg_save panini-test', f'defer {time+0.1:g} closemenu',
                  f'defer {time+0.2:g} map e1m1', f'defer {time+4:g} pause']
     time += 5

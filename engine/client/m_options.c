@@ -3,6 +3,7 @@
 #include "quakedef.h"
 #include "winquake.h"
 #include "fs.h"
+#include "shader.h"
 
 extern int r_blockvidrestart;
 
@@ -255,22 +256,8 @@ static void M_Options_Predraw(emenu_t *menu)
 void M_Menu_Options_f (void)
 {
 	extern cvar_t m_preset_chosen;
-	extern cvar_t crosshair, r_projection;
-	extern cvar_t r_panini_scale, r_panini_filter, r_panini_sharpen;
-	static const char *paninifilters[] = {"Bilinear (fast)", "Bicubic (sharp)", NULL};
-	static const char *paninifiltervalues[] = {"0", "1", NULL};
+	extern cvar_t crosshair;
 	int y;
-
-	static const char *projections[] = {
-		"Regular",
-		"Panini",
-		NULL
-	};
-	static const char *projectionvalues[] = {
-		"0",
-		"6",
-		NULL
-	};
 
 #if !defined(CLIENTONLY) && defined(SAVEDGAMES)
 	extern cvar_t sv_autosave;
@@ -338,24 +325,6 @@ void M_Menu_Options_f (void)
 	};
 #endif
 
-	extern cvar_t scr_fov_mode;
-		static const char *fovmodes[] = {
-		"Major-",
-		"Minor+",
-		"Horizontal",
-		"Vertical",
-		"Classic 4:3 / Widescreen",
-		NULL
-	};
-	static const char *fovmodevalues[] = {
-		"0",
-		"1",
-		"2",
-		"3",
-		"4",
-		NULL
-	};
-
 	extern cvar_t cfg_save_auto;
 	menubulk_t bulk[] = {
 		MB_CONSOLECMD("Save all settings", "cfg_save\n", "Writes changed settings out to a config file."),
@@ -367,12 +336,6 @@ void M_Menu_Options_f (void)
 		MB_CONSOLECMD("^bUpdates and Packages", "menu_download\n", "Configure additional content and plugins."),
 #endif
 		MB_CONSOLECMD("Go to console", "toggleconsole\nplay misc/menu2.wav\n", "Open up the engine console."),
-		MB_COMBOCVAR("View Projection", r_projection, projections, projectionvalues, "Regular uses perspective. Panini reduces stretching at wide fields of view while keeping vertical lines straight. HUD and menu shapes are unchanged."),
-		MB_SLIDER("Panini Resolution", r_panini_scale, 1, 2, 0.25, "Source resolution per axis: 1 is native, 2 renders four times as many pixels. Capped for memory use. Applies only to Panini; higher values cost GPU time."),
-		MB_COMBOCVAR("Panini Filter", r_panini_filter, paninifilters, paninifiltervalues, "Bicubic preserves more contrast than bilinear. Bilinear is the faster choice. Applies only to Panini."),
-		MB_SLIDER("Panini Sharpening", r_panini_sharpen, 0, 1, 0.05, "Adds local contrast to the Panini view; zero disables it. The HUD is unaffected. Cannot recover missing detail at extreme FOV."),
-		MB_COMBOCVAR("FOV Mode", scr_fov_mode, fovmodes, fovmodevalues, NULL),
-		MB_SLIDER("Field of View", scr_fov, 70, 170, 5, "Changes the field of view immediately. Console fov values may exceed the slider maximum."),
 		MB_SLIDER("Mouse Speed", sensitivity, 1, 10, 0.2, NULL),
 		MB_SLIDER("Crosshair", crosshair, 0, 22, 1, NULL), // move this to hud setup?
 		MB_CHECKBOXFUNC("Always Run", M_Options_AlwaysRun, 0, "Set movement to run at fastest speed by default."),
@@ -390,6 +353,7 @@ void M_Menu_Options_f (void)
 		MB_SPACING(4),
 		// removed hud options (cl_sbar, cl_hudswap, old-style chat, old-style msg)
 		MB_CONSOLECMD("Audio Options", "menu_audio\n", "Set audio quality and speaker setup options."),
+		MB_CONSOLECMD("View Options", "menu_view\n", "Set projection, field of view, and movement bobbing."),
 		MB_CONSOLECMD("^bGraphics Presets", "fps_preset\n", "Choose a different graphical preset to use."),
 		MB_CONSOLECMD("Video Options", "menu_video\n", "Set display resolution, fullscreen mode, refresh rate, and interface size."),
 #ifdef TEXTEDITOR
@@ -448,6 +412,46 @@ void M_Menu_Options_f (void)
 			menu->cursoritem->common.posy = o->common.posy + (o->common.height-menu->cursoritem->common.height)/2;
 		}
 	}
+}
+
+void M_Menu_View_f (void)
+{
+	extern cvar_t r_projection, r_panini_scale, r_panini_filter, r_panini_sharpen, scr_fov_mode;
+	extern cvar_t cl_bob, cl_bobcycle, cl_bobup;
+	extern cvar_t cl_bobmodel, cl_bobmodel_side, cl_bobmodel_up, cl_bobmodel_speed;
+	static const char *projections[] = {"Regular", "Panini", NULL};
+	static const char *projectionvalues[] = {"0", "6", NULL};
+	static const char *paninifilters[] = {"Bilinear (fast)", "Bicubic (sharp)", NULL};
+	static const char *paninifiltervalues[] = {"0", "1", NULL};
+	static const char *fovmodes[] = {"Major-", "Minor+", "Horizontal", "Vertical", "Classic 4:3 / Widescreen", NULL};
+	static const char *fovmodevalues[] = {"0", "1", "2", "3", "4", NULL};
+	menubulk_t bulk[] = {
+		MB_REDTEXT("View Options", true),
+		MB_TEXT("^Ue080^Ue081^Ue081^Ue081^Ue081^Ue081^Ue081^Ue081^Ue081^Ue081^Ue081^Ue082", true),
+		MB_COMBOCVAR("View Projection", r_projection, projections, projectionvalues, "Regular uses perspective. Panini reduces stretching at wide fields of view while keeping vertical lines straight. HUD and menu shapes are unchanged."),
+		MB_SLIDER("Panini Resolution", r_panini_scale, 1, 2, 0.25, "Source resolution per axis: 1 is native, 2 renders four times as many pixels. Capped for memory use. Applies only to Panini; higher values cost GPU time."),
+		MB_COMBOCVAR("Panini Filter", r_panini_filter, paninifilters, paninifiltervalues, "Bicubic preserves more contrast than bilinear. Bilinear is the faster choice. Applies only to Panini."),
+		MB_SLIDER("Panini Sharpening", r_panini_sharpen, 0, 1, 0.05, "Adds local contrast to the Panini view; zero disables it. The HUD is unaffected. Cannot recover missing detail at extreme FOV."),
+		MB_COMBOCVAR("FOV Mode", scr_fov_mode, fovmodes, fovmodevalues, NULL),
+		MB_SLIDER("Field of View", scr_fov, 70, 170, 5, "Changes the field of view immediately. Console fov values may exceed the slider maximum."),
+		MB_SPACING(4),
+		MB_REDTEXT("Quake Movement Bob", true),
+		MB_SLIDER("Camera Bob", cl_bob, 0, 0.05, 0.005, "Controls camera bob and the classic forward weapon motion. Use zero for a steady camera."),
+		MB_SLIDER("Bob Cycle (s)", cl_bobcycle, 0, 2, 0.1, "Duration of one camera bob cycle in seconds. Zero stops the timer shared by camera and weapon bob."),
+		MB_SLIDER("Camera Bob Rise", cl_bobup, 0.05, 0.95, 0.05, "Fraction of the camera bob cycle spent rising."),
+		MB_SPACING(4),
+		MB_CHECKBOXCVARTIP("Weapon Bob", cl_bobmodel, 0, "Adds sideways and vertical weapon motion relative to the camera."),
+		MB_SLIDER("Weapon Bob Side", cl_bobmodel_side, 0, 0.5, 0.01, "Amount of sideways motion when Weapon Bob is enabled."),
+		MB_SLIDER("Weapon Bob Up", cl_bobmodel_up, 0, 0.25, 0.01, "Amount of vertical motion when Weapon Bob is enabled."),
+		MB_SLIDER("Weapon Bob Speed", cl_bobmodel_speed, 1, 20, 1, "Speed of the extra weapon motion."),
+		MB_END()
+	};
+	static menuresel_t resel;
+	int y;
+	emenu_t *menu = M_Options_Title(&y, 0);
+	MC_AddFrameStart(menu, y);
+	MC_AddBulk(menu, &resel, bulk, 16, 216, y);
+	MC_AddFrameEnd(menu, y);
 }
 
 #ifndef __CYGWIN__
@@ -771,7 +775,7 @@ void M_Menu_Audio_f (void)
 		MB_SLIDER("Microphone Volume", snd_voip_micamp, 0, 2, 0.1, NULL),
 		MB_COMBOCVAR("Activation Mode", snd_voip_send, voipsendoptions, voipsendvalue, NULL),
 		MB_SLIDER("Act. Threshhold", snd_voip_vad_threshhold, 0, 30, 1, NULL),
-		MB_CHECKBOXCVAR("Audio Ducking", snd_voip_ducking, 0),
+		MB_SLIDER("Game Volume During Voice", snd_voip_ducking, 0, 1, 0.1, "Controls game volume while receiving voice chat. 0 mutes game audio and 1 keeps it at full volume."),
 #ifdef HAVE_SPEEX
 		MB_CHECKBOXCVAR("Noise Cancelation", snd_voip_noisefilter, 0),
 #endif
@@ -1293,7 +1297,6 @@ static void M_Menu_Preset_Predraw(emenu_t *menu)
 	extern cvar_t m_preset_chosen;
 	menuoption_t *op;
 	int preset = M_Menu_Preset_GetActive();
-	int i;
 	qboolean forcereload = false;
 	qboolean filtering = false;
 	extern cvar_t cfg_save_auto;
@@ -1337,23 +1340,9 @@ static void M_Menu_Preset_Predraw(emenu_t *menu)
 				op->common.type == mt_slider||
 				op->common.type == mt_combo) op->common.ishidden = preset!=0;
 
-		if (op->common.type == mt_combo && op->combo.cvar)
-		{	//make sure combo items are updated properly if their cvar value is changed via some other mechanism...
-			const char *curval = op->combo.cvar->latched_string?op->combo.cvar->latched_string:op->combo.cvar->string;
-			if (strcmp(curval, op->combo.values[op->combo.selectedoption]))
-			{
-				for (i = 0; i < op->combo.numoptions; i++)
-				{
-					if (!strcmp(curval, op->combo.values[i]))
-					{
-						op->combo.selectedoption = i;
-						break;
-					}
-				}
-			}
-			if (op->combo.cvar->latched_string && (op->combo.cvar->flags&CVAR_LATCHMASK) == CVAR_RENDERERLATCH)
-				forcereload = true;
-		}
+		if (op->common.type == mt_combo && op->combo.cvar && op->combo.cvar->latched_string &&
+			(op->combo.cvar->flags&CVAR_LATCHMASK) == CVAR_RENDERERLATCH)
+			forcereload = true;
 	}
 	M_Menu_ApplyGravity(menu->options);
 	menu->cursoritem->common.posy = menu->selecteditem->common.posy + (menu->selecteditem->common.height-menu->cursoritem->common.height)/2;
@@ -1361,6 +1350,16 @@ static void M_Menu_Preset_Predraw(emenu_t *menu)
 	if (forcereload)
 		Cbuf_InsertText("\nfs_restart\nvid_reload\n", RESTRICT_LOCAL, true);
 }
+
+static const char *litloadingopts[] = {
+	"Disabled",
+	"Enabled",
+#ifdef RUNTIMELIGHTING
+	"Generate LDR",
+	"Generate HDR",
+#endif
+	NULL
+};
 
 void M_Menu_Preset_f (void)
 {
@@ -1382,16 +1381,6 @@ void M_Menu_Preset_f (void)
 		"Force",
 		NULL
 	};
-	static const char *litopts[] = {
-		"Off",
-		"Auto",
-		NULL
-	};
-	static const char *litvals[] = {
-		"1",
-		"3",
-		NULL
-	};
 	menubulk_t bulk[] =
 	{
 		MB_REDTEXT("Please Choose Preset", true),
@@ -1407,7 +1396,7 @@ void M_Menu_Preset_f (void)
 			MB_CHECKBOXCVAR("anim snapping", r_nolerp, 1),
 		MB_CONSOLECMDRETURN("^7normal    (faithful)",	"fps_preset normal\n",		"An updated but still faithful appearance, using content replacements where applicable", presetoption[4]),
 		MB_CONSOLECMDRETURN("^7nice       (dynamic)",	"fps_preset nice\n",		"For people who like nice things, but still want to actually play", presetoption[5]),
-			MB_COMBOCVAR("rgb lighting", r_loadlits, litopts, litvals, NULL),
+			MB_COMBOCVAR("rgb lighting", r_loadlits, litloadingopts, NULL, NULL),
 			MB_COMBOCVAR("deluxemaps", r_deluxemapping_cvar, deluxeopts, NULL, NULL),
 #if defined(RTLIGHTS) && (defined(SDL_GPUQUAKE) || defined(VKQUAKE))
 		MB_CONSOLECMDRETURN("^7realtime    (all on)",	"fps_preset realtime\n",	"For people who value pretty over fast/smooth. Not viable for deathmatch.", presetoption[6]),
@@ -1622,7 +1611,9 @@ void M_Menu_FPS_f (void)
 			MB_COMBOCVAR("Show FPS", show_fps, fpsopts, fpsvalues, "Display FPS or frame millisecond values on screen. Settings except immediate are for values across 1 second."),
 			MB_EDITCVARSLIM("Framerate Limiter", cl_maxfps.name, "Limits the maximum framerate. Set to 0 for none."),
 			MB_CHECKBOXCVARTIP("Yield CPU", cl_yieldcpu, 1, "Reduce CPU usage between frames.\nShould probably be off when using vsync."),
+#ifdef VKQUAKE
 			MB_CHECKBOXCVARTIP("Half-Rate Shading", r_halfrate, 0, "Reduce the number of shader invocations to save gpu time (doesn't harm edges)."),
+#endif
 			MB_COMBOCVAR("Player lerping", cl_lerp_players, playerlerpopts, values_0_1, "Smooth movement of other players, but will increase effective latency. Does not affect all network protocols."),
 			MB_COMBOCVAR("Entity lerping", cl_nolerp, entlerpopts, values_0_1_2, "Smooth movement of entities, but will increase effective latency."),
 			MB_CHECKBOXCVAR("Content Blend", v_contentblend, 0),
@@ -1668,13 +1659,15 @@ void M_Menu_Render_f (void)
 	static const char *cshiftopts[] = {"Off", "Fullscreen", "Edges", NULL};
 	static const char *cshiftvalues[] = {"0", "1", "2", NULL};
 
+#if (defined(GLQUAKE) || defined(VKQUAKE)) && defined(MULTITHREAD)
 	static const char *scenecacheopts[] = {"Auto", "Force Off", "Force On", NULL};
 	static const char *scenecachevalues[] = {"", "0", "1", NULL};
+#endif
 	static const char *wateropts[] = {"Flat", "Classic", "Refractive", "Reflective", NULL};
 	static const char *watervalues[] = {"0", "1", "2", "3", NULL};
 
 	emenu_t *menu;
-	extern cvar_t r_novis, cl_item_bobbing, r_waterwarp, r_nolerp, r_noframegrouplerp, r_fastsky, gl_nocolors, gl_lerpimages, r_wateralpha, r_drawviewmodel, gl_cshiftenabled, r_hdr_irisadaptation, scr_logcenterprint, r_fxaa, r_graphics;
+	extern cvar_t r_novis, cl_item_bobbing, r_waterwarp, r_nolerp, r_noframegrouplerp, r_fastsky, gl_nocolors, gl_lerpimages, r_wateralpha, r_drawviewmodel, gl_cshiftenabled, r_hdr_irisadaptation, scr_logcenterprint, r_fxaa;
 #if defined(SDL_GPUQUAKE) || defined(VKQUAKE)
 	extern cvar_t r_bloom, r_hdr_framebuffer;
 #endif
@@ -1685,14 +1678,15 @@ void M_Menu_Render_f (void)
 	{
 		MB_REDTEXT("Rendering Options", true),
 		MB_TEXT("^Ue080^Ue081^Ue081^Ue081^Ue081^Ue081^Ue081^Ue081^Ue081^Ue081^Ue081^Ue081^Ue081^Ue081^Ue081^Ue081^Ue082", true),
-		MB_CHECKBOXCVARTIP("Graphics", r_graphics, 0, "The only option console games have. Yes, this is a joke cvar. Try toggling it!"),	//graphics on / off. Its a general dig at modern games not having any real options.
 		MB_CHECKBOXCVARTIP("Disable VIS", r_novis, 0, "You shouldn't normally set this. Its better to use vispatches for your maps in order to support transparent water properly."),
 		MB_CHECKBOXCVARTIP("Fast Sky", r_fastsky, 0, "Use black skies. On modern machines this is more of a stylistic choice that a perfomance helper."),
 		MB_CHECKBOXCVAR("Lerp Images", gl_lerpimages, 0),
 		MB_CHECKBOXCVAR("Disable Model Lerp", r_nolerp, 0),
 		MB_CHECKBOXCVAR("Disable Framegroup Lerp", r_noframegrouplerp, 0),
 		MB_CHECKBOXCVAR("Model Bobbing", cl_item_bobbing, 0),
+#if (defined(GLQUAKE) || defined(VKQUAKE)) && defined(MULTITHREAD)
 		MB_COMBOCVAR("Scene Cache", r_temporalscenecache, scenecacheopts,scenecachevalues, "Cache scene data to significantly optimise highly complex scenes or unvised maps.\nThis may result in offscreen surfaces getting rendered."),
+#endif
 		MB_COMBOCVAR("Water Warp", r_waterwarp, warpopts, warpvalues, "Distortion when the camera is underwater. FOV Warp pulses the camera, Shader ripples the rendered view, and Classic uses Quake's stepped waves."),
 		MB_COMBOCVAR("Water Surfaces", r_waterstyle, wateropts, watervalues, "Choose flat, classic, refractive, or reflective water surfaces."),
 		MB_SLIDER("Water Alpha", r_wateralpha, 0, 1, 0.1, NULL),
@@ -1785,7 +1779,7 @@ void M_Menu_Textures_f (void)
 	};
 
 	extern cvar_t r_normalmapping;
-	extern cvar_t gl_load24bit, gl_specular, gl_compress, gl_picmip, gl_picmip2d, gl_max_size, r_drawflat, r_glsl_offsetmapping;
+	extern cvar_t gl_load24bit, gl_specular, gl_picmip, gl_picmip2d, gl_max_size, r_drawflat, r_glsl_offsetmapping;
 	extern cvar_t gl_texture_anisotropic_filtering, gl_texturemode, gl_texturemode2d, gl_mipcap;
 	int y;
 	menubulk_t bulk[] =
@@ -1805,7 +1799,6 @@ void M_Menu_Textures_f (void)
 //		MB_CHECKBOXCVAR("Detail Textures", gl_detail, 0),
 		MB_CHECKBOXCVAR("Offset Mapping", r_glsl_offsetmapping, 0),
 		MB_SPACING(4),
-		MB_CHECKBOXCVAR("Texture Compression", gl_compress, 0), // merge the save compressed tex options into here?
 		MB_SLIDER("3D Picmip", gl_picmip, 0, 16, 1, NULL),
 		MB_SLIDER("2D Picmip", gl_picmip2d, 0, 16, 1, NULL),
 		MB_SLIDER("World Mipcap", gl_mipcap, 0, 3, 1, NULL),
@@ -1832,69 +1825,12 @@ qboolean M_VideoApplyShadowLighting (union menuoption_s *op,struct emenu_s *menu
 		return false;
 
 #ifdef RTLIGHTS
-	{
-		char *cvarsrw = "0";
-		char *cvarsrws = "0";
-		char *cvarv = "0";
-		switch (info->lightcombo->selectedoption)
-		{
-		case 1:
-			cvarsrw = "1";
-			break;
-		case 2:
-			cvarsrw = "1";
-			cvarsrws = "1";
-			break;
-		case 3:
-			cvarv = "1";
-			break;
-		}
-#ifdef MINIMAL
-		(void)cvarv;
-		Cbuf_AddText(va("r_shadow_realtime_world %s;r_shadow_realtime_world_shadows %s\n", cvarsrw, cvarsrws), RESTRICT_LOCAL);
-#else
-		Cbuf_AddText(va("r_vertexlight %s;r_shadow_realtime_world %s;r_shadow_realtime_world_shadows %s\n", cvarv, cvarsrw, cvarsrws), RESTRICT_LOCAL);
+	Cbuf_AddText(va("r_shadow_realtime_world %d;r_shadow_realtime_world_shadows %d\n",
+		info->lightcombo->selectedoption > 0, info->lightcombo->selectedoption == 2), RESTRICT_LOCAL);
+	Cbuf_AddText(va("r_shadow_realtime_dlight %d;r_shadow_realtime_dlight_shadows %d\n",
+		info->dlightcombo->selectedoption >= 2, info->dlightcombo->selectedoption == 3), RESTRICT_LOCAL);
 #endif
-	}
-#endif
-
-	{
-		char *cvard = "0";
-		char *cvarvd = "0";
-		char *cvarsrd = "0";
-		char *cvarsrds = "0";
-		switch (info->dlightcombo->selectedoption)
-		{
-		case 1:
-			cvard = "1";
-			break;
-		case 2:
-			cvarsrd = "1";
-			break;
-		case 3:
-			cvarsrd = "1";
-			cvarsrds = "1";
-			break;
-		case 4:
-			cvard = "1";
-			cvarvd = "1";
-			break;
-		}
-#ifdef RTLIGHTS
-#ifdef MINIMAL
-		Cbuf_AddText(va("r_shadow_realtime_dlight %s;r_shadow_realtime_dlight_shadows %s;r_dynamic %s\n", cvarsrd, cvarsrds, cvard), RESTRICT_LOCAL);
-#else
-		Cbuf_AddText(va("r_shadow_realtime_dlight %s;r_shadow_realtime_dlight_shadows %s;r_dynamic %s;r_vertexdlight %s\n", cvarsrd, cvarsrds, cvard, cvarvd), RESTRICT_LOCAL);
-#endif
-#else
-#ifdef MINIMAL
-		Cbuf_AddText(va("r_dynamic %s\n", cvard), RESTRICT_LOCAL);
-#else
-		Cbuf_AddText(va("r_dynamic %s;r_vertexdlight %s\n", cvard, cvarvd), RESTRICT_LOCAL);
-#endif
-#endif
-		(void)cvarsrd, (void)cvarsrds, (void)cvard, (void)cvarvd;
-	}
+	Cbuf_AddText(va("r_dynamic %d\n", info->dlightcombo->selectedoption == 1), RESTRICT_LOCAL);
 
 	Cbuf_AddText("vid_restart\n", RESTRICT_LOCAL);
 
@@ -1905,16 +1841,10 @@ qboolean M_VideoApplyShadowLighting (union menuoption_s *op,struct emenu_s *menu
 
 void M_Menu_Lighting_f (void)
 {
-#ifndef MINIMAL
-	extern cvar_t r_vertexlight;
-#endif
 	extern cvar_t r_stains, r_shadows, r_loadlits, r_lightmap_format;
-	extern cvar_t r_lightstylesmooth, r_nolightdir;
+	extern cvar_t r_lightstylesmooth, r_dynamic;
 #ifdef RTLIGHTS
-	extern cvar_t r_dynamic, r_shadow_realtime_world, r_shadow_realtime_dlight, r_shadow_realtime_dlight_shadows;
-#ifndef MINIMAL
-	extern cvar_t r_vertexdlights;
-#endif
+	extern cvar_t r_shadow_realtime_world, r_shadow_realtime_dlight, r_shadow_realtime_dlight_shadows;
 #endif
 	extern cvar_t r_fb_models, r_rocketlight, r_powerupglow;
 	extern cvar_t v_powerupshell, r_explosionlight;
@@ -1926,9 +1856,6 @@ void M_Menu_Lighting_f (void)
 #ifdef RTLIGHTS
 		"Realtime",
 		"RT+Shadows",
-#ifndef MINIMAL
-		"Vertex",
-#endif
 #endif
 		NULL
 	};
@@ -1939,9 +1866,6 @@ void M_Menu_Lighting_f (void)
 #ifdef RTLIGHTS
 		"Realtime",
 		"RT+Shadows",
-#ifndef MINIMAL
-		"Vertex",
-#endif
 #endif
 		NULL
 	};
@@ -1951,15 +1875,6 @@ void M_Menu_Lighting_f (void)
 		"Disabled",
 		"Enabled",
 		"Generate",
-		NULL
-	};
-
-	static const char *loadlitopts[] =
-	{
-		"Disabled",
-		"Enabled",
-		"Generate LDR",
-		"Generate HDR",
 		NULL
 	};
 
@@ -2008,41 +1923,36 @@ void M_Menu_Lighting_f (void)
 		NULL
 	};
 
-	static const char *lightmapformatopts[] =
-	{
-		"Automatic",
-		"4bit",
-		"5bit (5551)",
-		"5bit (565)",
-		"8bit (Greyscale)",
-		"8bit (Misaligned)",
-		"8bit (Aligned)",
-		"10bit",
-		"9bit (HDR)",
-		"Half-Float (HDR)",
-		"Float (HDR)",
-		NULL
+	static const struct {
+		const char *label, *value;
+	} lightmapformats[] = {
+		{"4bit", "rgba4"},
+		{"5bit (5551)", "rgb5a1"},
+		{"5bit (565)", "rgb565"},
+		{"8bit (Greyscale)", "l8"},
+		{"8bit (Misaligned)", "rgb8"},
+		{"8bit (Aligned)", "bgrx8"},
+		{"10bit", "rgb10"},
+		{"9bit (HDR)", "rgb9e5"},
+		{"Half-Float (HDR)", "rgba16f"},
+		{"Float (HDR)", "rgba32f"}
 	};
-	static const char *lightmapformatvalues[] =
-	{
-		"",
-		"rgba4",
-		"rgb5a1",
-		"rgb565",
-		"l8",
-		"rgb8",
-		"bgrx8",
-		"rgb10",
-		"rgb9e5",
-		"rgba16f",
-		"rgba32f",
-		NULL
-	};
+	const char *lightmapformatopts[countof(lightmapformats)+2] = {"Automatic"};
+	const char *lightmapformatvalues[countof(lightmapformats)+2] = {""};
+	size_t i, count = 1;
 
 	int y;
 	emenu_t *menu = M_Options_Title(&y, sizeof(lightingmenuinfo_t));
 
 	int lightselect, dlightselect;
+
+	for (i = 0; i < countof(lightmapformats); i++)
+	{
+		if (!sh_config.texfmt[Surf_NameToFormat(lightmapformats[i].value)])
+			continue;
+		lightmapformatopts[count] = lightmapformats[i].label;
+		lightmapformatvalues[count++] = lightmapformats[i].value;
+	}
 
 #ifdef RTLIGHTS
 	if (r_shadow_realtime_world.ival)
@@ -2052,11 +1962,6 @@ void M_Menu_Lighting_f (void)
 		else
 			lightselect = 1;
 	}
-	else
-#endif
-#ifndef MINIMAL
-	if (r_vertexlight.ival)
-		lightselect = 3;
 	else
 #endif
 		lightselect = 0;
@@ -2069,10 +1974,6 @@ void M_Menu_Lighting_f (void)
 		else
 			dlightselect = 2;
 	}
-#ifndef MINIMAL
-	else if (r_vertexdlights.ival)
-		dlightselect = 4;
-#endif
 	else
 #endif
 	if (r_dynamic.ival > 0)
@@ -2092,12 +1993,14 @@ void M_Menu_Lighting_f (void)
 #ifdef VKQUAKE
 			MB_CHECKBOXCVARTIP("Raytrace Shadows", r_shadow_raytrace, 0, "Enables raytraced shadows when supported by hardware+drivers. Consider combining with half-rate shading."),
 #endif
-			MB_CHECKBOXCVARTIP("Soft Shadows", r_shadow_shadowmapping, 0, "Enables softer shadows instead of course-edged pixelated shadows."),
+#ifndef SDL_GPUQUAKE
+			MB_CHECKBOXCVARTIP("Soft Shadows", r_shadow_shadowmapping, 0, "Use shadow maps for realtime shadows."),
+#endif
 			MB_CMD("Apply Lighting", M_VideoApplyShadowLighting, "Applies set lighting modes and restarts video."),
 			MB_SPACING(4),
 #endif
 			MB_COMBOCVAR("Lightmap Format", r_lightmap_format, lightmapformatopts, lightmapformatvalues, "Selects which format to use for lightmaps."),
-			MB_COMBOCVAR("LIT Loading", r_loadlits, loadlitopts, NULL, "Determines if the engine should use external colored lighting for maps. The generated setting will cause the engine to generate colored lighting for maps that don't have the associated data."),
+			MB_COMBOCVAR("LIT Loading", r_loadlits, litloadingopts, NULL, "Determines if the engine should use external colored lighting for maps. The generated setting will cause the engine to generate colored lighting for maps that don't have the associated data."),
 			MB_COMBOCVAR("Deluxemapping", r_deluxemapping_cvar, loaddeluxeopts, NULL, "Controls whether static lighting should respond to lighting directions."),
 			MB_CHECKBOXCVAR("Lightstyle Lerp", r_lightstylesmooth, 0),
 			MB_SPACING(4),
@@ -2109,7 +2012,6 @@ void M_Menu_Lighting_f (void)
 			MB_SPACING(4),
 			MB_SLIDER("Blob Shadows", r_shadows, 0, 1, 0.05, "Small blobs underneath monsters and players, to add depth to the scene without excessive rendering."),
 			MB_SLIDER("Stains", r_stains, 0, 1, 0.05, "Allows discolouration of world surfaces, commonly used for blood trails."),
-			MB_CHECKBOXCVARTIP("No Light Direction", r_nolightdir, 0, "Disables shading calculations for uniform light levels on models from all directions."),
 			MB_COMBOCVAR("Model Fullbrights", r_fb_models, fb_models_opts, fb_models_values, "Affects loading of fullbrights on models/polymeshes."),
 			MB_END()
 		};
@@ -2833,14 +2735,12 @@ void M_VideoRevert_f(void)
 }
 
 typedef struct {
-	menucombo_t *dispmode;
 	menucombo_t *resmode;
 	menuedit_t *width;
 	menuedit_t *height;
 
 	menuedit_t *hz;
 
-	menucombo_t *hzfixed;
 	menucombo_t *res2dmode;
 	menucombo_t *scale;
 	menuedit_t *width2d;
@@ -2859,9 +2759,16 @@ static void M_VideoMenuRemove(emenu_t *menu)
 		Z_Free(info->restore[i]);
 }
 
+static int M_VideoDisplayMode(void)
+{
+	extern cvar_t vid_fullscreen;
+	return vid_fullscreen.latched_string ? atoi(vid_fullscreen.latched_string) : vid_fullscreen.ival;
+}
+
 void CheckCustomMode(struct emenu_s *menu)
 {
 	int i, sel;
+	int displaymode = M_VideoDisplayMode();
 	videomenuinfo_t *info = (videomenuinfo_t*)menu->data;
 
 	// hide all display controls
@@ -2871,26 +2778,20 @@ void CheckCustomMode(struct emenu_s *menu)
 
 	info->hz->common.ishidden = true;
 
-	info->hzfixed->common.ishidden = true;
 	for (i = 0; i < ASPECT_RATIOS; i++)
 		info->ressize[i]->common.ishidden = true;
-	if (!info->dispmode || info->dispmode->selectedoption != 2)
+	if (displaymode != 2)
 	{
 		info->resmode->common.ishidden = false;
 		sel = info->resmode->selectedoption;
+		info->hz->common.ishidden = displaymode != 1 || sel == ASPECT3D_DESKTOP;
 		if (sel == ASPECT3D_CUSTOM)
 		{ // unhide custom entries for custom option
 			info->width->common.ishidden = false;
 			info->height->common.ishidden = false;
-
-			info->hz->common.ishidden = false;
 		}
 		else if (sel != ASPECT3D_DESKTOP)
-		{
-
-			info->hzfixed->common.ishidden = false;
 			info->ressize[sel]->common.ishidden = false;
-		}
 	}
 	// hide all 2d display controls
 	info->width2d->common.ishidden = true;
@@ -2959,6 +2860,7 @@ qboolean M_VideoApply (union menuoption_s *op, struct emenu_s *menu, int key)
 {
 	extern cvar_t vid_desktopsettings;
 	videomenuinfo_t *info = (videomenuinfo_t*)menu->data;
+	int displaymode = M_VideoDisplayMode();
 
 	if (key != K_ENTER && key != K_KP_ENTER && key != K_GP_DIAMOND_CONFIRM && key != K_MOUSE1 && key != K_TOUCHTAP)
 		return false;
@@ -2979,14 +2881,12 @@ qboolean M_VideoApply (union menuoption_s *op, struct emenu_s *menu, int key)
 
 	// Borderless mode uses the desktop, while retaining the previous window size.
 	// Hidden size controls must not overwrite that saved size.
-	if (atoi(Cvar_FindVar("vid_fullscreen")->latched_string?
-		Cvar_FindVar("vid_fullscreen")->latched_string:Cvar_FindVar("vid_fullscreen")->string) != 2)
+	if (displaymode != 2)
 	{
 		int w = 0, h = 0;
 		const char *wc = NULL;
 		const char *hc = NULL;
 
-		const char *fc = "0";
 		const char *dc = "0";
 
 		switch (info->resmode->selectedoption)
@@ -2997,8 +2897,6 @@ qboolean M_VideoApply (union menuoption_s *op, struct emenu_s *menu, int key)
 		case ASPECT3D_CUSTOM: // Custom
 			wc = info->width->text;
 			hc = info->height->text;
-
-			fc = info->hz->text;
 			break;
 		default: // Aspects
 			{
@@ -3008,8 +2906,6 @@ qboolean M_VideoApply (union menuoption_s *op, struct emenu_s *menu, int key)
 
 				w = atoi(res);
 				h = atoi(x + 1);
-
-				fc = info->hzfixed->values[info->hzfixed->selectedoption];
 			}
 		}
 
@@ -3021,7 +2917,6 @@ qboolean M_VideoApply (union menuoption_s *op, struct emenu_s *menu, int key)
 			Cvar_SetValue(info->height->cvar, h);
 		else
 			Cvar_Set(info->height->cvar, hc);
-		Cvar_Set(info->hz->cvar, fc);
 		Cvar_Set(&vid_desktopsettings, dc);
 	}
 
@@ -3080,7 +2975,6 @@ void M_Menu_Video_f (void)
 	extern cvar_t v_contrast, vid_conwidth, vid_conheight;
 //	extern cvar_t vid_width, vid_height, vid_preservegamma, vid_hardwaregamma, vid_desktopgamma;
 	extern cvar_t vid_desktopsettings, vid_conautoscale;
-	extern cvar_t vid_refreshrate;
 
 #if defined(ANDROID) && !defined(FTE_SDL)
 	extern cvar_t sys_orientation;
@@ -3176,22 +3070,6 @@ void M_Menu_Video_f (void)
 		"Custom",
 		NULL
 	};
-
-	static const char *refreshopts[] =
-	{
-		"Default",
-		"59Hz",
-		"60Hz",
-		"70Hz",
-		"72Hz",
-		"75Hz",
-		"85Hz",
-		"100Hz",
-		"120Hz",
-		"144Hz",
-		NULL
-	};
-	static const char *refreshvalues[] = {"", "59", "60", "70", "72", "75", "85", "100", "120", "144", NULL};
 
 	static const char *res2dmodeopts[] = {
 		ASPECT_LIST
@@ -3315,7 +3193,7 @@ void M_Menu_Video_f (void)
 #if defined(ANDROID) && !defined(FTE_SDL)
 			MB_COMBOCVAR("Orientation", sys_orientation, orientationopts, orientationvalues, NULL),
 #else
-			MB_COMBOCVARRETURN("Display Mode", vid_fullscreen, fullscreenopts, fullscreenvalues, info->dispmode, vid_fullscreen.description),
+			MB_COMBOCVAR("Display Mode", vid_fullscreen, fullscreenopts, fullscreenvalues, vid_fullscreen.description),
 #endif
 
 			MB_REDTEXT(current3dres, true),
@@ -3329,13 +3207,12 @@ void M_Menu_Video_f (void)
 			MB_SPACING(-8),
 			MB_COMBORETURN("Size", resaspects[3], reschoices[3], info->ressize[3], "Select resolution for display."),
 
-			MB_COMBOCVARRETURN("Refresh Rate", vid_refreshrate, refreshopts, refreshvalues, info->hzfixed, vid_refreshrate.description),
-			MB_SPACING(-16), // overlap the custom size and refresh-rate fields
+			MB_SPACING(-8), // overlap the preset size and custom width fields
 			// custom entries
 			MB_EDITCVARSLIMRETURN("Width", "vid_width", info->width),
 			MB_EDITCVARSLIMRETURN("Height", "vid_height", info->height),
 
-			MB_EDITCVARSLIMRETURN("Refresh Rate", "vid_displayfrequency", info->hz),
+			MB_EDITCVARSLIMRETURN("Refresh Rate (Hz)", "vid_displayfrequency", info->hz),
 
 //			MB_SPACING(4),
 			MB_COMBORETURN("2D Mode", res2dmodeopts, res2dmodechoice, info->res2dmode, "Select method for determining or configuring 2D resolution and scaling. The default option matches the current display resolution, and the scale option scales by a factor of the display resolution."),
@@ -3383,6 +3260,7 @@ void M_Menu_Video_f (void)
 	}
 
 	menu->predraw = CheckCustomMode;
+	CheckCustomMode(menu);
 }
 
 #ifndef MINIMAL
