@@ -81,7 +81,13 @@ static void MSG_ReadSkip(int n) {net_message.currentbit+=n*8;}
 typedef struct {netadr_t remote_address; int flags, qportsize, netprim, bytesin, incoming_sequence, outgoing_sequence, mtu_cur, mtu_probes, incoming_unreliable, in_fragment_length, drop_count, reliable_sequence, reliable_length, incoming_acknowledged, incoming_reliable_acknowledged, incoming_reliable_sequence; unsigned short sentsizes[64]; unsigned char in_fragment_buf[128]; double frame_latency, frame_rate, last_received;} netchan_t;
 
 static unsigned connectgeneration;
-static struct {char servername[64];} cls;
+static struct {char servername[64]; netchan_t netchan; int demoplayback;} cls;
+#define UPDATE_BACKUP 64
+#define UPDATE_MASK (UPDATE_BACKUP - 1)
+enum {DPB_MVD = 1};
+typedef struct {int num_entities;} packet_entities_t;
+typedef struct {int frameid; qboolean invalid; packet_entities_t packet_entities;} inframe_t;
+static struct {inframe_t inframes[UPDATE_BACKUP];} cl;
 enum {CIM_Q2EONLY=2};
 static struct {int trying,resolving,mode,numadr,nextadr;netadr_t adr[8];} connectinfo;
 struct resolvectx_s {netadr_t adr[8];size_t found;int defaultport;unsigned generation;char servername[1];};
@@ -99,7 +105,32 @@ static void packet(unsigned seq,unsigned ack,int offset,int len) {net_message.cu
 static struct resolvectx_s *resolved(unsigned generation,int found) {
  struct resolvectx_s *p=calloc(1,sizeof(*p)+32);strcpy(p->servername,"test");p->generation=generation;p->found=found;p->adr[0].port=123;return p;
 }
+
+static void check_qw_delta_bases(void)
+{
+ cls.netchan.incoming_sequence = 280;
+ cls.netchan.outgoing_sequence = 320;
+ inframe_t *base = &cl.inframes[240 & UPDATE_MASK];
+ base->frameid = 240;
+ assert(CLQW_FindDeltaBase(240) == &base->packet_entities);
+ assert(!CLQW_FindDeltaBase(176)); // The right slot still holds a different frame.
+ base->frameid = 176;
+ assert(!CLQW_FindDeltaBase(240)); // The requested frame never arrived.
+ base->frameid = 240;
+ base->invalid = true;
+ assert(!CLQW_FindDeltaBase(240));
+ assert(!CLQW_FindDeltaBase(-1)); // Truncated delta header.
+ assert(!CLQW_FindDeltaBase(280 & 255)); // Cannot delta from the current snapshot.
+
+ base = &cl.inframes[279 & UPDATE_MASK];
+ base->frameid = 279;
+ assert(CLQW_FindDeltaBase(279 & 255) == &base->packet_entities);
+ cls.demoplayback = DPB_MVD;
+ assert(CLQW_FindDeltaBase(0) == &base->packet_entities); // MVD uses the previous frame.
+}
+
 int main(void) {
+ check_qw_delta_bases();
  srand(9);int first=rand(),second=rand(),third=rand();srand(9);assert(Netchan_GenerateChallenge()==0x37373737);assert(rand()==third);
  entropy_ok=0;srand(9);assert((unsigned)Netchan_GenerateChallenge()==(((unsigned)first<<16)^(unsigned)second));assert(rand()==third);
  strcpy(cls.servername,"test");connectgeneration=2;connectinfo.trying=connectinfo.resolving=1;
@@ -131,5 +162,5 @@ int main(void) {
  packet(3,0,2,18);assert(!Netchan_Process(&ch)); // missing first fragment
  packet(4,0,0,10);assert(Netchan_Process(&ch)); // recover after loss
  for(int n=0;n<10000;n++){packet(5,0,65535,20);assert(!Netchan_Process(&ch));} // bounded malicious fragments
- puts("Socket faults, DNS cancellation, challenge entropy, DTLS cleanup, retries and fragments passed");
+ puts("Socket faults, DNS cancellation, challenge entropy, DTLS cleanup, retries, fragments and QuakeWorld delta bases passed");
 }

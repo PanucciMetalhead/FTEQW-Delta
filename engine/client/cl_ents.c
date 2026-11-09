@@ -1278,6 +1278,28 @@ void CLFTE_ParseEntities(void)
 	}
 }
 
+static packet_entities_t *CLQW_FindDeltaBase(int from)
+{
+	int incoming = cls.netchan.incoming_sequence;
+	int age, sequence;
+	inframe_t *frame;
+
+	if (from < 0)
+		return NULL;
+
+	// The server sends the low byte of the base snapshot's sequence.
+	// Age it against the incoming history, which can trail outgoing moves by a full RTT.
+	age = cls.demoplayback == DPB_MVD ? 1 : ((unsigned int)incoming - from) & 0xff;
+	if (!age || age >= UPDATE_BACKUP || incoming < age)
+		return NULL;
+
+	sequence = incoming - age;
+	frame = &cl.inframes[sequence & UPDATE_MASK];
+	if (frame->invalid || frame->frameid != sequence)
+		return NULL;
+	return &frame->packet_entities;
+}
+
 /*
 ==================
 CL_ParsePacketEntities
@@ -1288,12 +1310,11 @@ rest of the data stream.
 */
 void CLQW_ParsePacketEntities (qboolean delta)
 {
-	int			oldpacket, newpacket;
+	int			newpacket;
 	packet_entities_t	*oldp, *newp, dummy;
 	int			oldindex, newindex;
 	int			word, newnum, oldnum;
 	qboolean	full;
-	int		from;
 
 	newpacket = cls.netchan.incoming_sequence&UPDATE_MASK;
 	newp = &cl.inframes[newpacket].packet_entities;
@@ -1324,21 +1345,13 @@ void CLQW_ParsePacketEntities (qboolean delta)
 
 	if (delta)
 	{
-		from = MSG_ReadByte ();
-
-//		Con_Printf("%i %i from %i\n", cls.netchan.outgoing_sequence, cls.netchan.incoming_sequence, from);
-		if (cls.demoplayback == DPB_MVD)
-			from = oldpacket = cls.netchan.incoming_sequence - 1;
-		oldpacket = cl.inframes[from & UPDATE_MASK].frameid;
-
-		if (cl.inframes[from&UPDATE_MASK].invalid ||	//old frame is unusable
-			cls.netchan.outgoing_sequence - oldpacket >= UPDATE_BACKUP - 1)	// we must have lost the sequence its trying to delta from (or just too old).
+		oldp = CLQW_FindDeltaBase(MSG_ReadByte());
+		if (!oldp)
 		{
 			FlushEntityPacket ();
 			return;
 		}
 
-		oldp = &cl.inframes[from & UPDATE_MASK].packet_entities;
 		full = false;
 	}
 	else
