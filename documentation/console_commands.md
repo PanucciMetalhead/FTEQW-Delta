@@ -15,7 +15,8 @@ OpenArena, plus gamecode commands and settings created/read on demand. It was
 checked with `cmdlist`, `apropos ""`, `cvarlist -adF`, the fork's source and the
 loaded QVMs on **13 October 2026**. Definitions use registered help where
 available, otherwise the corresponding handlers/gamecode. The subsequent
-`vid_revert` command and crisp filtering defaults are included below.
+`vid_revert` command, crisp filtering defaults and optional SDL GPU texture
+streaming controls are included below.
 
 Quake 3 mods provide their own VMs, and Quake 1 mods can add commands through
 QuakeC; there cannot be a fixed exhaustive list for every possible mod.
@@ -452,7 +453,7 @@ Jump to [input actions](#held-input-actions), [menus](#built-in-menu-entry-point
 | `god` | Both | Toggle immunity to damage as a server-authorized cheat. The client forwards the request; dedicated-server use selects a player. |
 | `gpu_batching` | Client | Compare optimized/reference submission: gpu_batching 1/0. Enabled by default; resets on video restart. Does not change graphical features. |
 | `gpu_benchmark` | Client | Measure frame throughput and CPU stages: gpu_benchmark [seconds] [label]. Warm up first; disable vsync and raise cl_maxfps for throughput. |
-| `gpu_info` | Client | Report SDL GPU device, frame geometry, material and light counts, plus actual Panini source/output dimensions, filter and sharpening. |
+| `gpu_info` | Client | Report SDL GPU device, frame geometry, material and light counts, actual Panini source/output dimensions, filter and sharpening, plus texture payload estimates, streaming resident/full sizes, queue/upload/failure counts and temporary-cache size. See [texture streaming](SDL3-GPU.md#experimental-texture-streaming). |
 | `heartbeat` | Both | Sends an update or ping to the master server so the current server can remain listed. |
 | `help` | Client | Open the built-in help menu. Use `apropos <text>` for command/cvar descriptions. |
 | `hunkprint` | Both | Print hunk-memory allocation information. |
@@ -1562,6 +1563,9 @@ Jump to [symbols and A–C](#cvars-symbols-and-ac), [D–H](#cvars-dh),
 | `gpu_clustered` | `"1"` | SDL GPU lighting: 1 uses CPU-binned clustered forward lighting with GPU storage buffers; 0 selects ranked 32-light-per-mesh lighting; 2 evaluates the full per-view list for validation. Overflow cells retain all visible lights. Applies immediately; not archived. |
 | `gpu_shadowcull` | `"1"` | Cull shadow caster bounds against each light sphere and cubemap face. Zero submits all casters for comparison. Applies immediately; not archived. |
 | `gpu_staticgeometry` | `"1"` | Cache immutable world vertices in GPU buffer pages. Zero streams all vertices for comparison. Animated/generated attributes retain their streaming path. Applies immediately; not archived. |
+| `gpu_texturebudget` | `"128"` | SDL GPU client: soft image-allocation budget in MiB, including non-streamed images. Pinned images/minimum mip tails can exceed it; unused space does not force extra detail into memory. Applies while streaming; archived. |
+| `gpu_texturestream` | `"0"` | SDL GPU client: enable optional world-texture mip streaming, then use `vid_restart` to prepare sources. Zero asynchronously restores full detail; re-enabling within the prepared session reuses the cache. Archived. See [map-author guidance](MapTextures.md#texture-streaming). |
+| `gpu_textureupload` | `"8"` | SDL GPU client: streamed texture upload allowance in MiB per frame. A single oversized texture may progress alone; at most two read/ready jobs are outstanding. Applies immediately; archived. |
 | `hand` | `""` | For gamecode to know which hand to fire from.<br>0: Right<br>1: Left<br>2: Chest |
 | `handicap` | `"100"` | **Q3:** player handicap percentage, reducing starting health and damage potential according to gamecode; other mods may also read this userinfo. |
 | `headmodel` | `"sarge"` | **Q3:** separate head model/skin selection. |

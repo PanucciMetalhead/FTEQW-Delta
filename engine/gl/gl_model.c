@@ -1539,7 +1539,7 @@ static void Mod_FinishTexture(model_t *mod, texture_t *tx, const char *loadname,
 		if (gl_specular.ival)
 			maps |= SHADER_HASGLOSS;
 
-		R_BuildLegacyTexnums(tx->shader, origname, loadname, maps, 0, tx->srcfmt, tx->srcwidth, tx->srcheight, tx->srcdata, tx->palette);
+		R_BuildLegacyTexnums(tx->shader, origname, loadname, maps, IF_WORLDTEX, tx->srcfmt, tx->srcwidth, tx->srcheight, tx->srcdata, tx->palette);
 	}
 	BZ_Free(tx->srcdata);
 	tx->srcdata = NULL;

@@ -65,6 +65,73 @@ change to avoid cached images or pending settings. `r_fb_models` is the
 separate control for model fullbrights. `r_fullbright 1` brightens the whole
 scene for inspection; it is not how a mapper enables one glowing texture.
 
+## Texture streaming
+
+Delta's optional texture streamer can reduce the GPU memory used by large map
+textures without changing your BSP format, texture coordinates or package layout.
+It works with eligible embedded textures and external replacements, including
+PNGs loaded from a PK3. There is no new QuakeC API or material keyword to add.
+The engine prepares the mipmaps when loading the texture; authors do not need to
+ship the generated temporary cache.
+
+Mipmapping already selects smaller texture versions when drawing distant
+surfaces. Streaming additionally releases the largest versions from GPU memory
+until the visible surfaces need them. The request depends on texture tiling,
+distance and render-view size. A texture shared between a nearby wall and a
+distant building keeps enough detail for the nearby wall. Higher resolution
+render views can require sharper mip levels.
+
+To make use of this path:
+
+- Keep mipmaps enabled. Eligible world images are 2D, have multiple mip levels,
+  and are at least 256 pixels on their largest side after load-time resizing.
+- Use the normal map-specific replacement paths described above. Keep the
+  original tiling/aspect ratio and useful BSP fallbacks. Increasing image sizes
+  solely to reach the streaming threshold wastes storage and decoding work.
+- Author normal/specular and emissive companions as usual. Each eligible image
+  is managed independently; inspect fine normal detail, cutout edges and glowing
+  details during quality comparisons.
+- Continue to package the BSP and original artwork. PNGs still need full initial
+  decoding; this first version does not read selected mip ranges directly from
+  the archive or promise faster map loads.
+
+After selecting your mod and loading your map, try these console settings:
+
+```text
+gpu_texturestream 1
+gpu_texturebudget 128
+vid_restart
+map my_map
+gpu_info
+```
+
+Streaming is disabled by default. Treat these as optional client settings and
+document them for players; the map does not require them. The values are archived,
+so players can save their preference with `cfg_save`. The budget is in MiB and
+includes images that stay resident, such as lightmaps and UI. Those images and
+the smallest retained mip levels can exceed an overly small budget. The engine
+does not allocate extra detail merely to fill unused budget space.
+
+Compare the same view with `gpu_texturestream 0`, wait for `gpu_info` to report
+zero pending jobs and zero reduced textures, then re-enable streaming and wait
+for requests to settle. In `resident/full`, the first number is the managed
+textures' current payload and the second is their full-resolution payload.
+`allocated` includes other tracked images; neither number is a driver VRAM
+measurement. The temporary-cache number is disk storage, not GPU allocation.
+
+Test close walls, distant views, turning quickly, teleports, animated/switchable
+textures and companion maps at your intended screen resolution/FOV. Suddenly
+exposed textures can briefly appear softer while sharper mips arrive. Raise the
+budget if pressure is reducing visible detail; `gpu_textureupload` controls the
+per-frame transfer allowance, with smaller values spreading uploads over more
+frames. UI, lightmaps, small images and dynamic render targets are outside this
+first streaming implementation.
+
+See [renderer controls and implementation notes](SDL3-GPU.md#experimental-texture-streaming)
+for defaults, cache limits, developer integration and the `ad_tower` validation
+fixture. The measured benefit on that map is lower texture memory use with
+similar frame timing; FPS gains depend on the workload and memory pressure.
+
 ## Native texture animation
 
 Quake 1 recognizes `+0` through `+9` at the beginning of a texture name.

@@ -43,7 +43,8 @@ typedef struct gpu_image_s {
     SDL_GPUTextureFormat format;
     SDL_GPUTextureType type;
     SDL_GPUTextureUsageFlags usage;
-    unsigned width, height, layers, levels;
+    unsigned width, height, layers, levels, firstmip;
+    size_t bytes;
 } gpu_image_t;
 
 typedef struct {
@@ -125,6 +126,17 @@ void GPU_InitTextureFormats(void);
 void GPU_UpdateFiltering(image_t *, int[3], int[3], int[2], float, float);
 qboolean GPU_LoadTextureMips(texid_t, const struct pendingtextureinfo *);
 void GPU_DestroyTexture(texid_t);
+qboolean GPU_UploadTextureMips(texid_t, const struct pendingtextureinfo *);
+size_t GPU_TextureBytes(void);
+void GPU_SetImageMip(texid_t, unsigned);
+void GPU_StreamInit(void);
+void GPU_StreamShutdown(void);
+void GPU_StreamDestroy(texid_t);
+void GPU_StreamFrame(void);
+void GPU_StreamInfo(void);
+void GPU_StreamBind(texid_t);
+void GPU_StreamTouch(texid_t, float uvperpixel);
+qboolean GPU_StreamActive(void);
 SDL_GPUTextureSamplerBinding GPU_TextureBinding(texid_t tex, texid_t fallback);
 void GPU_UploadLightmaps(qboolean force);
 void GPU_BackendInit(void);

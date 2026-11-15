@@ -152,7 +152,141 @@ fallback lightmap draws, and water views. Material counts are unlit, lightmapped
 model-lit, classic liquid, layered sky, enhanced liquid, and cube sky, in that order.
 It also reports cached/streamed vertices, geometry upload bytes, submitted/culled
 shadow draws, and per-view clustered light lists including overflow cells.
+Texture allocation and streaming diagnostics are described below.
 `-gpu_debug` enables SDL GPU debugging.
+
+## Experimental texture streaming
+
+World textures can use a budgeted mip streamer, disabled by default. To try it
+with Arcane Dimensions selected:
+
+```text
+gpu_texturestream 1
+gpu_texturebudget 128
+vid_restart
+map ad_tower
+gpu_info
+```
+
+`gpu_texturestream 0` restores the prepared textures to full detail asynchronously.
+Turning it back on reuses their mip cache. Enabling it in a session that started
+with streaming disabled requires `vid_restart` to prepare the sources.
+These are archived client settings; `cfg_save` saves the chosen values.
+Map and mod authors can follow the [asset and packaging guide](MapTextures.md#texture-streaming).
+
+The first version handles mipmapped 2D world images of at least 256 pixels on
+their largest side, including embedded Quake BSP textures and external
+replacements. UI, lightmaps, render targets, cubemaps, non-purgeable images and
+small textures remain resident. Quake 1 brush textures now carry the world-image
+flag, also making `gl_picmip_world` apply consistently to that loading path.
+
+Loader jobs cache the decoded mip chain in one temporary file, capped at 1 GiB.
+The cache is deleted when its last source is purged or the renderer shuts down.
+Initial full-image decoding and mip generation still happen; this implementation
+does not promise shorter loading times. It retains metadata rather than a full
+CPU image for every streamed texture. Cache creation failure or exhaustion
+leaves the affected texture on the ordinary resident path.
+
+Visible meshes request detail using their UV density, distance and view size.
+Requests from multiple surfaces/views take the finest required mip. Generated
+coordinates and unusual uses conservatively request full detail. Unseen textures
+retain a small mip tail; a grace period and delayed demotion reduce repeated
+switching. Under budget pressure the streamer reduces requested detail further.
+It reads mip tails on loader threads and replaces GPU allocations before frame
+draws capture their texture/sampler handles. Read/upload failure retains the old
+image and delays retries. Dynamic texture rewrites invalidate their cache source.
+
+| Control | Default | Meaning |
+| --- | --- | --- |
+| `gpu_texturestream` | `0` | Prepare/enable world texture streaming; restart after first enabling. |
+| `gpu_texturebudget` | `128` | MiB budget for image allocations, including pinned images. |
+| `gpu_textureupload` | `8` | MiB upload allowance per frame. One oversized texture may progress alone. |
+
+At most two reads or completed uploads are outstanding. Queued mip data normally
+stays within twice the upload allowance, with a 16 MiB minimum; a single larger
+texture may exceed that staging limit. GPU replacement briefly needs both old
+and new allocations, and SDL can retain retired resources until submitted work
+finishes. The budget is soft: pinned images and the minimum mip tails can exceed
+it. An excessively small budget visibly blurs textures.
+
+`gpu_info` reports estimated image payload bytes, the managed resident/full
+comparison, reduced textures, pending jobs, ready data, uploads, failures and
+temporary-cache size. `r_imagelist` also uses the SDL GPU image allocation's
+physical dimensions/format for its memory estimate. These are texture payload
+estimates, not a driver VRAM measurement; backend padding, scene/shadow targets,
+geometry, staging and retired allocations are outside that estimate.
+
+### Developer integration
+
+The policy, temporary mip source and read queue live in
+[`engine/sdlgpu/gpu_stream.c`](../engine/sdlgpu/gpu_stream.c). Texture creation,
+uploads, payload accounting and sampler filtering remain in
+[`gpu_image.c`](../engine/sdlgpu/gpu_image.c). The hooks are:
+
+- `Renderer_Init` registers the cvars before startup configs execute.
+  `GPU_StreamInit` captures whether sources should be prepared for this renderer
+  session, and creates the cache mutex before image loading begins.
+- The raw and file-backed image loading paths call `GPU_StreamPrepare` after
+  mip generation/format conversion, before queuing the main-thread upload. New
+  world-image loading paths should preserve `IF_WORLDTEX` and follow this order.
+  Unsupported encodings, incomplete mip data and excluded image flags fall back
+  to ordinary resident loading.
+- `GPU_LoadTextureMips` registers the prepared source and initially uploads a
+  small mip tail. `image_t` retains its logical dimensions; `gpu_image_t` records
+  the physical allocation and first retained mip. Keep these distinct so
+  streaming does not alter UV tiling, image-size queries or sampler mip caps.
+- `GPU_StreamMesh` in `gpu_backend.c` submits visible-surface requests, taking
+  the finest request for shared images across views. Immutable geometry caches
+  its UV-density estimate. Uses without a suitable estimate request full detail.
+- `GPU_StreamFrame` runs at the start of `GPU_BeginFrame`, before draws capture
+  native texture/sampler handles. Loader jobs only read cached CPU mip data;
+  their main-thread completion callback queues ready data. GPU replacement
+  happens at that frame boundary and retains the old allocation on failure.
+
+Use `GPU_DestroyTexture` for final image destruction: it drains an outstanding
+read for that source, frees ready data and releases its cache reference as well
+as the GPU image. A dynamic rewrite of a registered image invalidates its source
+and returns it to ordinary resident uploads. Renderer shutdown synchronizes
+workers before destroying images/device state. Do not upload a completed stream
+job directly inside an arbitrary main-thread callback: the frame may already
+contain draw records referencing the old native handles.
+
+The initial policy plans approximately every 0.2 seconds, retains recently used
+detail for two seconds and delays demotion until at least one second after a
+replacement. Its fallback tail starts at a largest dimension of 64 pixels where
+available. It does not predict movement or prefetch around teleports. Keep the
+policy and cache bounds explicit when extending it; budgets cannot reclaim
+non-streamed allocations or native resources still in flight.
+
+### Validation
+
+The isolated tower fixture uses owned data, an author-supplied tower overview,
+a second viewpoint and a rotating camera. It checks residency reduction, forced
+budget pressure, asynchronous restoration, pixel equivalence in the paused view,
+lightmaps, video restart and cache cleanup on a map change:
+
+```sh
+python3 tools/gpu_texturestream.py prepare /path/to/Quake --out build/texturestream-tower
+python3 tools/gpu_texturestream.py run build/fteqw --out build/texturestream-tower
+```
+
+Use a separate output directory and `run ... --debug` for GPU validation. Add
+`--warmup 20` when preparing a debug/sanitized fixture so loading completes before
+the pause/captures. Sanitized timing is not a performance result.
+The fixture writes screenshots, `stream.log` and `results.json`. On the initial
+Metal tower comparison, 73 managed textures dropped from 97.333 MiB to 33.021 MiB
+with an identical paused scene crop. At 2940x1846, a Release fullscreen run measured
+405.52/403.24/399.49 FPS for resident/streaming/resident, with p95 frame times of
+2.908/2.931/3.109 ms. That comparison establishes a memory saving with similar
+throughput, not a demonstrated FPS improvement. The 64 MiB sweep stayed near
+63.1 MiB of image payload and performed new mip uploads as the camera turned.
+This is scene-specific validation, not a complete playthrough or validation on
+Vulkan. The graphics runner disables audio. Full UBSan testing currently stops
+on existing signed shifts in `snd_mem.c:GetLittleLong` and
+`sv_send.c:SV_CalcClientStats`, before the streaming comparison can complete.
+An AddressSanitizer build with SDL GPU debugging completed the tower fixture,
+including movement, restoration, restart and map change, without memory or GPU
+validation errors. Its enabled/restored paused scene crops also matched exactly.
 
 ## Current implementation limits
 

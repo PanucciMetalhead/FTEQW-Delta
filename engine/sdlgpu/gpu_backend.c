@@ -50,6 +50,8 @@ typedef struct gpu_static_mesh_s {
     gpu_static_page_t *page;
     unsigned first;
     vec3_t mins, maxs;
+    float uvdensity;
+    qboolean streamvalid;
     struct gpu_static_mesh_s *next;
 } gpu_static_mesh_t;
 static gpu_static_page_t *staticpages;
@@ -594,6 +596,7 @@ void GPU_BeginFrame(void)
     }
     gpu.numvertices = gpu.numstreamvertices = gpu.numindices = gpu.numdraws = numtempbatches = numshadowlights = 0;
     gpu.cachedvertices = gpu.uploadedbytes = gpu.shadowdraws = gpu.shadowculled = 0;
+    GPU_StreamFrame();
     GPU_LightingBeginFrame();
     collectshadowonly = false;
     gpu.sceneonlygamma = !!vid_sceneonlygamma.ival;
@@ -1219,6 +1222,61 @@ static void GPU_Lights(gpu_draw_t *d, unsigned flags, const mesh_t *mesh, const 
     d->frag.material[3] = count;
 }
 
+static void GPU_StreamMesh(shader_t *shader, mesh_t *mesh, vbo_t *vbo,
+    texnums_t *textures, shaderpass_t *p, vecV_t *coords, vec2_t *uvs, index_t *indices)
+{
+    if (!GPU_StreamActive() || gpu.drawing2d || collectshadowonly) return;
+    if (p->texgen == T_GEN_SOURCECOLOUR || p->texgen == T_GEN_SOURCEDEPTH ||
+        p->texgen == T_GEN_VIDEOMAP) return;
+    float footprint = 0;
+    texid_t images[] = {GPU_PassTexture(p,textures,r_refdef.time-entity->shaderTime),
+        textures->bump,textures->specular,textures->fullbright};
+    unsigned i;
+    qboolean managed = false;
+    for (i = 0; i < countof(images); ++i)
+        if (TEXLOADED(images[i]) && images[i]->gpustream) managed = true;
+    if (!managed) return;
+    if (entity == &r_worldentity && uvs && p->tcgen == TC_GEN_BASE && !p->numtcmods &&
+        !shader->numdeforms && !(shader->flags & SHADER_SKY)) {
+        unsigned adjust = vbo && !mesh->indexes ? mesh->vbofirstvert : 0;
+        gpu_static_mesh_t *cached = GPU_StaticMesh(mesh);
+        float nearest = 0, density = cached && cached->streamvalid ? cached->uvdensity : 0;
+        vec3_t mins, maxs;
+        /* Bounding-box distance is conservative for large walls whose corners
+         * can be far away even when the camera is right next to the surface. */
+        if (cached) {
+            VectorCopy(cached->mins,mins); VectorCopy(cached->maxs,maxs);
+        } else {
+            VectorCopy(coords[0],mins); VectorCopy(coords[0],maxs);
+            for (i = 1; i < mesh->numvertexes; ++i)
+                for (unsigned j = 0; j < 3; ++j) {
+                    mins[j] = min(mins[j],coords[i][j]); maxs[j] = max(maxs[j],coords[i][j]);
+                }
+        }
+        for (i = 0; i < 3; ++i) {
+            float delta = max(max(mins[i]-r_refdef.vieworg[i],r_refdef.vieworg[i]-maxs[i]),0);
+            nearest += delta*delta;
+        }
+        for (i = 0; (!cached || !cached->streamvalid) && i+2 < mesh->numindexes; i += 3) {
+            unsigned a, b, edge;
+            for (edge = 0; edge < 3; ++edge) {
+                vec3_t delta;
+                a = indices[i+edge]-adjust; b = indices[i+(edge+1)%3]-adjust;
+                if (a >= mesh->numvertexes || b >= mesh->numvertexes) continue;
+                VectorSubtract(coords[a],coords[b],delta);
+                float length = DotProduct(delta,delta);
+                float du = uvs[a][0]-uvs[b][0], dv = uvs[a][1]-uvs[b][1];
+                if (length > 0.000001f) density = max(density,(du*du+dv*dv)/length);
+            }
+        }
+        if (cached) { cached->uvdensity = density; cached->streamvalid = true; }
+        if (density > 0 && nearest < FLT_MAX && r_refdef.pxrect.height > 0)
+            footprint = sqrtf(density*nearest) * 2*tanf(r_refdef.fov_y*M_PI/360.0f) /
+                r_refdef.pxrect.height;
+    }
+    for (i = 0; i < countof(images); ++i) GPU_StreamTouch(images[i],footprint);
+}
+
 static void GPU_DrawMesh(shader_t *shader, mesh_t *mesh, vbo_t *vbo, texnums_t *textures, unsigned flags, shaderpass_t *p, const gpu_draw_t *prepared)
 {
     size_t i;
@@ -1244,6 +1302,7 @@ static void GPU_DrawMesh(shader_t *shader, mesh_t *mesh, vbo_t *vbo, texnums_t *
     index_t *indices = mesh->indexes ? mesh->indexes : vbo ? (index_t *)vbo->indicies.sysptr + mesh->vbofirstelement : NULL;
     if (!coords || !indices || mesh->numvertexes <= 0 || mesh->numindexes <= 0 || !gpu.command) return;
     if (mode != BEM_STANDARD && mode != BEM_DEPTHONLY && mode != BEM_DEPTHDARK) return;
+    GPU_StreamMesh(shader,mesh,vbo,textures,p,coords,uvs,indices);
     /* These generators leave the packed world attributes invariant. Anything
      * animated, entity-coloured, vertex-lit or using generated UVs streams. */
     qboolean immutable = gpu_staticgeometry.ival && !staticinvalid && entity == &r_worldentity &&

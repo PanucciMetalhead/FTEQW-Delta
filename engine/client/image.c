@@ -14074,6 +14074,9 @@ static qboolean Image_LoadRawTexture(texid_t tex, unsigned int flags, void *rawd
 	Image_ChangeFormatFlags(mips, flags, fmt, tex->ident);
 
 	Image_FixupImageSize(tex, imgwidth, imgheight, mips->mip[0].depth);
+#ifdef SDL_GPUQUAKE
+	if (qrenderer == QR_SDLGPU) GPU_StreamPrepare(tex, mips);
+#endif
 	if (flags & IF_NOWORKER)
 		Image_LoadTextureMips(tex, mips, 0, 0);
 	else
@@ -14092,6 +14095,9 @@ qboolean Image_LoadTextureFromMemory(texid_t tex, int flags, const char *iname, 
 		tex->fallbackdata = NULL;
 
 		Image_FixupImageSize(tex, mips->mip[0].width, mips->mip[0].height, mips->mip[0].depth);
+#ifdef SDL_GPUQUAKE
+		if (qrenderer == QR_SDLGPU) GPU_StreamPrepare(tex, mips);
+#endif
 		if ((flags & IF_NOWORKER) || Sys_IsMainThread())
 			Image_LoadTextureMips(tex, mips, 0, 0);
 		else
@@ -15105,6 +15111,9 @@ void Image_List_f(void)
 			}
 			if (!(tex->flags & IF_NOMIPMAP))
 				imgmem += imgmem/3;	//mips take about a third extra mem.
+#ifdef SDL_GPUQUAKE
+			if (qrenderer == QR_SDLGPU) imgmem = GPU_ImageBytes(tex);
+#endif
 
 			//FIXME: not showing sizes here, because they show the '8bit' size rather than any replacementment's size.
 

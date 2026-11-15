@@ -4,6 +4,10 @@
 static int filtermip[3] = {1, 1, 1}, filterpic[3] = {1, 1, 1};
 static int mipcap[2] = {0, 1000};
 static float samplerbias, sampleranisotropy = 1;
+static size_t texturebytes;
+
+size_t GPU_TextureBytes(void) { return texturebytes; }
+size_t GPU_ImageBytes(texid_t tex) { return tex && tex->gpuimage ? tex->gpuimage->bytes : 0; }
 
 SDL_GPUTextureFormat GPU_TextureFormat(uploadfmt_t fmt)
 {
@@ -65,13 +69,21 @@ static void GPU_CreateImageSampler(image_t *tex)
     info.address_mode_u = info.address_mode_v = info.address_mode_w = (tex->flags & IF_CLAMP) ?
         SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE : SDL_GPU_SAMPLERADDRESSMODE_REPEAT;
     info.mip_lod_bias = samplerbias;
-    info.max_lod = min(mipcap[1], img->levels - 1);
-    info.min_lod = bound(0, mipcap[0], info.max_lod);
+    info.max_lod = bound(0, mipcap[1]-(int)img->firstmip, (int)img->levels-1);
+    info.min_lod = bound(0, mipcap[0]-(int)img->firstmip, info.max_lod);
     info.max_anisotropy = bound(1, sampleranisotropy, 16);
     info.enable_anisotropy = !(tex->flags & IF_NEAREST) && info.max_anisotropy > 1;
     if (img->sampler) SDL_ReleaseGPUSampler(gpu.device, img->sampler);
     img->sampler = SDL_CreateGPUSampler(gpu.device, &info);
     if (!img->sampler) GPU_Error("create image sampler");
+}
+
+void GPU_SetImageMip(texid_t tex, unsigned firstmip)
+{
+    if (tex->gpuimage && tex->gpuimage->firstmip != firstmip) {
+        tex->gpuimage->firstmip = firstmip;
+        GPU_CreateImageSampler(tex);
+    }
 }
 
 void GPU_UpdateFiltering(image_t *images, int mip[3], int pic[3], int cap[2], float bias, float anis)
@@ -82,15 +94,23 @@ void GPU_UpdateFiltering(image_t *images, int mip[3], int pic[3], int cap[2], fl
         if (images->gpuimage) GPU_CreateImageSampler(images);
 }
 
-void GPU_DestroyTexture(texid_t tex)
+static void GPU_FreeImage(texid_t tex)
 {
     if (!tex || !tex->gpuimage) return;
+    texturebytes -= tex->gpuimage->bytes;
     if (tex->gpuimage->texture) SDL_ReleaseGPUTexture(gpu.device, tex->gpuimage->texture);
     if (tex->gpuimage->sampler) SDL_ReleaseGPUSampler(gpu.device, tex->gpuimage->sampler);
     Z_Free(tex->gpuimage); tex->gpuimage = NULL;
 }
 
-qboolean GPU_LoadTextureMips(texid_t tex, const struct pendingtextureinfo *mips)
+void GPU_DestroyTexture(texid_t tex)
+{
+    if (!tex) return;
+    GPU_StreamDestroy(tex);
+    GPU_FreeImage(tex);
+}
+
+qboolean GPU_UploadTextureMips(texid_t tex, const struct pendingtextureinfo *mips)
 {
     SDL_GPUTextureCreateInfo ci = {0};
     SDL_GPUTransferBufferCreateInfo ti = {0};
@@ -125,12 +145,19 @@ qboolean GPU_LoadTextureMips(texid_t tex, const struct pendingtextureinfo *mips)
     img = tex->gpuimage;
     if (!img || img->format != ci.format || img->width != ci.width || img->height != ci.height ||
         img->levels != levels || img->layers != ci.layer_count_or_depth || img->type != ci.type || img->usage != ci.usage) {
-        GPU_DestroyTexture(tex);
+        GPU_FreeImage(tex);
         img = tex->gpuimage = Z_Malloc(sizeof(*img));
         img->format = ci.format; img->width = ci.width; img->height = ci.height;
         img->levels = levels; img->layers = ci.layer_count_or_depth; img->type = ci.type; img->usage = ci.usage;
         img->texture = SDL_CreateGPUTexture(gpu.device, &ci);
-        if (!img->texture) { GPU_DestroyTexture(tex); return false; }
+        if (!img->texture) { GPU_FreeImage(tex); return false; }
+        for (i = 0; i < levels; ++i) {
+            unsigned bw, bh, bd, blockbytes;
+            Image_BlockSizeForEncoding(luminance ? PTI_RGBA8 : mips->encoding, &blockbytes, &bw, &bh, &bd);
+            img->bytes += (size_t)((mips->mip[i].width+bw-1)/bw) *
+                ((mips->mip[i].height+bh-1)/bh) * ((max(1,mips->mip[i].depth)+bd-1)/bd) * blockbytes;
+        }
+        texturebytes += img->bytes;
         GPU_CreateImageSampler(tex);
     }
     for (i = 0; i < mips->mipcount; ++i) {
@@ -193,6 +220,7 @@ SDL_GPUTextureSamplerBinding GPU_TextureBinding(texid_t tex, texid_t fallback)
 {
     SDL_GPUTextureSamplerBinding binding = {0};
     if (!tex || !tex->gpuimage || tex->status != TEX_LOADED) tex = fallback;
+    GPU_StreamBind(tex);
     if (tex && tex->gpuimage) {
         binding.texture = tex->gpuimage->texture; binding.sampler = tex->gpuimage->sampler;
     }

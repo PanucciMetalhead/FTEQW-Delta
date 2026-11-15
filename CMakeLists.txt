@@ -332,6 +332,7 @@ set(FTE_ARCH_FILES
     engine/client/cd_null.c
     engine/sdlgpu/gpu_vid.c
     engine/sdlgpu/gpu_image.c
+    engine/sdlgpu/gpu_stream.c
     engine/sdlgpu/gpu_backend.c
     engine/sdlgpu/gpu_lighting.c
 )

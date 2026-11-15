@@ -629,6 +629,9 @@ void R_ToggleFullscreen_f(void)
 
 void Renderer_Init(void)
 {
+#ifdef SDL_GPUQUAKE
+	GPU_StreamRegister();
+#endif
 	currentrendererstate.renderer = NULL;
 	qrenderer = QR_NONE;
 

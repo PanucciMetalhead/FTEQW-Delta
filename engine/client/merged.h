@@ -243,6 +243,9 @@ typedef struct image_s
 	uploadfmt_t format;
 	int status;	//TEX_
 	unsigned int flags;
+#ifdef SDL_GPUQUAKE
+	struct gpu_stream_s *gpustream; /* Immutable mip source; independent of GPU allocation. */
+#endif
 	struct image_s *next;
 //	struct image_s *prev;
 	struct image_s *aliasof;

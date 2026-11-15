@@ -101,6 +101,7 @@ static void GPU_Info_f(void)
     Con_Printf("Cutouts: %u draws, %u using missing texture, %u shadow caster draws\n",cutouts,missing,cutoutshadows);
     GPU_WaterInfo();
     GPU_LightingInfo();
+    GPU_StreamInfo();
     Con_Printf("Geometry: %u cached, %u streamed vertices, %u bytes uploaded; shadows: %u submitted, %u culled\n",
         (unsigned)gpu.cachedvertices, (unsigned)gpu.numstreamvertices, (unsigned)gpu.uploadedbytes,
         (unsigned)gpu.shadowdraws, (unsigned)gpu.shadowculled);
@@ -140,6 +141,7 @@ static void GPU_VideoShutdown(void)
     if (gpu.device) {
         SDL_WaitForGPUIdle(gpu.device);
         GPU_BackendShutdown();
+        GPU_StreamShutdown();
         if (sdlwindow) SDL_ReleaseWindowFromGPUDevice(gpu.device, sdlwindow);
         SDL_DestroyGPUDevice(gpu.device);
     }
@@ -213,6 +215,7 @@ static qboolean GPU_VideoInit(rendererstate_t *info, unsigned char *palette)
     sh_config.progpath = "sdlgpu/%s";
     sh_config.texture_non_power_of_two = true;
     GPU_InitTextureFormats();
+    GPU_StreamInit();
     Cmd_AddCommandD("gpu_info", GPU_Info_f, "Report SDL GPU device, frame geometry, material, and light counts.");
     Cmd_AddCommandD("gpu_benchmark", GPU_Benchmark_f, "Measure frame throughput and CPU stages: gpu_benchmark [seconds] [label]. Warm up first; disable vsync and raise cl_maxfps for throughput.");
     Cmd_AddCommandD("gpu_batching", GPU_Batching_f, "Compare optimized/reference submission: gpu_batching 1/0. Enabled by default; resets on video restart. Does not change graphical features.");

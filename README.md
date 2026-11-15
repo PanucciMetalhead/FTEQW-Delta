@@ -87,6 +87,12 @@ lighting, culls shadow casters per light/cubemap face, and builds bloom through
 a downsample/upsample pyramid. See the [comparison with the previous renderer](documentation/SDL3-GPU.md#differences-from-the-previous-renderer)
 for algorithm changes, visual differences, reference controls and measured results.
 
+Optional [texture streaming](documentation/SDL3-GPU.md#experimental-texture-streaming)
+reduces GPU texture memory by keeping the mip levels currently needed by visible
+surfaces. It supports embedded map textures and external replacements, and is
+disabled by default. See the [map-author guide](documentation/MapTextures.md#texture-streaming)
+for asset requirements, packaging and a repeatable quality/memory comparison.
+
 This is an active renderer migration. The validation record and remaining feature
 work are listed in [SDL3-GPU.md](documentation/SDL3-GPU.md); upstream-wide visual
 compatibility is not yet established.

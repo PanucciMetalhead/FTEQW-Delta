@@ -481,6 +481,11 @@ qboolean Image_LoadTextureFromMemory(texid_t tex, int flags, const char *iname, 
 qboolean Image_LocateHighResTexture(image_t *tex, flocation_t *bestloc, char *bestname, size_t bestnamesize, unsigned int *bestflags);
 void Image_Upload			(texid_t tex, uploadfmt_t fmt, void *data, void *palette, int width, int height, int depth, unsigned int flags);
 void Image_Purge(void);	//purge any textures which are not needed any more (releases memory, but doesn't give null pointers).
+#ifdef SDL_GPUQUAKE
+void GPU_StreamPrepare(texid_t tex, const struct pendingtextureinfo *mips);
+void GPU_StreamRegister(void);
+size_t GPU_ImageBytes(texid_t tex);
+#endif
 void Image_Init(void);
 void Image_Shutdown(void);
 void Image_PrintInputFormatVersions(void); //for version info
