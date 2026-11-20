@@ -70,6 +70,9 @@ For game and total-conversion development, see
 [Writing Your progs.dat](documentation/writing_progs.md) and the
 [FTEQCC compiler manual](documentation/FTEQCC.md).
 
+See the [KVX model guide](documentation/Tools.md#kvx-voxel-models) for native
+voxel loading and the animated grid room preview.
+
 For custom Quake maps, see the [texture and packaging guide](documentation/MapTextures.md).
 It covers WAD/BSP fallbacks, true-color PNGs, animated and switchable textures,
 fullbright masks, transparency, and single-file PK3 distribution.

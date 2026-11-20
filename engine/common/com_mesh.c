@@ -10407,8 +10407,308 @@ static qboolean QDECL Mod_LoadObjModel(model_t *mod, void *buffer, size_t fsize)
 #endif
 
 
+#ifdef SKELETALMODELS
+// KVX stores only surface voxels. The slab mask tells us which faces to draw;
+// missing voxels in the file may be solid interior, so don't infer exposure.
+typedef struct
+{
+	unsigned short depth, u, v, width, height;
+	qbyte side, color;
+} kvxquad_t;
+
+static unsigned int KVX_Read16(const qbyte *p)
+{
+	return p[0] | (unsigned int)p[1] << 8;
+}
+
+static unsigned int KVX_Read32(const qbyte *p)
+{
+	return KVX_Read16(p) | KVX_Read16(p+2) << 16;
+}
+
+static qboolean KVX_ReadMip(const qbyte *mip, size_t bytes, const unsigned int size[3], unsigned short *cells)
+{
+	size_t xbytes = (size[0]+1)*4;
+	size_t tables = xbytes + size[0]*(size[1]+1)*2;
+	const qbyte *offsets = mip+24;
+	size_t x, y;
+
+	if (tables > bytes-24 || KVX_Read32(offsets) != tables ||
+		KVX_Read32(offsets+size[0]*4) != bytes-24)
+		return false;
+
+	for (x = 0; x < size[0]; x++)
+	{
+		size_t begin = KVX_Read32(offsets+x*4);
+		size_t end = KVX_Read32(offsets+(x+1)*4);
+		const qbyte *columns = offsets+xbytes+x*(size[1]+1)*2;
+
+		if (end < begin || end > bytes-24 || KVX_Read16(columns) != 0 ||
+			KVX_Read16(columns+size[1]*2) != end-begin)
+			return false;
+
+		for (y = 0; y < size[1]; y++)
+		{
+			size_t pos = begin+KVX_Read16(columns+y*2);
+			size_t limit = begin+KVX_Read16(columns+(y+1)*2);
+			unsigned int nextz = 0;
+
+			if (pos > limit || limit > end)
+				return false;
+			while (pos < limit)
+			{
+				const qbyte *slab = offsets+pos;
+				unsigned int z, count, mask, k;
+
+				if (limit-pos < 3)
+					return false;
+				z = slab[0];
+				count = slab[1];
+				mask = slab[2];
+				if (!count || z < nextz || z+count > size[2] ||
+					count > limit-pos-3 || mask & ~63u)
+					return false;
+				nextz = z+count;
+				if (cells)
+				{
+					for (k = 0; k < count; k++)
+					{
+						// End faces apply only to the first and last voxel in the run.
+						unsigned int faces = mask & 15u;
+						if (!k)
+							faces |= mask & 16u;
+						if (k+1 == count)
+							faces |= mask & 32u;
+						cells[(x*size[1]+y)*size[2]+z+k] = (faces<<8) | slab[3+k];
+					}
+				}
+				pos += 3+count;
+			}
+		}
+	}
+	return true;
+}
+
+// Greedy rectangles on each face plane. Store palette index + 1 so that
+// palette index zero is opaque and zero in the plane means no face.
+static qboolean KVX_Mesh(const unsigned int size[3], const unsigned short *cells,
+		kvxquad_t **quads, size_t *count)
+{
+	const size_t strides[3] = {size[1]*size[2], size[2], 1};
+	const size_t maxquads = 262144; // Bound generated geometry and collision data.
+	unsigned short *plane = BZ_Malloc(256*256*sizeof(*plane));
+	size_t capacity = 0;
+	unsigned int side;
+	qboolean ok = true;
+
+	for (side = 0; side < 6 && ok; side++)
+	{
+		unsigned int axis = side/2, uaxis = (axis+1)%3, vaxis = (axis+2)%3;
+		unsigned int cols = size[uaxis], rows = size[vaxis];
+		unsigned int d, u, v;
+
+		for (d = 0; d < size[axis] && ok; d++)
+		{
+			for (v = 0; v < rows; v++)
+				for (u = 0; u < cols; u++)
+				{
+					unsigned int cell = cells[d*strides[axis]+u*strides[uaxis]+v*strides[vaxis]];
+					plane[v*cols+u] = (cell & (256u<<side)) ? (cell & 255u)+1 : 0;
+				}
+
+			for (v = 0; v < rows && ok; v++)
+				for (u = 0; u < cols; u++)
+				{
+					unsigned int color = plane[v*cols+u];
+					unsigned int w = 1, h = 1, i;
+
+					if (!color)
+						continue;
+					while (u+w < cols && plane[v*cols+u+w] == color)
+						w++;
+					for (; v+h < rows; h++)
+					{
+						for (i = 0; i < w && plane[(v+h)*cols+u+i] == color; i++)
+							;
+						if (i != w)
+							break;
+					}
+					if (*count == maxquads)
+					{
+						ok = false;
+						break;
+					}
+					if (*count == capacity)
+					{
+						capacity = capacity ? capacity*2 : 1024;
+						*quads = BZ_Realloc(*quads, capacity*sizeof(**quads));
+					}
+					(*quads)[(*count)++] = (kvxquad_t){d+(side&1), u, v, w, h, side, color-1};
+					for (i = 0; i < h; i++)
+						memset(plane+(v+i)*cols+u, 0, w*sizeof(*plane));
+				}
+		}
+	}
+	BZ_Free(plane);
+	return ok && *count;
+}
+
+static void KVX_BuildSurface(model_t *mod, galiasinfo_t *mesh, const kvxquad_t *quads,
+		size_t count, const vec3_t pivot, const qbyte *palette)
+{
+	// Quake uses clockwise winding. The transform (x, -y, -z) preserves it.
+	static const unsigned int winding[2][6] = {{0,1,2,0,2,3}, {0,2,1,0,3,2}};
+	static const int corners[4][2] = {{0,0},{1,0},{1,1},{0,1}};
+	static const int sign[3] = {1, -1, -1};
+	size_t i;
+	unsigned int j;
+#ifndef SERVERONLY
+	unsigned int c;
+	galiasskin_t *skin = ZG_Malloc(&mod->memgroup, sizeof(*skin));
+	skinframe_t *frame = ZG_Malloc(&mod->memgroup, sizeof(*frame));
+	mesh->numskins = skin->numframes = 1;
+	skin->frame = frame;
+	skin->skinspeed = 1;
+	mesh->ofsskins = skin;
+	Q_strncpyz(frame->shadername, "fte/kvx", sizeof(frame->shadername));
+	// The skin program binds its named diffuse sampler, so define the
+	// white base on the material as well as using it in the fallback pass.
+	frame->defaultshader = "{\nprogram defaultskin#VC\ndiffusemap $whiteimage\n{\nmap $diffuse\nrgbgen vertex\n}\n}\n";
+
+	mesh->ofs_st_array = ZG_Malloc(&mod->memgroup, count*4*sizeof(*mesh->ofs_st_array));
+	mesh->ofs_rgbaub = ZG_Malloc(&mod->memgroup, count*4*sizeof(*mesh->ofs_rgbaub));
+	mesh->ofs_skel_norm = ZG_Malloc(&mod->memgroup, count*4*sizeof(*mesh->ofs_skel_norm));
+	mesh->ofs_skel_svect = ZG_Malloc(&mod->memgroup, count*4*sizeof(*mesh->ofs_skel_svect));
+	mesh->ofs_skel_tvect = ZG_Malloc(&mod->memgroup, count*4*sizeof(*mesh->ofs_skel_tvect));
+#endif
+	mesh->numverts = count*4;
+	mesh->numindexes = count*6;
+	mesh->ofs_skel_xyz = ZG_Malloc(&mod->memgroup, mesh->numverts*sizeof(*mesh->ofs_skel_xyz));
+	mesh->ofs_indexes = ZG_Malloc(&mod->memgroup, mesh->numindexes*sizeof(*mesh->ofs_indexes));
+
+	for (i = 0; i < count; i++)
+	{
+		const kvxquad_t *q = &quads[i];
+		unsigned int axis = q->side/2, uaxis = (axis+1)%3, vaxis = (axis+2)%3;
+		for (j = 0; j < 4; j++)
+		{
+			size_t index = i*4+j;
+			vecV_t *xyz = &mesh->ofs_skel_xyz[index];
+
+			(*xyz)[axis] = (q->depth-pivot[axis])*sign[axis];
+			(*xyz)[uaxis] = (q->u+corners[j][0]*q->width-pivot[uaxis])*sign[uaxis];
+			(*xyz)[vaxis] = (q->v+corners[j][1]*q->height-pivot[vaxis])*sign[vaxis];
+			AddPointToBounds(*xyz, mod->mins, mod->maxs);
+#ifndef SERVERONLY
+			mesh->ofs_skel_norm[index][axis] = (q->side&1 ? 1 : -1)*sign[axis];
+			mesh->ofs_skel_svect[index][uaxis] = sign[uaxis];
+			mesh->ofs_skel_tvect[index][vaxis] = sign[vaxis];
+			mesh->ofs_st_array[index][0] = corners[j][0];
+			mesh->ofs_st_array[index][1] = corners[j][1];
+			for (c = 0; c < 3; c++)
+			{
+				unsigned int value = palette[3*q->color+c];
+				mesh->ofs_rgbaub[index][c] = (value<<2) | (value>>4);
+			}
+			mesh->ofs_rgbaub[index][3] = 255;
+#endif
+		}
+		for (j = 0; j < 6; j++)
+			mesh->ofs_indexes[i*6+j] = i*4+winding[q->side&1][j];
+	}
+}
+
+static qboolean QDECL Mod_LoadKVXModel(model_t *mod, void *buffer, size_t bytes)
+{
+	const qbyte *data = buffer, *palette;
+	unsigned int size[3], dims[3], axis, mip = 0;
+	size_t offset = 0, count = 0, first;
+	unsigned short *cells = NULL;
+	kvxquad_t *quads = NULL;
+	vec3_t pivot;
+	galiasinfo_t **link = (galiasinfo_t **)&mod->meshinfo;
+
+	if (bytes < 4+24+768)
+		goto invalid;
+	bytes -= 768;
+	palette = data+bytes;
+	for (first = 0; first < 768; first++)
+		if (palette[first] > 63)
+			goto invalid;
+
+	while (offset < bytes)
+	{
+		const qbyte *header;
+		size_t length;
+
+		if (bytes-offset < 4+24 || mip == 5)
+			goto invalid;
+		header = data+offset+4;
+		length = KVX_Read32(data+offset);
+		if (length < 24 || length > bytes-offset-4)
+			goto invalid;
+		for (axis = 0; axis < 3; axis++)
+		{
+			dims[axis] = KVX_Read32(header+axis*4);
+			if (!dims[axis] || dims[axis] > 256)
+				goto invalid;
+		}
+		if (!mip)
+		{
+			size_t volume = dims[0]*dims[1]*dims[2];
+			for (axis = 0; axis < 3; axis++)
+			{
+				size[axis] = dims[axis];
+				pivot[axis] = (int32_t)KVX_Read32(header+12+axis*4)/256.0f;
+			}
+			cells = BZ_Malloc(volume*sizeof(*cells));
+			memset(cells, 0, volume*sizeof(*cells));
+		}
+		if (!KVX_ReadMip(header, length, dims, mip ? NULL : cells))
+			goto invalid;
+		offset += 4+length;
+		mip++;
+	}
+
+	if (!KVX_Mesh(size, cells, &quads, &count))
+		goto invalid;
+	BZ_Free(cells);
+	ClearBounds(mod->mins, mod->maxs);
+	for (first = 0; first < count; )
+	{
+		galiasinfo_t *mesh = ZG_Malloc(&mod->memgroup, sizeof(*mesh));
+		size_t chunk = min(count-first, (MAX_INDICIES-1)/4);
+
+		*link = mesh;
+		link = &mesh->nextsurf;
+		Mod_DefaultMesh(mesh, mod->name, first/((MAX_INDICIES-1)/4));
+		mesh->shares_verts = mesh->surfaceid-1;
+		KVX_BuildSurface(mod, mesh, quads+first, chunk, pivot, palette);
+		first += chunk;
+	}
+	BZ_Free(quads);
+
+	mod->type = mod_alias;
+	mod->fromgame = fg_new;
+	mod->flags = 0;
+	mod->numframes = 1;
+	Mod_ClampModelSize(mod);
+	Mod_SetMeshModelFuncs(mod, true);
+	return true;
+
+invalid:
+	BZ_Free(cells);
+	BZ_Free(quads);
+	Con_Printf(CON_WARNING "Invalid or oversized KVX model: %s\n", mod->name);
+	return false;
+}
+#endif
+
 void Alias_Register(void)
 {
+#ifdef SKELETALMODELS
+	Mod_RegisterModelFormatText(NULL, "Build Voxel (kvx)", ".kvx", Mod_LoadKVXModel);
+#endif
 #ifdef MD1MODELS
 #ifndef SERVERONLY
 	Cvar_Register(&dpcompat_nofloodfill, NULL);

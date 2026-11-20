@@ -64,6 +64,44 @@ Generate a `subdir.pk3` dictionary file, and an (additional) `subdir.pXX` file (
 
 Many engines support interpreting `foo.pk3dir` subdirs as proto-packages, which makes it easier to test packages without constant re-compression.
 
+# KVX voxel models
+
+The standard FTEQW Delta build loads `.kvx` files from loose game data or
+mounted packages. Give QuakeC the full model path, such as
+`models/prop.kvx`, in `precache_model` and `setmodel`. Where the model
+viewer is available, use `modelviewer models/prop.kvx`.
+
+The importer preserves the embedded palette and pivot. One voxel spans one
+Quake unit. At load time the importer turns the highest resolution mip into
+an indexed mesh and merges adjacent coplanar faces of the same color. The
+engine uses the existing model renderer and mesh collision path. Rendering
+cost depends on the resulting mesh, so converting an equivalent mesh to MDL
+does not in itself improve frame rate.
+
+Each KVX file supplies one pose. For an animated entity, precache the poses
+and switch models at the desired cadence. This supports frame changes with
+different mesh topology. The importer does not interpret Doom actor
+definitions or automatically replace Doom sprites.
+
+## Animated grid room
+
+Use a local Voxel Doom v2.55 PK3, a Quake directory containing `id1/pak0.pak`,
+and `qbsp` from ericw-tools. Build FTEQW and FTEQCC before running this from
+the repository root. The optional `--light` argument bakes the room lighting.
+
+```sh
+python3 tools/kvx_preview.py /path/to/VoxelDoom_v2.55.pk3 \
+  --quake-data /path/to/Quake \
+  --qbsp /path/to/qbsp --light /path/to/light
+```
+
+Run the command printed by the script or open **Play KVX Grid.command** on
+macOS. Use WASD and the mouse to move around. The preview precaches eight poses
+and plays the barrel (A–B, 6 tics per pose), Evil Eye (A–B–C–B, 6 tics),
+and Imp (A–B, 10 tics) Spawn loops at Doom's 35 Hz tic rate. The column
+holds one pose. The script generates the room locally and extracts its
+samples from the supplied PK3.
+
 # IQM Tool
 
 ### About:

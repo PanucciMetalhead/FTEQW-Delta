@@ -6437,6 +6437,9 @@ unsigned int Host_GuessFileType(const char *mimetype, const char *filename)
 			{HRF_MODEL, "spr"},
 			{HRF_MODEL, "spr2"},
 			//static stuff
+#ifdef SKELETALMODELS
+			{HRF_MODEL, "kvx"},
+#endif
 			{HRF_MODEL, "obj"},
 			{HRF_MODEL, "lwo"},
 			{HRF_MODEL, "ase"},
