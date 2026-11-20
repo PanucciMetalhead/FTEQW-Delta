@@ -66,6 +66,8 @@ Many engines support interpreting `foo.pk3dir` subdirs as proto-packages, which 
 
 # KVX voxel models
 
+![KVX Spawn animations playing in the grid room](images/kvx-spawn.gif)
+
 The standard FTEQW Delta build loads `.kvx` files from loose game data or
 mounted packages. Give QuakeC the full model path, such as
 `models/prop.kvx`, in `precache_model` and `setmodel`. Where the model
