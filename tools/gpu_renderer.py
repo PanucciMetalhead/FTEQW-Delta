@@ -103,8 +103,11 @@ def prepare(game, out, qcc, profile, fullscreen=False):
         capture('overflow-full', 'r_shadow_realtime_dlight 0', 'r_shadow_realtime_world 1',
                 'r_shadow_realtime_world_shadows 0', 'r_shadow_realtime_world_lightmaps 1', 'gpu_clustered 2')
         capture('overflow-clustered', 'gpu_clustered 1')
+        capture('world-shadow-reference', 'r_shadow_realtime_world_shadows 1', 'gpu_shadowcache 0')
+        capture('world-shadow-cached', 'gpu_shadowcache 1')
         capture('panini-full', 'r_shadow_realtime_world 0', 'r_shadow_realtime_dlight 1',
-                'set gpu_renderer_lights 64', 'set gpu_renderer_dense 0', 'r_projection 6', 'gpu_clustered 2')
+                'gpu_shadowcache 0', 'set gpu_renderer_lights 64', 'set gpu_renderer_dense 0',
+                'r_projection 6', 'gpu_clustered 2')
         capture('panini-clustered', 'gpu_clustered 1')
         capture('split-legacy', 'r_projection 0', 'set gpu_renderer_lights 1', 'set gpu_renderer_split 1', 'gpu_clustered 0')
         capture('split-full', 'gpu_clustered 2')
@@ -175,6 +178,9 @@ def check(out):
             difference(a,b)
         if not re.search(r'shadows: [1-9]\d* submitted, [1-9]\d* culled',log):
             raise RuntimeError('Shadow culling was not exercised')
+        difference('world-shadow-reference', 'world-shadow-cached', limit=0)
+        if not re.search(r'Shadow cache: [1-9]\d* faces reused', log):
+            raise RuntimeError('Static shadow face reuse was not exercised')
         clusters = [tuple(map(int,m)) for m in re.findall(r'Clustered lighting: (\d+) views, (\d+) lights, (\d+) indices, (\d+) overflow cells',log)]
         if not any(n > 32 for _,n,_,_ in clusters) or not any(n for *_,n in clusters):
             raise RuntimeError('Many-light/overflow coverage missing')

@@ -84,7 +84,10 @@ replacement textures are supplied by the player and are not included here.
 
 The SDL3 GPU backend caches immutable world geometry, uses clustered forward
 lighting, culls shadow casters per light/cubemap face, and builds bloom through
-a downsample/upsample pyramid. See the [comparison with the previous renderer](documentation/SDL3-GPU.md#differences-from-the-previous-renderer)
+a downsample/upsample pyramid. Experimental `gpu_shadowcache 1` reuses eligible
+static world shadow faces, with moving casters and cutouts redrawn as needed.
+It defaults to off and has been validated locally on Metal.
+See the [comparison with the previous renderer](documentation/SDL3-GPU.md#differences-from-the-previous-renderer)
 for algorithm changes, visual differences, reference controls and measured results.
 
 Optional [texture streaming](documentation/SDL3-GPU.md#experimental-texture-streaming)

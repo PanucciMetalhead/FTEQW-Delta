@@ -25,12 +25,27 @@ extern cvar_t r_shadow_realtime_world_shadows, r_shadow_realtime_dlight_shadows;
 extern cvar_t r_shadow_shadowmapping, r_shadow_shadowmapping_nearclip, r_shadow_shadowmapping_bias;
 extern cvar_t r_shadow_realtime_world_importlightentitiesfrommap;
 extern cvar_t r_shadows;
-static struct {
+typedef struct {
     dlight_t *light;
     vec3_t origin;
     float radius;
     float nearclip;
-} shadowlights[GPU_MAX_SHADOWS];
+} gpu_shadow_light_t;
+static gpu_shadow_light_t shadowlights[GPU_MAX_SHADOWS];
+static struct {
+    gpu_shadow_light_t light;
+    unsigned faces;
+} shadowcache[GPU_MAX_SHADOWS];
+typedef struct {
+    SDL_GPUBuffer *vertices;
+    float model[16];
+    vec3_t mins, maxs;
+    unsigned numindices;
+    qboolean boundsvalid;
+} gpu_shadow_caster_t;
+static gpu_shadow_caster_t *shadowcasters;
+static index_t *shadowindices;
+static size_t numshadowcasters, numshadowindices, maxshadowcasters, maxshadowindices;
 static unsigned numshadowlights;
 static qboolean collectshadowonly;
 
@@ -62,6 +77,7 @@ static qboolean staticinvalid;
 static unsigned staticpagecount;
 static cvar_t gpu_staticgeometry = CVARD("gpu_staticgeometry", "1", "Keep immutable world vertices on the GPU. Zero uses the reference streaming path.");
 static cvar_t gpu_shadowcull = CVARD("gpu_shadowcull", "1", "Cull shadow casters against each light and cubemap face. Zero submits all casters for comparison.");
+static cvar_t gpu_shadowcache = CVARD("gpu_shadowcache", "0", "Reuse realtime world shadow faces containing only unchanged opaque world geometry.");
 static cvar_t gpu_bloom_pyramid = CVARD("gpu_bloom_pyramid", "1", "Use a downsampled bloom pyramid. Zero selects the reference full-resolution filter.");
 
 static void GPU_FreeStaticGeometry(void)
@@ -78,6 +94,8 @@ static void GPU_FreeStaticGeometry(void)
         Z_Free(p->vertices); Z_Free(p);
     }
     staticpagecount = 0;
+    memset(shadowcache, 0, sizeof(shadowcache));
+    numshadowcasters = numshadowindices = 0;
 }
 
 static unsigned GPU_StaticHash(const mesh_t *mesh)
@@ -444,6 +462,7 @@ void GPU_BackendInit(void)
     SDL_GPUSamplerCreateInfo si = {0};
     if (Cvar_FindVar(gpu_staticgeometry.name) != &gpu_staticgeometry) Cvar_Register(&gpu_staticgeometry, "SDL GPU");
     if (Cvar_FindVar(gpu_shadowcull.name) != &gpu_shadowcull) Cvar_Register(&gpu_shadowcull, "SDL GPU");
+    if (Cvar_FindVar(gpu_shadowcache.name) != &gpu_shadowcache) Cvar_Register(&gpu_shadowcache, "SDL GPU");
     if (Cvar_FindVar(gpu_bloom_pyramid.name) != &gpu_bloom_pyramid) Cvar_Register(&gpu_bloom_pyramid, "SDL GPU");
     gpu.vertexshader = GPU_Shader(gpu_scene_vert_spv, sizeof(gpu_scene_vert_spv), gpu_scene_vert_msl, SDL_GPU_SHADERSTAGE_VERTEX, 0, 1, 0);
     gpu.fragmentshader = GPU_Shader(gpu_scene_frag_spv, sizeof(gpu_scene_frag_spv), gpu_scene_frag_msl, SDL_GPU_SHADERSTAGE_FRAGMENT, GPU_SAMPLERS, 1, 3);
@@ -538,6 +557,8 @@ void GPU_BackendShutdown(void)
     pipeline_t *p;
     size_t i;
     GPU_FreeStaticGeometry(); staticworld = NULL; staticsurfaces = NULL; staticinvalid = false;
+    Z_Free(shadowcasters); shadowcasters = NULL; maxshadowcasters = 0;
+    Z_Free(shadowindices); shadowindices = NULL; maxshadowindices = 0;
     GPU_LightingShutdown();
     for (i = 0; i < GPU_BLOOM_LEVELS; ++i)
         if (gpu.bloom[i]) SDL_ReleaseGPUTexture(gpu.device, gpu.bloom[i]);
@@ -596,6 +617,7 @@ void GPU_BeginFrame(void)
     }
     gpu.numvertices = gpu.numstreamvertices = gpu.numindices = gpu.numdraws = numtempbatches = numshadowlights = 0;
     gpu.cachedvertices = gpu.uploadedbytes = gpu.shadowdraws = gpu.shadowculled = 0;
+    gpu.shadowhits = 0;
     GPU_StreamFrame();
     GPU_LightingBeginFrame();
     collectshadowonly = false;
@@ -700,55 +722,151 @@ static void GPU_UploadGeometry(void)
     SDL_EndGPUCopyPass(copy);
 }
 
+static qboolean GPU_StaticShadowCaster(const gpu_draw_t *d)
+{
+    return d->shadowonly && d->vertexbuffer && d->frag.material[2] == 0;
+}
+
+/* World vertices on the immutable pages never change. Compare the exact
+ * index stream and transforms to catch material remaps and changes in
+ * which world geometry was collected across views. */
+static qboolean GPU_ShadowCastersChanged(void)
+{
+    qboolean changed = false;
+    size_t i, casts = 0, indices = 0;
+
+    for (i = 0; i < gpu.numdraws; ++i) {
+        const gpu_draw_t *d = &gpu.draws[i];
+        if (!d->castshadow || d->lines || !GPU_StaticShadowCaster(d)) continue;
+
+        const index_t *src = gpu.cpuindices + d->firstindex;
+        const size_t end = indices + d->numindices;
+        const size_t bytes = d->numindices * sizeof(*src);
+        if (casts == maxshadowcasters) {
+            maxshadowcasters = max(64, maxshadowcasters * 2);
+            shadowcasters = BZ_Realloc(shadowcasters, maxshadowcasters * sizeof(*shadowcasters));
+        }
+        if (end > maxshadowindices) {
+            maxshadowindices = max(end, max(4096, maxshadowindices * 2));
+            shadowindices = BZ_Realloc(shadowindices, maxshadowindices * sizeof(*shadowindices));
+        }
+        gpu_shadow_caster_t *caster = &shadowcasters[casts];
+        if (changed || casts >= numshadowcasters || end > numshadowindices ||
+            caster->vertices != d->vertexbuffer || caster->numindices != d->numindices ||
+            caster->boundsvalid != d->boundsvalid ||
+            (d->boundsvalid && (memcmp(caster->mins, d->mins, sizeof(caster->mins)) ||
+                                memcmp(caster->maxs, d->maxs, sizeof(caster->maxs)))) ||
+            memcmp(caster->model, d->vert.model, sizeof(caster->model)) ||
+            memcmp(shadowindices + indices, src, bytes)) {
+            changed = true;
+            caster->vertices = d->vertexbuffer;
+            caster->numindices = d->numindices;
+            caster->boundsvalid = d->boundsvalid;
+            if (d->boundsvalid) {
+                VectorCopy(d->mins, caster->mins);
+                VectorCopy(d->maxs, caster->maxs);
+            }
+            memcpy(caster->model, d->vert.model, sizeof(caster->model));
+            memcpy(shadowindices + indices, src, bytes);
+        }
+        ++casts;
+        indices = end;
+    }
+    changed |= casts != numshadowcasters || indices != numshadowindices;
+    numshadowcasters = casts;
+    numshadowindices = indices;
+    return changed;
+}
+
+static qboolean GPU_ShadowCasterVisible(const gpu_draw_t *d, const gpu_shadow_light_t *light, const float vp[16])
+{
+    return !gpu_shadowcull.ival || !d->boundsvalid ||
+        GPU_ShadowBoundsVisible(d->mins, d->maxs, light->origin, light->radius, vp);
+}
+
 static void GPU_DrawShadows(void)
 {
     static const vec3_t direction[6] = {{1,0,0},{-1,0,0},{0,1,0},{0,-1,0},{0,0,1},{0,0,-1}};
     static const vec3_t up[6] = {{0,-1,0},{0,-1,0},{0,0,1},{0,0,-1},{0,-1,0},{0,-1,0}};
     SDL_GPUBufferBinding vb = {gpu.vertices,0}, ib = {gpu.indices,0};
     unsigned l, face;
+    qboolean cache = gpu_shadowcache.ival && gpu_shadowcull.ival && gpu_staticgeometry.ival && !staticinvalid;
+    qboolean casterschanged = cache && numshadowlights && GPU_ShadowCastersChanged();
+    if (!cache || gpu_shadowcache.modified || gpu_shadowcull.modified || casterschanged)
+        memset(shadowcache, 0, sizeof(shadowcache));
+    gpu_shadowcache.modified = gpu_shadowcull.modified = false;
     if (!numshadowlights && gpu.shadowinitialized) return;
     /* Clear even unused maps on the first frame: all sampled resources are initialized. */
-    for (l = 0; l < max(1, numshadowlights); ++l) for (face = 0; face < 6; ++face) {
-        SDL_GPUDepthStencilTargetInfo depth = {0};
-        SDL_GPURenderPass *pass;
-        float view[16], proj[16], vp[16];
-        vec3_t right;
-        size_t i;
-        depth.texture = gpu.shadowmap; depth.layer = l*6+face;
-        depth.clear_depth = 1; depth.load_op = SDL_GPU_LOADOP_CLEAR; depth.store_op = SDL_GPU_STOREOP_STORE;
-        depth.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE; depth.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
-        pass = SDL_BeginGPURenderPass(gpu.command, NULL, 0, &depth);
-        if (!pass) GPU_Error("begin shadow pass");
-        if (l < numshadowlights && gpu.numdraws) {
-            CrossProduct(direction[face], up[face], right);
-            Matrix4x4_CM_ModelViewMatrixFromAxis(view, direction[face], right, up[face], shadowlights[l].origin);
-            Matrix4x4_CM_Projection_Far(proj, 90, 90, shadowlights[l].nearclip, shadowlights[l].radius, true);
-            proj[5] = -proj[5]; /* Cube image rows run downwards. */
-            Matrix4_Multiply(proj, view, vp);
-            SDL_BindGPUGraphicsPipeline(pass, gpu.shadowpipeline);
-            SDL_BindGPUVertexBuffers(pass, 0, &vb, 1);
-            SDL_BindGPUIndexBuffer(pass, &ib, sizeof(index_t)==2 ? SDL_GPU_INDEXELEMENTSIZE_16BIT : SDL_GPU_INDEXELEMENTSIZE_32BIT);
-            for (i = 0; i < gpu.numdraws; ++i) {
-                gpu_draw_t *d = &gpu.draws[i];
-                float mvp[16], control[4] = {d->frag.material[2],d->frag.upper[3],0,0};
-                if (!d->castshadow || d->lines) continue;
-                if (gpu_shadowcull.ival && d->boundsvalid &&
-                    !GPU_ShadowBoundsVisible(d->mins, d->maxs, shadowlights[l].origin, shadowlights[l].radius, vp)) {
-                    ++gpu.shadowculled; continue;
-                }
-                if (vb.buffer != (d->vertexbuffer ? d->vertexbuffer : gpu.vertices)) {
-                    vb.buffer = d->vertexbuffer ? d->vertexbuffer : gpu.vertices;
-                    SDL_BindGPUVertexBuffers(pass, 0, &vb, 1);
-                }
-                Matrix4_Multiply(vp, d->vert.model, mvp);
-                SDL_PushGPUVertexUniformData(gpu.command, 0, mvp, sizeof(mvp));
-                SDL_PushGPUFragmentUniformData(gpu.command, 0, control, sizeof(control));
-                SDL_BindGPUFragmentSamplers(pass, 0, &d->samplers[0], 1);
-                SDL_DrawGPUIndexedPrimitives(pass, d->numindices, 1, d->firstindex, d->vertexoffset, 0);
-                ++gpu.shadowdraws;
+    for (l = 0; l < max(1, numshadowlights); ++l) {
+        const gpu_shadow_light_t *light = &shadowlights[l];
+        qboolean reuse = cache && l < numshadowlights && light->light >= cl_dlights + RTL_FIRST;
+        const gpu_shadow_light_t *previous = &shadowcache[l].light;
+        if (!reuse || previous->light != light->light || previous->radius != light->radius ||
+            previous->nearclip != light->nearclip || memcmp(previous->origin, light->origin, sizeof(light->origin)))
+            shadowcache[l].faces = 0;
+        if (reuse) shadowcache[l].light = *light;
+        for (face = 0; face < 6; ++face) {
+            SDL_GPUDepthStencilTargetInfo depth = {0};
+            SDL_GPURenderPass *pass;
+            float view[16], proj[16], vp[16];
+            vec3_t right;
+            size_t i;
+            unsigned facebit = 1u << face;
+            qboolean dynamic = false;
+            if (l < numshadowlights) {
+                CrossProduct(direction[face], up[face], right);
+                Matrix4x4_CM_ModelViewMatrixFromAxis(view, direction[face], right, up[face], light->origin);
+                Matrix4x4_CM_Projection_Far(proj, 90, 90, light->nearclip, light->radius, true);
+                proj[5] = -proj[5]; /* Cube image rows run downwards. */
+                Matrix4_Multiply(proj, view, vp);
             }
+            if (reuse && (shadowcache[l].faces & facebit)) {
+                for (i = 0; i < gpu.numdraws; ++i) {
+                    const gpu_draw_t *d = &gpu.draws[i];
+                    if (d->castshadow && !d->lines && !GPU_StaticShadowCaster(d) &&
+                        GPU_ShadowCasterVisible(d, light, vp)) {
+                        dynamic = true;
+                        break;
+                    }
+                }
+                if (!dynamic) {
+                    ++gpu.shadowhits;
+                    continue;
+                }
+            }
+            depth.texture = gpu.shadowmap; depth.layer = l*6+face;
+            depth.clear_depth = 1; depth.load_op = SDL_GPU_LOADOP_CLEAR; depth.store_op = SDL_GPU_STOREOP_STORE;
+            depth.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE; depth.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
+            pass = SDL_BeginGPURenderPass(gpu.command, NULL, 0, &depth);
+            if (!pass) GPU_Error("begin shadow pass");
+            if (l < numshadowlights && gpu.numdraws) {
+                SDL_BindGPUGraphicsPipeline(pass, gpu.shadowpipeline);
+                SDL_BindGPUVertexBuffers(pass, 0, &vb, 1);
+                SDL_BindGPUIndexBuffer(pass, &ib, sizeof(index_t)==2 ? SDL_GPU_INDEXELEMENTSIZE_16BIT : SDL_GPU_INDEXELEMENTSIZE_32BIT);
+                for (i = 0; i < gpu.numdraws; ++i) {
+                    gpu_draw_t *d = &gpu.draws[i];
+                    float mvp[16], control[4] = {d->frag.material[2],d->frag.upper[3],0,0};
+                    if (!d->castshadow || d->lines) continue;
+                    if (!GPU_ShadowCasterVisible(d, light, vp)) {
+                        ++gpu.shadowculled; continue;
+                    }
+                    if (reuse && !GPU_StaticShadowCaster(d)) dynamic = true;
+                    if (vb.buffer != (d->vertexbuffer ? d->vertexbuffer : gpu.vertices)) {
+                        vb.buffer = d->vertexbuffer ? d->vertexbuffer : gpu.vertices;
+                        SDL_BindGPUVertexBuffers(pass, 0, &vb, 1);
+                    }
+                    Matrix4_Multiply(vp, d->vert.model, mvp);
+                    SDL_PushGPUVertexUniformData(gpu.command, 0, mvp, sizeof(mvp));
+                    SDL_PushGPUFragmentUniformData(gpu.command, 0, control, sizeof(control));
+                    SDL_BindGPUFragmentSamplers(pass, 0, &d->samplers[0], 1);
+                    SDL_DrawGPUIndexedPrimitives(pass, d->numindices, 1, d->firstindex, d->vertexoffset, 0);
+                    ++gpu.shadowdraws;
+                }
+            }
+            SDL_EndGPURenderPass(pass);
+            if (reuse && !dynamic) shadowcache[l].faces |= facebit;
+            else shadowcache[l].faces &= ~facebit;
         }
-        SDL_EndGPURenderPass(pass);
     }
     gpu.shadowinitialized = true;
 }

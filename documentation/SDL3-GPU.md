@@ -310,8 +310,12 @@ The following work remains before that claim is appropriate:
   CPU; SDL GPU storage buffers provide per-cluster light indices to the shader.
   Cells exceeding 128 lights evaluate the complete visible light list instead
   of dropping lights. Eight lights can have 512×512 cubemap shadows per frame.
-  The engine's separate transient-light budget still applies. Shadow maps are
-  rendered each frame; static shadow-map caching is not implemented.
+  The engine's separate transient-light budget still applies.
+  Experimental `gpu_shadowcache 1` lets realtime world lights reuse cubemap
+  faces that contain only unchanged opaque world geometry. A face with a
+  moving caster, a cutout, or other geometry that cannot be cached is drawn
+  normally. Reuse requires world-vertex caching and shadow culling. It uses
+  the existing cubemap storage and reports reused faces in `gpu_info`.
 - Up to four water planes receive separate views per frame. Subview visibility
   is conservative because legacy opaque-water VIS can omit required geometry;
   frustum, backface, clip-plane and depth culling still apply. The default view
@@ -440,6 +444,7 @@ These non-archived diagnostic settings apply immediately and default to one:
 | --- | --- | --- |
 | `gpu_staticgeometry` | 0: stream all vertices | 1: cache immutable world vertices |
 | `gpu_shadowcull` | 0: submit all shadow casters | 1: light/face bounds culling |
+| `gpu_shadowcache` | 0: redraw every shadow face (default) | 1: reuse eligible realtime world shadow faces |
 | `gpu_bloom_pyramid` | 0: original full-resolution bloom | 1: downsample/upsample pyramid |
 | `gpu_clustered` | 0: original ranked 32-light-per-mesh selection | 1: clustered forward lighting |
 
@@ -478,7 +483,7 @@ The renderer comparison suite checks caching against streamed geometry in the
 same paused AD Tears scene, including a stream/cache/stream benchmark sequence,
 map changes and video restart. Its effects profile checks legacy/full/clustered
 lighting, 64 transient lights, 160 map lights with overflowing cells, shadow
-culling, Panini and HDR water subviews, repeated CSQC cameras with different
+culling and cache reuse, Panini and HDR water subviews, repeated CSQC cameras with different
 lights, bloom and scene-only UI preservation:
 
 ```sh
@@ -498,6 +503,13 @@ The data-free math test checks shadow clip planes/sphere boundaries and
 conservative cluster coverage under off-centre/flipped projections.
 
 ## Local validation record
+
+On 2026-11-20, a paused Quake `start` fixture with eight realtime world lights
+ran at 155.28 / 164.65 / 155.10 FPS with shadow caching off / on / off on
+macOS Metal at 2940×1846. The cache reused 25 of 48 cubemap faces and reduced
+shadow submissions from 905 to 741 per frame. Cached and uncached captures
+were pixel-identical in the Metal effects suite. This is a scene-specific
+result. Vulkan runtime validation is pending.
 
 On 2026-10-26, on macOS arm64/Metal with the Release client:
 
@@ -521,7 +533,7 @@ On 2026-10-26, on macOS arm64/Metal with the Release client:
   completed. SPIR-V regeneration/validation passed. Conservative light and
   shadow math tests passed normally and with AddressSanitizer/UBSan.
 - Native Windows/Linux Vulkan runtime validation remains pending. The light
-  binning runs on the CPU, and static shadow-map caching remains future work.
+  binning runs on the CPU.
 
 On 2026-10-09, on macOS arm64 with AppleClang and SDL 3.4.18:
 

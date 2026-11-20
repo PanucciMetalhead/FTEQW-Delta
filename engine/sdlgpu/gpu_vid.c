@@ -105,6 +105,7 @@ static void GPU_Info_f(void)
     Con_Printf("Geometry: %u cached, %u streamed vertices, %u bytes uploaded; shadows: %u submitted, %u culled\n",
         (unsigned)gpu.cachedvertices, (unsigned)gpu.numstreamvertices, (unsigned)gpu.uploadedbytes,
         (unsigned)gpu.shadowdraws, (unsigned)gpu.shadowculled);
+    Con_Printf("Shadow cache: %u faces reused\n", (unsigned)gpu.shadowhits);
 }
 
 static void GPU_VideoModes(const char *driver, const char *output, void (*cb)(int, int))
