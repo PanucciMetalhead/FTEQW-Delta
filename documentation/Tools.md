@@ -101,7 +101,8 @@ Run the command printed by the script or open **Play KVX Grid.command** on
 macOS. Use WASD and the mouse to move around. The preview precaches eight poses
 and plays the barrel (A–B, 6 tics per pose), Evil Eye (A–B–C–B, 6 tics),
 and Imp (A–B, 10 tics) Spawn loops at Doom's 35 Hz tic rate. The column
-holds one pose. The script generates the room locally and extracts its
+holds one pose. The Imp and Evil Eye face the entrance so you can see their
+Spawn poses from the starting view. The script generates the room locally and extracts its
 samples from the supplied PK3.
 
 # IQM Tool

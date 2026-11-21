@@ -13,8 +13,8 @@ ROOT = Path(__file__).resolve().parents[1]
 EXHIBITS = (
     ("BAR1", "AB", 6, False, -114, 145),
     ("COLU", "A", 0, True, -38, 180),
-    ("CEYE", "ABCB", 6, True, 38, 195),
-    ("TROO", "AB", 10, False, 114, 240),
+    ("CEYE", "ABCB", 6, True, 38, 270),
+    ("TROO", "AB", 10, False, 114, 295),
 )
 
 
