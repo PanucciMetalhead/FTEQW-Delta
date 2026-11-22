@@ -222,7 +222,8 @@ void FS_BeginManifestUpdates(void);
 static void QDECL fs_game_callback(cvar_t *var, char *oldvalue);
 static void COM_InitHomedir(ftemanifest_t *man);
 hashtable_t filesystemhash;
-static qboolean com_fschanged = true, com_fsneedreload;
+static qboolean com_fsneedreload;
+static unsigned int fs_hash_generation = 1, fs_built_hash_generation;
 qboolean com_installer = false;
 qboolean fs_readonly;
 static searchpath_t *fs_allowfileuri;
@@ -243,6 +244,26 @@ cvar_t	fs_dlURL					= CVARAFD(/*ioq3*/"sv_dlURL", "", /*dp*/"sv_curl_defaulturl"
 cvar_t  cl_download_mapsrc			= CVARFD("cl_download_mapsrc", "", CVAR_ARCHIVE, "Specifies an http location prefix for map downloads. EG: \"http://example.com/path/gamemaps/\"");
 int active_fs_cachetype;
 static void *fs_tracking_mutex;
+
+static void FS_InvalidateHash(void)
+{
+	if (fs_tracking_mutex)
+		Sys_LockMutex(fs_tracking_mutex);
+	++fs_hash_generation;
+	if (fs_tracking_mutex)
+		Sys_UnlockMutex(fs_tracking_mutex);
+}
+
+static qboolean FS_HashChanged(void)
+{
+	qboolean changed;
+	if (fs_tracking_mutex)
+		Sys_LockMutex(fs_tracking_mutex);
+	changed = fs_hash_generation != fs_built_hash_generation;
+	if (fs_tracking_mutex)
+		Sys_UnlockMutex(fs_tracking_mutex);
+	return changed;
+}
 static qboolean fs_reference_files;
 static unsigned int fs_finds;
 static qboolean fs_accessed;
@@ -358,7 +379,7 @@ int FS_RegisterFileSystemType(void *module, const char *extension, searchpathfun
 	searchpathformats[i].extension = extension;
 	searchpathformats[i].OpenNew = OpenNew;
 	searchpathformats[i].loadscan = loadscan;
-	com_fschanged = true;
+	FS_InvalidateHash();
 	com_fsneedreload = true;
 
 	return i+1;
@@ -371,7 +392,7 @@ void FS_UnRegisterFileSystemType(int idx)
 
 	searchpathformats[idx-1].OpenNew = NULL;
 	searchpathformats[idx-1].module = NULL;
-	com_fschanged = true;
+	FS_InvalidateHash();
 	com_fsneedreload = true;
 
 	//FS_Restart will be needed
@@ -1893,7 +1914,7 @@ qboolean COM_WriteFile (const char *filename, enum fs_relative fsroot, const voi
 		if (fsroot >= FS_GAME)
 			FS_FlushFSHashWritten(filename);
 		else
-			com_fschanged=true;
+			FS_InvalidateHash();
 	}
 	return success;
 }
@@ -1981,7 +2002,7 @@ static void FS_FlushFSHashReally(qboolean domutexes)
 	COM_AssertMainThread("FS_FlushFSHashReally");
 	if (!domutexes || Sys_LockMutex(fs_thread_mutex))
 	{
-		com_fschanged = true;
+		FS_InvalidateHash();
 
 		if (filesystemhash.numbuckets)
 		{
@@ -2094,8 +2115,9 @@ static void QDECL FS_AddFileHash(int depth, const char *fname, fsbucket_t *fileh
 static void FS_RebuildFSHash(qboolean domutex)
 {
 	int depth = 1;
+	unsigned int generation;
 	searchpath_t	*search;
-	if (!com_fschanged)
+	if (!FS_HashChanged())
 		return;
 
 	COM_AssertMainThread("FS_RebuildFSHash");
@@ -2116,6 +2138,13 @@ static void FS_RebuildFSHash(qboolean domutex)
 	}
 	Hash_InitTable(&filesystemhash, filesystemhash.numbuckets, filesystemhash.bucket);
 
+	// A write during enumeration must still invalidate the new table.
+	if (fs_tracking_mutex)
+		Sys_LockMutex(fs_tracking_mutex);
+	generation = fs_hash_generation;
+	if (fs_tracking_mutex)
+		Sys_UnlockMutex(fs_tracking_mutex);
+
 	fs_hash_dups = 0;
 	fs_hash_files = 0;
 
@@ -2134,7 +2163,11 @@ static void FS_RebuildFSHash(qboolean domutex)
 		}
 	}
 
-	com_fschanged = false;
+	if (fs_tracking_mutex)
+		Sys_LockMutex(fs_tracking_mutex);
+	fs_built_hash_generation = generation;
+	if (fs_tracking_mutex)
+		Sys_UnlockMutex(fs_tracking_mutex);
 	com_fsneedreload = false;
 
 	if (domutex)
@@ -2151,7 +2184,7 @@ static void FS_RebuildFSHash_Update(const char *fname)
 	fsbucket_t *old;
 	void *filehandle = NULL;
 
-	if (com_fschanged)
+	if (FS_HashChanged())
 		return;
 
 	if (!filehandle && com_purepaths)
@@ -2209,7 +2242,7 @@ void FS_FlushFSHashRemoved(const char *fname)
 void FS_FlushFSHashFull(void)
 {	//any calls to this are typically a bug...
 	//that said, figuring out if the file was actually within quake's filesystem isn't easy.
-	com_fschanged = true;
+	FS_InvalidateHash();
 
 	//for safety we would need to sync with all threads, so lets just not bother.
 	//FS_FlushFSHashReally(true);
@@ -2266,7 +2299,7 @@ int FS_FLocateFile(const char *filename, unsigned int lflags, flocation_t *loc)
 		goto fail;
 	}
 
-	if (com_fs_cache.ival && !com_fschanged && !(lflags & FSLF_IGNOREPURE))
+	if (com_fs_cache.ival && !(lflags & FSLF_IGNOREPURE) && !FS_HashChanged())
 	{
 		bucket_t *b = Hash_GetInsensitiveBucket(&filesystemhash, filename);
 		if (b)
@@ -4405,7 +4438,7 @@ static searchpath_t *FS_AddPathHandle(searchpath_t **oldpaths, const char *purep
 		search->next = com_searchpaths;
 		com_searchpaths = search;
 
-		com_fschanged = true;	//depth values are screwy
+		FS_InvalidateHash();	//depth values are screwy
 	}
 
 	return search;
@@ -4413,7 +4446,7 @@ static searchpath_t *FS_AddPathHandle(searchpath_t **oldpaths, const char *purep
 
 static void COM_RefreshFSCache_f(void)
 {
-	com_fschanged=true;
+	FS_InvalidateHash();
 }
 
 //optionally purges the cache and rebuilds it
@@ -4424,12 +4457,12 @@ void COM_FlushFSCache(qboolean purge, qboolean domutex)
 	{
 		for (search = com_searchpaths ; search ; search = search->next)
 		{
-			if (search->handle->PollChanges)
-				com_fschanged |= search->handle->PollChanges(search->handle);
+			if (search->handle->PollChanges && search->handle->PollChanges(search->handle))
+				FS_InvalidateHash();
 		}
 	}
 
-	if (com_fs_cache.ival && com_fschanged)
+	if (com_fs_cache.ival && FS_HashChanged())
 	{
 		//rebuild it if needed
 		FS_RebuildFSHash(domutex);
@@ -4893,7 +4926,7 @@ qboolean FS_LoadPackageFromFile(vfsfile_t *vfs, char *pname, char *localname, in
 
 	searchpath_t *sp;
 
-	com_fschanged = true;
+	FS_InvalidateHash();
 
 	for (i = 0; i < sizeof(searchpathformats)/sizeof(searchpathformats[0]); i++)
 	{
@@ -4921,7 +4954,7 @@ qboolean FS_LoadPackageFromFile(vfsfile_t *vfs, char *pname, char *localname, in
 
 			if (sp)
 			{
-				com_fschanged = true;
+				FS_InvalidateHash();
 				return true;
 			}
 		}
@@ -6279,7 +6312,7 @@ static void FS_FreePaths(void)
 		com_searchpaths = next;
 	}
 
-	com_fschanged = true;
+	FS_InvalidateHash();
 
 
 	if (filesystemhash.numbuckets)

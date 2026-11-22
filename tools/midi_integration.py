@@ -36,9 +36,9 @@ def main():
         while value := value >> 7:
             result.insert(0, (value & 127) | 128)
         return result
-    # A long silent interval allows seeking past the old mixer's 32-bit sample
-    # shift limit without waiting twelve minutes of wall-clock playback.
-    longtrack = track[:-4] + vlq(899 * 192) + bytes.fromhex('ff 2f 00')
+    # Isolate the large mixer offset from the synthesis of an earlier note's
+    # release tail. The first note starts just after the forward seek.
+    longtrack = vlq(752 * 192) + track[1:-4] + vlq(147 * 192) + bytes.fromhex('ff 2f 00')
     (out / 'id1/midi/long.mid').write_bytes(song[:14] + b'MTrk' + struct.pack('>I', len(longtrack)) + longtrack)
     font = str(args.soundfont.resolve()).replace('\\', '/') if args.soundfont else 'soundfonts/FluidR3_GM.sf2'
     if any(c in font for c in ('"', '\n', '\r', '$')):
@@ -72,6 +72,7 @@ defer 28 echo MIDI_PHASE_LONG
 defer 28.1 music long -
 defer 29.4 echo MIDI_PHASE_SEEK
 defer 29.5 music_fforward 750
+defer 30 echo MIDI_SEEK_COMMAND_RETURNED
 defer 35 soundinfo
 defer 36 echo MIDI_PHASE_DONE
 defer 36.1 quit force
@@ -103,6 +104,7 @@ defer 36.1 quit force
     assert 'SoundFont not found' in sections['MISSING'], f'Missing font not reported: {out}'
     assert loads('RESTART', 'music/track02.mid') == 1, f'Sound restart failed: {out}'
     assert loads('LONG', 'midi/long.mid') == 1, f'Long-track seek failed: {out}'
+    assert 'MIDI_SEEK_COMMAND_RETURNED' in sections['SEEK'], f'Seek command did not finish: {out}'
     assert re.search(r'midi/long.mid[^\n]*active', sections['SEEK']), f'Long-track seek stopped playback: {out}'
     report = {'named_lookup_looping': 'passed', 'one_shot': 'passed', 'numeric_track': 'passed',
               'malformed_midi': 'passed', 'missing_soundfont': 'passed', 'sound_restart': 'passed',
