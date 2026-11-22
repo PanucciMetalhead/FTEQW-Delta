@@ -3,7 +3,9 @@
 #include <string.h>
 
 typedef unsigned char qbyte;
-typedef enum {false, true} qboolean;
+typedef enum {qfalse, qtrue} qboolean;
+#define false qfalse
+#define true qtrue
 typedef struct bspx_header_s bspx_header_t;
 typedef struct { void *archive; } model_t;
 static const struct { int ival; } mod_loadmappackages = {1};

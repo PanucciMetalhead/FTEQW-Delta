@@ -82,7 +82,7 @@ typedef struct
 
 static inline qboolean BSP_LumpInRange(const lump_t *lump, size_t filelen)
 {
-	return lump->fileofs <= filelen && lump->filelen <= filelen - lump->fileofs;
+	return (lump->fileofs <= filelen && lump->filelen <= filelen - lump->fileofs) ? qtrue : qfalse;
 }
 
 #define	LUMP_ENTITIES	0
