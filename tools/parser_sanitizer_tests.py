@@ -106,7 +106,17 @@ def main():
         'mesh': [('engine/gl/gl_model.c', 'ModQ1_AllocSurfaceMesh')],
         'mesh_wide': [('engine/gl/gl_model.c', 'ModQ1_AllocSurfaceMesh')],
         'normalmap': [('engine/client/image.c', 'Image_GenerateNormalMap')],
+        'tga': [],
+        'sprites': [('engine/gl/gl_model.c', name, -1) for name in
+                    ('Mod_LoadSpriteFrame', 'Mod_LoadSpriteGroup', 'Mod_LoadSpriteModel', 'Mod_LoadSprite2Model')],
+        'pcx': [('engine/client/image.c', name) for name in
+                ('PCX_ReadHeader', 'PCX_ReadRun', 'PCX_PixelEnd',
+                 'ReadPCXFile', 'ReadPCXData', 'ReadPCXPalette')] +
+               [('engine/client/skin.c', 'Skin_ParsePCX')],
         'extents': [('engine/common/gl_q2bsp.c', 'CalcSurfaceExtents')],
+        'bsplumps': [('engine/common/bspfile.h', 'BSP_LumpInRange'),
+                     ('engine/gl/gl_model.c', 'Mod_LumpStartsWithEntity'),
+                     ('engine/common/q1bsp.c', 'BSPX_Setup')],
         'audio': [('engine/client/snd_mem.c', 'SND_ResampleStream')],
         'worker_lifecycle': [('engine/common/common.c', name) for name in
                              ('COM_WorkerSync_WorkerStopped', 'COM_WorkerThread',
@@ -130,6 +140,33 @@ def main():
         env['ASAN_OPTIONS'] = (options + ':' if options else '') + 'detect_leaks=1'
     for name, bodies in cases.items():
         template = (ROOT / f'tools/tests/parser_{name.removesuffix("_debug").removesuffix("_wide").removesuffix("_server").removesuffix("_split")}.c').read_text()
+        if name == 'bsplumps':
+            source = (ROOT / 'engine/common/bspfile.h').read_text()
+            end = source.index('} lump_t;') + len('} lump_t;')
+            start = source.rindex('typedef struct', 0, end)
+            template = template.replace('/* ENGINE_LUMP_TYPE */', source[start:end])
+            source = (ROOT / 'engine/common/q1bsp.c').read_text()
+            start = source.rindex('typedef struct', 0, source.index('} bspx_lump_t;'))
+            end = source.index('//supported lumps', start)
+            template = template.replace('/* ENGINE_BSPX_TYPES */', source[start:end])
+        if name == 'sprites':
+            source = (ROOT / 'engine/client/spritegn.h').read_text()
+            template = template.replace('/* ENGINE_DISK_SPRITES */', source[source.index('#define SPRITE_VERSION'):])
+            source = (ROOT / 'engine/gl/gl_model.h').read_text()
+            start = source.index('typedef struct mspriteframe_s')
+            end = source.index('} msprite_t;', start) + len('} msprite_t;')
+            declarations = source[start:end]
+            template = template.replace('/* ENGINE_SPRITES */', declarations)
+        if name == 'tga':
+            source = (ROOT / 'engine/client/image.c').read_text()
+            start = source.rindex('typedef struct', 0, source.index('} tgaheader_t;'))
+            end = source.index('qboolean WriteTGA(', start)
+            template = template.replace('/* ENGINE_TGA_READER */', source[start:end])
+        if name == 'pcx':
+            source = (ROOT / 'engine/client/client.h').read_text()
+            end = source.index('} pcx_t;') + len('} pcx_t;')
+            start = source.rindex('typedef struct', 0, end)
+            template = template.replace('/* ENGINE_PCX_TYPE */', source[start:end])
         if name in ('qcfields', 'qcfields_split'):
             template = template.replace('/* ENGINE_ENTITY_TYPES */',
                                         (ROOT / 'engine/server/progdefs.h').read_text())

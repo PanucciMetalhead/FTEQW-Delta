@@ -107,7 +107,7 @@ typedef struct {
     index_t *cpuindices;
     gpu_draw_t *draws;
     size_t numvertices, numstreamvertices, numindices, numdraws, maxvertices, maxindices, maxdraws;
-    size_t cachedvertices, uploadedbytes, shadowdraws, shadowculled, shadowhits;
+    size_t cachedvertices, uploadedbytes, lightmapbytes, shadowdraws, shadowculled, shadowhits;
     unsigned width, height;
     qboolean drawing2d, sceneonlygamma;
     qboolean benchmarking;

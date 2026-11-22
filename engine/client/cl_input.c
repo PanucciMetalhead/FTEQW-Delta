@@ -2528,6 +2528,7 @@ qboolean CLQW_SendCmd (sizebuf_t *buf, qboolean actuallysend)
 	int curframe;
 	int st = buf->cursize;
 	int chatstate;
+	int delta_sequence;
 
 	cl.movesequence = cls.netchan.outgoing_sequence;	//make sure its correct even over map changes.
 	curframe = cl.movesequence & UPDATE_MASK;
@@ -2630,16 +2631,21 @@ qboolean CLQW_SendCmd (sizebuf_t *buf, qboolean actuallysend)
 			seq_hash);
 	}
 
-	// request delta compression of entities
-	if (cls.netchan.outgoing_sequence - cl.validsequence >= UPDATE_BACKUP-1)
-		cl.validsequence = 0;
+	// Stop advertising an old delta base, but keep the last decoded replacement
+	// snapshot until the receive history actually expires. Outbound commands
+	// can be a full RTT ahead of an update the server already sent.
+	delta_sequence = cl.validsequence;
+	if (cls.netchan.outgoing_sequence - delta_sequence >= UPDATE_BACKUP-1)
+	{
+		delta_sequence = 0;
+		if (!(cls.fteprotocolextensions2 & PEXT2_REPLACEMENTDELTAS))
+			cl.validsequence = 0;
+	}
 
-	//delta_sequence is the _expected_ previous sequences, so is set before it arrives.
-	if (cl.validsequence && !cl_nodelta.ival && cls.state == ca_active)// && !cls.demorecording)
+	if (delta_sequence && !cl_nodelta.ival && cls.state == ca_active)// && !cls.demorecording)
 	{
 		MSG_WriteByte (buf, clc_delta);
-//		Con_Printf("%i\n", cl.validsequence);
-		MSG_WriteByte (buf, cl.validsequence&255);
+		MSG_WriteByte (buf, delta_sequence&255);
 	}
 
 	if (cl.sendprespawn || !actuallysend)

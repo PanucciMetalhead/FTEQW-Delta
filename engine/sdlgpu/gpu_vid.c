@@ -9,16 +9,20 @@ cvar_t r_bloom = CVARAFD("r_bloom", "0", "gl_bloom", CVAR_ARCHIVE, "Amount of bl
 
 static struct {
     double until, previous, intervals[16384], acquire, build, encode, elapsed;
+    double firstencode, worst, duration;
     size_t frames;
-    double draws, vertices;
+    double draws, vertices, lightmapbytes;
+    qboolean waitworld, worlddrawn;
     char label[64];
 } benchmark;
 
 static void GPU_Benchmark_f(void)
 {
     memset(&benchmark, 0, sizeof(benchmark));
+    gpu.framebegin = 0;
     Q_strncpyz(benchmark.label, Cmd_Argc() > 2 ? Cmd_Argv(2) : "scene", sizeof(benchmark.label));
-    benchmark.until = Sys_DoubleTime() + bound(1, Cmd_Argc() > 1 ? atof(Cmd_Argv(1)) : 10, 60);
+    benchmark.duration = bound(1, Cmd_Argc() > 1 ? atof(Cmd_Argv(1)) : 10, 60);
+    benchmark.waitworld = Cmd_Argc() > 3 && !strcmp(Cmd_Argv(3), "world");
     gpu.benchmarking = true;
     Con_Printf("SDL GPU benchmark started: %s (disable vid_vsync and raise cl_maxfps for throughput measurements)\n", benchmark.label);
 }
@@ -37,26 +41,37 @@ static int GPU_CompareTime(const void *a, const void *b)
 
 void GPU_BenchmarkFrame(double encodebegin, double submitted)
 {
+    if (!gpu.framebegin)
+        return; // The command may have started sampling during an open frame.
+    if (benchmark.waitworld && !benchmark.worlddrawn)
+        return;
     if (benchmark.previous) {
         double interval = gpu.framebegin - benchmark.previous;
+        benchmark.worst = max(benchmark.worst, interval);
         benchmark.intervals[benchmark.frames % countof(benchmark.intervals)] = interval;
         benchmark.elapsed += interval;
         benchmark.acquire += gpu.frameacquired - gpu.framebegin;
         benchmark.build += encodebegin - gpu.frameacquired;
         benchmark.encode += submitted - encodebegin;
         benchmark.draws += gpu.numdraws; benchmark.vertices += gpu.numvertices;
+        benchmark.lightmapbytes += gpu.lightmapbytes;
         ++benchmark.frames;
+    } else {
+        benchmark.firstencode = submitted - encodebegin;
+        benchmark.until = gpu.framebegin + benchmark.duration;
     }
     benchmark.previous = gpu.framebegin;
     if (submitted >= benchmark.until && benchmark.frames) {
         size_t n = min(benchmark.frames, countof(benchmark.intervals));
         double scale = 1000.0 / benchmark.frames;
         qsort(benchmark.intervals, n, sizeof(benchmark.intervals[0]), GPU_CompareTime);
-        Con_Printf("SDL GPU benchmark %s %ux%u: %.2f fps, %.3f ms/frame, p50 %.3f ms, p95 %.3f ms; acquire %.3f ms, build %.3f ms, encode %.3f ms; %.0f draws, %.0f vertices/frame (%u frames)\n",
+        Con_Printf("SDL GPU benchmark %s %ux%u: %.2f fps, %.3f ms/frame, p50 %.3f ms, p95 %.3f ms; acquire %.3f ms, build %.3f ms, encode %.3f ms; %.0f draws, %.0f vertices/frame (%u frames); p99 %.3f ms, max %.3f ms, first encode %.3f ms (%u percentile samples); %.0f lightmap bytes/frame\n",
             benchmark.label, gpu.width, gpu.height, benchmark.frames / benchmark.elapsed, benchmark.elapsed * scale,
             benchmark.intervals[n/2]*1000, benchmark.intervals[(n-1)*95/100]*1000,
             benchmark.acquire * scale, benchmark.build * scale, benchmark.encode * scale,
-            benchmark.draws / benchmark.frames, benchmark.vertices / benchmark.frames, (unsigned)benchmark.frames);
+            benchmark.draws / benchmark.frames, benchmark.vertices / benchmark.frames, (unsigned)benchmark.frames,
+            benchmark.intervals[(n-1)*99/100]*1000, benchmark.worst*1000, benchmark.firstencode*1000, (unsigned)n,
+            benchmark.lightmapbytes / benchmark.frames);
         gpu.benchmarking = false;
     }
 }
@@ -218,7 +233,7 @@ static qboolean GPU_VideoInit(rendererstate_t *info, unsigned char *palette)
     GPU_InitTextureFormats();
     GPU_StreamInit();
     Cmd_AddCommandD("gpu_info", GPU_Info_f, "Report SDL GPU device, frame geometry, material, and light counts.");
-    Cmd_AddCommandD("gpu_benchmark", GPU_Benchmark_f, "Measure frame throughput and CPU stages: gpu_benchmark [seconds] [label]. Warm up first; disable vsync and raise cl_maxfps for throughput.");
+    Cmd_AddCommandD("gpu_benchmark", GPU_Benchmark_f, "Measure frame throughput and CPU stages: gpu_benchmark [seconds] [label] [world]. Use world to start at the first frame that draws the world.");
     Cmd_AddCommandD("gpu_batching", GPU_Batching_f, "Compare optimized/reference submission: gpu_batching 1/0. Enabled by default; resets on video restart. Does not change graphical features.");
     if (Cvar_FindVar(r_normalmapping.name) != &r_normalmapping) Cvar_Register(&r_normalmapping, "Graphical Nicaties");
     if (Cvar_FindVar(r_bloom.name) != &r_bloom) Cvar_Register(&r_bloom, "Graphical Nicaties");
@@ -332,8 +347,11 @@ static void GPU_RenderView(void)
     R_SetFrustum(r_refdef.m_projection_std, r_refdef.m_view);
     RQ_BeginFrame();
     if ((r_refdef.flags & RDF_NOWORLDMODEL) ||
-        (r_worldentity.model && r_worldentity.model->loadstate == MLS_LOADED && cl.worldmodel))
+        (r_worldentity.model && r_worldentity.model->loadstate == MLS_LOADED && cl.worldmodel)) {
+        if (gpu.benchmarking && worldview && cls.state == ca_active)
+            benchmark.worlddrawn = true;
         Surf_DrawWorld();
+    }
     RQ_RenderBatchClear();
     if (view) GPU_EndCompositeView(view, max(0, waterwarp));
     GPU_Set2D();

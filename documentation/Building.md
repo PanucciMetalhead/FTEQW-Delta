@@ -70,6 +70,78 @@ See [SDL3-GPU.md](SDL3-GPU.md) for integration testing and the validation record
 Legacy console, mobile, and Flatpak deployment files are upstream history;
 they are not supported build paths for this desktop fork.
 
+## Profile-guided dedicated server builds
+
+Native Clang Release builds on Linux and macOS can apply IR profile-guided
+optimization to `fteqw-sv`. The client, tools, and plugins still use their
+regular compile settings. Use a single-configuration generator and keep the
+same compiler, source, and build options across the three builds.
+
+```sh
+cmake -S . -B build/pgo-train -G Ninja -DCMAKE_BUILD_TYPE=Release -DFTE_SERVER_PGO=generate
+cmake --build build/pgo-train --target fteqw-sv fteqcc --parallel
+mkdir -p build/pgo-train/profiles
+LLVM_PROFILE_FILE="$PWD/build/pgo-train/profiles/trace-%p.profraw" \
+  python3 tools/server_benchmark.py --server build/pgo-train/fteqw-sv \
+  --qcc build/pgo-train/fteqcc --frames 240 --traces 0 256 1024
+llvm-profdata merge -o build/pgo-train/server.profdata build/pgo-train/profiles/*.profraw
+cmake -S . -B build/pgo-use -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DFTE_SERVER_PGO=use -DFTE_SERVER_PROFILE=build/pgo-train/server.profdata
+cmake --build build/pgo-use --target fteqw-sv --parallel
+```
+
+Use the `llvm-profdata` shipped with your compiler (`xcrun llvm-profdata` on
+macOS). Collect profiles in a fresh directory when the source or toolchain
+changes. Train on the maps, mods, and traffic you expect to serve. The
+[loopback QuakeWorld benchmark](Networking.md#live-quakeworld-gameplay-under-loss)
+can contribute another raw profile by running it with the instrumented
+`--server` and the same `LLVM_PROFILE_FILE` directory before merging. The
+trace-only example above is sufficient to test the build flow.
+
+To train on multiplayer, run the instrumented server through the client
+scaling benchmark with `LLVM_PROFILE_FILE` set before merging. Compare the
+result on a different map and client count:
+
+```sh
+LLVM_PROFILE_FILE="$PWD/build/pgo-train/profiles/qw-%p.profraw" \
+  python3 tools/network_scaling.py /path/to/Quake --server build/pgo-train/fteqw-sv \
+  --map start --clients 8 24 --frames 600
+# Merge the profiles and build with FTE_SERVER_PGO=use as shown above.
+python3 tools/network_scaling.py /path/to/Quake --baseline build/pgo-baseline/fteqw-sv \
+  --server build/pgo-use/fteqw-sv --map dm6 --clients 12 32 --frames 360 --repeats 3
+```
+
+On macOS arm64 with AppleClang 21 and ThinLTO, the multiplayer-only profile
+reduced median mean frame work from 0.190 to 0.171 ms at 12 clients and from
+0.256 to 0.243 ms at 32. Median p99 fell from 0.671 to 0.527 ms at 12 clients
+and rose from 0.928 to 1.005 ms at 32. Each median comes from three short
+runs per build on one host.
+
+Compare the optimized server against Release on a workload omitted from
+training. The benchmark alternates run order and saves each sample and
+the median of each timing statistic.
+
+```sh
+cmake -S . -B build/pgo-baseline -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build/pgo-baseline --target fteqw-sv --parallel
+python3 tools/server_benchmark.py --baseline build/pgo-baseline/fteqw-sv \
+  --server build/pgo-use/fteqw-sv --qcc build/pgo-train/fteqcc \
+  --frames 240 --traces 512 2048 --repeats 3
+```
+
+On macOS arm64 with AppleClang 21 and ThinLTO, a profile trained on the three
+synthetic cases above plus a local QuakeWorld session produced these medians
+over three runs of 240 frames per build:
+
+| Traces per tick | Release mean work | PGO mean work | Release p99 | PGO p99 |
+| ---: | ---: | ---: | ---: | ---: |
+| 512 | 0.401 ms | 0.344 ms | 0.693 ms | 0.595 ms |
+| 2,048 | 1.345 ms | 1.049 ms | 2.415 ms | 2.034 ms |
+
+Isolated spikes occurred in both builds. These results measure the synthetic
+server workload on one machine. PGO remains opt-in because performance can
+depend on the maps, mods, and traffic used for training.
+
 ## Original Quake II gamecode
 
 Point `-basedir` at the installation directory containing `baseq2/pak0.pak`:

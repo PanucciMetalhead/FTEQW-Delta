@@ -88,6 +88,7 @@ mastervolume 1
     (out / 'id1/remap-test.cfg').write_text(setup + 'defer 1 exec remap-step0.cfg\n')
     env = dict(os.environ, SDL_AUDIODRIVER='dummy', SDL_VIDEODRIVER='dummy',
                ASAN_OPTIONS='detect_leaks=0', UBSAN_OPTIONS='halt_on_error=1:print_stacktrace=1')
+    env['TSAN_OPTIONS'] = ':'.join(filter(None, (env.get('TSAN_OPTIONS'), 'halt_on_error=1')))
 
     def run(config, name):
         logpath = out / (name + '.log')
@@ -97,7 +98,7 @@ mastervolume 1
                 '+s_device', 'SDL:', '+exec', config], cwd=out, env=env,
                 stdout=log, stderr=subprocess.STDOUT, timeout=40)
         text = logpath.read_text(errors='replace')
-        errors = re.findall(r'^.*(?:AddressSanitizer:|runtime error:|Sys_Error|Host_Error|Unknown command).*$', text, re.M)
+        errors = re.findall(r'^.*(?:AddressSanitizer:|ThreadSanitizer:|runtime error:|Sys_Error|Host_Error|Unknown command).*$', text, re.M)
         if result.returncode or errors:
             diagnostics = '\n'.join(errors)
             raise RuntimeError(f'Engine failure (exit {result.returncode}): {logpath}\n'

@@ -1545,6 +1545,8 @@ void	 CSQC_CvarChanged(cvar_t *var);
 // cl_pred.c
 //
 void CL_InitPrediction (void);
+void CL_CancelNetBenchmark(void);
+void CL_NetBenchmarkSnapshot(int sequence, qboolean valid);
 void CL_PredictMove (void);
 void CL_PredictUsercmd (int seat, int entnum, player_state_t *from, player_state_t *to, usercmd_t *u);
 #ifdef Q2CLIENT

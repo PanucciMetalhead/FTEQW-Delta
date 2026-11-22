@@ -155,9 +155,7 @@ qboolean World_CapsuleTrace(struct model_s *model, int hulloverride, const frame
 	{	//capsule vs capsule.
 		//no orientation support on either (ignore axis)
 		float sr = ((model->maxs[0]-model->mins[0]) + (model->maxs[1]-model->mins[1]))/4.0;
-		float sh = (model->maxs[2]-model->mins[2]) - sr*2;
 		float mr = ((maxs[0]-mins[0]) + (maxs[1]-mins[1]))/4.0;
-		float mh = (maxs[2]-mins[2]) - mr*2;
 		vec3_t sup = {0, 0, 1};
 		vec3_t dir, sright;
 		vec4_t nearestplane;
@@ -165,9 +163,8 @@ qboolean World_CapsuleTrace(struct model_s *model, int hulloverride, const frame
 		vec3_t nearestpoint;
 		float neardist;
 
-		//expand the static capsule's height+radius by the mover's height+radius, so that its point+capsule instead
+		// Expand the static capsule radius by the moving capsule radius.
 		sr += mr;
-		sh += mh;
 
 		VectorSubtract(p1, p2, dir);
 		d2=VectorNormalize(dir);

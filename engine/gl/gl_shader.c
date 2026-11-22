@@ -22,6 +22,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 
 #include "quakedef.h"
+#include <limits.h>
 #ifndef SERVERONLY
 #include "glquake.h"
 #ifdef VKQUAKE
@@ -872,8 +873,15 @@ texid_t R_LoadColourmapImage(void)
 		qbyte *pcx = FS_LoadMallocFile("pics/colormap.pcx", &sz);
 		if (pcx)
 		{
-			colourmappal = Z_Malloc(256*VID_GRADES);
-			ReadPCXData(pcx, sz, 256, VID_GRADES, colourmappal);
+			if (sz <= INT_MAX)
+			{
+				colourmappal = BZ_Malloc(256*VID_GRADES);
+				if (!ReadPCXData(pcx, sz, 256, VID_GRADES, colourmappal))
+				{
+					BZ_Free(colourmappal);
+					colourmappal = NULL;
+				}
+			}
 			BZ_Free(pcx);
 		}
 	}

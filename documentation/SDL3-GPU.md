@@ -454,9 +454,14 @@ overflow cells. It can be expensive. Clustered lists are independent for main,
 Panini, reflection/refraction and offscreen views. Light styles and dynamic
 lights are refreshed each frame. Opaque and blended material order is retained.
 
-`gpu_benchmark 10 label` measures frame throughput, median/p95 intervals and
-CPU acquisition, scene construction and command encoding time. Warm up first;
-use a Release executable without `-gpu_debug`, `vid_vsync 0`, a high `cl_maxfps`,
+`gpu_benchmark 10 label` measures frame throughput, median/p95/p99 and worst
+frame intervals, CPU acquisition, scene construction and command encoding time.
+It also reports first-frame encoding time separately from the later-frame mean.
+Percentiles use the latest 16,384 intervals at most; the mean and maximum cover
+the whole run. Append `world` to wait for the first submitted frame that draws
+the active map, which is useful when arming the benchmark before `map`.
+For steady-state measurements, warm up first. Use a Release executable
+without `-gpu_debug`, `vid_vsync 0`, a high `cl_maxfps`,
 and `cl_idlefps 0` for throughput measurements. Swapchain acquisition includes
 GPU/presentation backpressure; these are CPU stage timings, not GPU timestamps.
 `gpu_batching 0/1` provides reference/optimized submission for image comparisons.
@@ -466,9 +471,20 @@ The controlled performance test uses the same owned game data as the AD tests:
 
 ```sh
 python3 tools/gpu_performance.py prepare /path/to/Quake --qcc build/all/fteqcc
-./build/fteqw -nohome -basedir build/perfdata -quake -window -width 1470 -height 923 +vid_renderer sdlgpu +exec gpu-test.cfg > build/performance.log 2>&1
-python3 tools/gpu_performance.py check --target-fps 60
+python3 tools/gpu_performance.py run --client build/fteqw --target-fps 60
 ```
+
+The fixture records cold and warm entrance passes before the paused batching
+comparison and live camera sweep. Start a fresh process for each run. “Cold”
+means the first rendered world frame in that process; map loading before that
+frame and driver caches from previous processes are outside the measurement.
+Use the same scene, drawable resolution (printed in the log), display mode and
+release build options for Metal and Vulkan comparisons. The checker records
+the backend and timing samples in `performance-results.json`. Use a native
+Windows or Linux run for Vulkan and a native macOS run for Metal. The
+Windows build will need the paths to `fteqcc.exe` and `fteqw.exe`. The
+[dedicated-server benchmark](Networking.md#dedicated-server-performance) can run
+separately on the same machines.
 
 The config selects fullscreen, pauses the entrance scene for reference/batched
 captures and benchmarks, then unpauses and rotates the camera through a full
@@ -478,6 +494,32 @@ are in `performance-results.json`. Performance varies with scene, resolution,
 build type and machine load; avoid compiling or running other engines during
 measurements. This is a renderer test at the entrance, not a traversal of the
 entire map or a direct benchmark against another engine.
+
+A Metal System Trace on Apple M2 at 2940×1846 measured 5.04 ms median GPU
+active time for the paused batched entrance and 2.28 ms during the live sweep.
+The scene pass accounted for 3.73 and 1.57 ms respectively. The trace sums the
+union of active GPU intervals per frame and uses interior windows from each
+phase. Instruments listed generic encoder names, so pass roles were matched
+to submission order in the renderer. Work from different GPU channels can
+overlap.
+
+The SDL GPU backend now uploads just the dirty rectangle of a resident
+packed 32-bit lightmap when possible. Consecutive dirty rectangles share
+a transfer buffer and a copy submission. New textures, forced refreshes,
+other formats, and invalid or full-atlas rectangles use the full upload path.
+`gpu_lightmap_partial 0` selects the full path for comparison. The benchmark
+reports average lightmap upload bytes per sampled frame, separately from
+geometry uploads.
+
+```sh
+python3 tools/gpu_performance.py prepare /path/to/Quake --qcc build/all/fteqcc --lightmaps --out build/lightmap-validation
+python3 tools/gpu_performance.py run --client build/fteqw --lightmaps --out build/lightmap-validation --log build/lightmap-validation/renderer.log
+```
+
+This fixture keeps the camera and render settings fixed and switches from full
+uploads to partial uploads and back. It compares the captures and verifies
+that uploads ran in all three phases, every atlas was available, and partial
+uploads transferred fewer bytes. The report is `lightmap-results.json`.
 
 The renderer comparison suite checks caching against streamed geometry in the
 same paused AD Tears scene, including a stream/cache/stream benchmark sequence,
@@ -503,6 +545,35 @@ The data-free math test checks shadow clip planes/sphere boundaries and
 conservative cluster coverage under off-centre/flipped projections.
 
 ## Local validation record
+
+On 2026-11-21, CPU sampling in AD Tears showed that full lightmap uploads
+were the largest sampled cost in scene construction. At 2940×1846 on
+macOS arm64/Metal, the full/partial/full comparison measured:
+
+| Upload mode | Lightmap bytes/frame | Average CPU scene build | p99 frame interval | FPS |
+| --- | ---: | ---: | ---: | ---: |
+| Full | 16,777,216 | 6.258 ms | 8.281 ms | 142.30 |
+| Partial | 7,518,488 | 4.923 ms | 6.689 ms | 173.44 |
+| Full again | 16,777,216 | 6.290 ms | 8.800 ms | 140.76 |
+
+The three captures matched pixel for pixel and retained all 760 lightmaps.
+The upload savings depend on the size of the changed regions. Vulkan runtime
+validation is pending.
+
+On 2026-11-21, the Release AD Tears benchmark passed on macOS arm64/Metal
+at 2940×1846. The paused comparison matched the checked map pixels exactly,
+retained geometry and lightmaps, and reduced draws from 11,342 to 183.
+
+| Pass | FPS | p99 frame interval | Worst interval | First frame encoding |
+| --- | ---: | ---: | ---: | ---: |
+| Cold entrance | 134.49 | 10.341 ms | 34.506 ms | 2.944 ms |
+| Warm entrance | 138.62 | 9.590 ms | 10.416 ms | 0.232 ms |
+| Paused reference | 83.08 | 13.852 ms | 19.833 ms | 4.183 ms |
+| Paused batched | 142.62 | 8.465 ms | 11.558 ms | 0.249 ms |
+| Live camera sweep | 266.83 | 8.184 ms | 10.475 ms | 0.163 ms |
+
+These are results from one machine and one run. The equivalent native Vulkan
+run is pending.
 
 On 2026-11-20, a paused Quake `start` fixture with eight realtime world lights
 ran at 155.28 / 164.65 / 155.10 FPS with shadow caching off / on / off on

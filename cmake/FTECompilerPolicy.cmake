@@ -3,6 +3,23 @@
 option(FTE_WERROR "Treat all compiler warnings as errors." OFF)
 option(FTE_EXTRA_WARNINGS "Audit legacy code with additional conversion and extension warnings." OFF)
 option(FTE_SANITIZERS "Instrument debug builds with AddressSanitizer and UndefinedBehaviorSanitizer." OFF)
+option(FTE_THREAD_SANITIZER "Instrument debug builds with ThreadSanitizer." OFF)
+
+if(FTE_THREAD_SANITIZER)
+    if(FTE_SANITIZERS)
+        message(FATAL_ERROR "FTE_THREAD_SANITIZER and FTE_SANITIZERS require separate builds.")
+    endif()
+    if(NOT CMAKE_C_COMPILER_ID MATCHES "^(AppleClang|Clang)$" OR
+       NOT CMAKE_SYSTEM_NAME MATCHES "^(Darwin|Linux)$" OR CMAKE_CROSSCOMPILING OR
+       NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
+        message(FATAL_ERROR "FTE_THREAD_SANITIZER requires native 64-bit Clang on Linux or macOS.")
+    endif()
+    if(CMAKE_CONFIGURATION_TYPES OR NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
+        message(FATAL_ERROR "FTE_THREAD_SANITIZER requires a single-configuration Debug build.")
+    endif()
+    add_compile_options(-fsanitize=thread -O1 -g -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=thread)
+endif()
 
 if(MSVC AND NOT CMAKE_C_COMPILER_ID MATCHES "Clang")
     set(fte_c_warnings /W3 /we4013 /we4020 /we4715)

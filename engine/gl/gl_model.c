@@ -23,6 +23,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // on the same machine.
 
 #include "quakedef.h"
+#include <limits.h>
 #include <stddef.h>
 #include "fs.h"
 #include "com_bih.h"
@@ -5516,6 +5517,38 @@ static void Mod_FindVisPatch(struct vispatch_s *patch, model_t *mod, size_t leaf
 Mod_LoadBrushModel
 =================
 */
+static qboolean Mod_LumpStartsWithEntity(const qbyte *data, size_t length)
+{
+	const qbyte *end = data + length;
+	while (data < end && *data)
+	{
+		if (*data <= ' ')
+			data++;
+		else if (end - data >= 2 && data[0] == '/' && data[1] == '/')
+		{
+			while (data < end && *data && *data != '\n')
+				data++;
+		}
+		else if (end - data >= 2 && data[0] == '/' && data[1] == '*')
+		{
+			data += 2;
+			while (end - data >= 2 && *data && !(data[0] == '*' && data[1] == '/'))
+				data++;
+			if (end - data < 2 || !*data)
+				return false;
+			data += 2;
+		}
+		else
+		{
+			if (*data == '"')
+				return end - data >= 2 && data[1] == '{' &&
+				       (end - data == 2 || !data[2] || data[2] == '"');
+			return *data == '{' && (end - data == 1 || data[1] <= ' ');
+		}
+	}
+	return false;
+}
+
 static qboolean QDECL Mod_LoadBrushModel (model_t *mod, void *buffer, size_t fsize)
 {
 	struct vispatch_s vispatch;
@@ -5523,6 +5556,7 @@ static qboolean QDECL Mod_LoadBrushModel (model_t *mod, void *buffer, size_t fsi
 	dheader_t	header;
 	mmodel_t 	*bm;
 	model_t *submod;
+	model_t **finished;
 	unsigned int chksum;
 	qboolean noerrors;
 	char loadname[32];
@@ -5542,10 +5576,15 @@ static qboolean QDECL Mod_LoadBrushModel (model_t *mod, void *buffer, size_t fsi
 
 	mod_base = (qbyte *)buffer;
 	memcpy(&header, mod_base, sizeof(header));
-	for (i=0 ; i<countof(header.lumps)/4 ; i++)
+	for (i = 0; i < HEADER_LUMPS; i++)
 	{
 		header.lumps[i].filelen = LittleLong(header.lumps[i].filelen);
 		header.lumps[i].fileofs = LittleLong(header.lumps[i].fileofs);
+		if (!BSP_LumpInRange(&header.lumps[i], fsize))
+		{
+			Con_Printf(CON_ERROR "Mod_LoadBrushModel: %s has an invalid lump %i range\n", mod->name, i);
+			return false;
+		}
 	}
 
 #ifdef SERVERONLY
@@ -5574,30 +5613,25 @@ static qboolean QDECL Mod_LoadBrushModel (model_t *mod, void *buffer, size_t fsi
 		mod->engineflags |= MDLF_NEEDOVERBRIGHT, subbsp = sb_long2;
 	else if (!memcmp(&header.version,  BSPVERSIONHL))
 	{
-		char tmp[64];
+		const lump_t *planes = &header.lumps[LUMP_PLANES];
+		const lump_t *entities = &header.lumps[LUMP_ENTITIES];
 		mod->fromgame = fg_halflife;
 
 		//special hack to work around blueshit bugs - we need to swap LUMP_ENTITIES and LUMP_PLANES over
-		if (COM_ParseOut(mod_base + header.lumps[LUMP_PLANES].fileofs, tmp, sizeof(tmp)) && !strcmp(tmp, "{"))
+		if (Mod_LumpStartsWithEntity(mod_base + planes->fileofs, planes->filelen) &&
+		    !Mod_LumpStartsWithEntity(mod_base + entities->fileofs, entities->filelen))
 		{
-			COM_ParseOut(mod_base + header.lumps[LUMP_ENTITIES].fileofs, tmp, sizeof(tmp));
-			if (strcmp(tmp, "{"))
+			if (memchr(mod_base + entities->fileofs, 0, min(entities->filelen, sizeof(dplane_t))))
 			{
-				int i;
-				for (i = 0; i < header.lumps[LUMP_ENTITIES].filelen && i < sizeof(dplane_t); i++)
-					if (mod_base[header.lumps[LUMP_ENTITIES].fileofs + i] == 0)
-					{	//yeah, looks screwy in the way we expect. swap em over.
-						lump_t tmp = header.lumps[LUMP_ENTITIES];
-						header.lumps[LUMP_ENTITIES] = header.lumps[LUMP_PLANES];
-						header.lumps[LUMP_PLANES] = tmp;
-						break;
-					}
+				lump_t tmp = *entities;
+				header.lumps[LUMP_ENTITIES] = *planes;
+				header.lumps[LUMP_PLANES] = tmp;
 			}
 		}
 	}
 	else
 	{
-		Con_Printf (CON_ERROR "Mod_LoadBrushModel: %s has wrong version number (%i)\n", mod->name, i);
+		Con_Printf (CON_ERROR "Mod_LoadBrushModel: %s has wrong version number (%i)\n", mod->name, LittleLong(header.version));
 		return false;
 	}
 	header.version = LittleLong(header.version);
@@ -5614,11 +5648,6 @@ static qboolean QDECL Mod_LoadBrushModel (model_t *mod, void *buffer, size_t fsi
 		if ((header.lumps[i].fileofs & 3) && header.lumps[i].filelen)
 			misaligned = true;
 
-		if ((unsigned)header.lumps[i].fileofs + (unsigned)header.lumps[i].filelen > fsize)
-		{
-			Con_Printf (CON_ERROR "Mod_LoadBrushModel: %s appears truncated\n", mod->name);
-			return false;
-		}
 		if (i == LUMP_ENTITIES)
 			continue;
 		chksum = CalcHashInt(&hash_md4, mod_base + header.lumps[i].fileofs, header.lumps[i].filelen);
@@ -5632,13 +5661,13 @@ static qboolean QDECL Mod_LoadBrushModel (model_t *mod, void *buffer, size_t fsi
 	if (misaligned)
 	{	//pre-phong versions of tyrutils wrote misaligned lumps. These crash on arm/etc.
 		char *tmp;
-		unsigned int ofs = 0;
+		size_t ofs = 0;
 		Con_DPrintf(CON_WARNING"%s: Misaligned lumps detected\n", mod->name);
 		tmp = BZ_Malloc(fsize);
 		memcpy(tmp, mod_base, fsize);
 		for (i = 0; i < HEADER_LUMPS; i++)
 		{
-			if (ofs + header.lumps[i].filelen > fsize)
+			if (ofs > UINT_MAX || ofs > fsize || header.lumps[i].filelen > fsize - ofs)
 			{	//can happen if two lumps overlap... otherwise impossible.
 				Con_Printf(CON_ERROR"%s: Realignment failed\n", mod->name);
 				BZ_Free(tmp);
@@ -5647,7 +5676,16 @@ static qboolean QDECL Mod_LoadBrushModel (model_t *mod, void *buffer, size_t fsi
 			memcpy(mod_base + ofs, tmp+header.lumps[i].fileofs, header.lumps[i].filelen);
 			header.lumps[i].fileofs = ofs;
 			ofs += header.lumps[i].filelen;
-			ofs = (ofs + 3) & ~3u;
+			if (i + 1 < HEADER_LUMPS)
+			{
+				size_t padding = (4 - (ofs & 3)) & 3;
+				if (padding > fsize - ofs)
+				{
+					BZ_Free(tmp);
+					return false;
+				}
+				ofs += padding;
+			}
 		}
 		BZ_Free(tmp);
 		bspx = NULL;
@@ -5745,9 +5783,11 @@ static qboolean QDECL Mod_LoadBrushModel (model_t *mod, void *buffer, size_t fsi
 	for (j=0 ; j<2 ; j++)
 		Q1BSP_CheckHullNodes(&mod->hulls[j]);
 
+	finished = mod->numsubmodels ? BZ_Malloc(mod->numsubmodels * sizeof(*finished)) : NULL;
 	for (i=0, submod = mod; i<mod->numsubmodels ; i++)
 	{
 		bm = &mod->submodels[i];
+		finished[i] = submod;
 
 		submod->rootnode = submod->nodes + bm->headnode[0];
 		submod->hulls[0].firstclipnode = bm->headnode[0];
@@ -5803,12 +5843,6 @@ TRACE(("LoadBrushModel %i\n", __LINE__));
 		memset(&submod->batches, 0, sizeof(submod->batches));
 		submod->vbos = NULL;
 		TRACE(("LoadBrushModel %i\n", __LINE__));
-		if (!isDedicated || using_rbe)
-		{
-			COM_AddWork(WG_MAIN, ModBrush_LoadGLStuff, submod, NULL, i, 0);
-		}
-		TRACE(("LoadBrushModel %i\n", __LINE__));
-
 		submod->cnodes = NULL;
 		Q1BSP_SetModelFuncs(submod);
 #ifdef Q2BSPS
@@ -5832,8 +5866,6 @@ TRACE(("LoadBrushModel %i\n", __LINE__));
 		}
 #endif
 
-		if (i)
-			COM_AddWork(WG_MAIN, Mod_ModelLoaded, submod, NULL, MLS_LOADED, 0);
 		if (i < submod->numsubmodels-1)
 		{	// duplicate the basic information
 			char	name[MAX_QPATH];
@@ -5858,6 +5890,16 @@ TRACE(("LoadBrushModel %i\n", __LINE__));
 #ifdef TERRAIN
 	mod->terrain = Mod_LoadTerrainInfo(mod, loadname, false);
 #endif
+	// Renderer callbacks allocate from the model's group. Publish the brush
+	// models only after the loader has finished all of its own allocations.
+	for (i = 0; i < mod->numsubmodels; ++i)
+	{
+		if (!isDedicated || using_rbe)
+			COM_AddWork(WG_MAIN, ModBrush_LoadGLStuff, finished[i], NULL, i, 0);
+		if (i)
+			COM_AddWork(WG_MAIN, Mod_ModelLoaded, finished[i], NULL, MLS_LOADED, 0);
+	}
+	BZ_Free(finished);
 	return true;
 }
 #endif
@@ -6015,18 +6057,23 @@ Mod_LoadSpriteFrame
 */
 static void * Mod_LoadSpriteFrame (model_t *mod, void *pin, void *pend, mspriteframe_t **ppframe, int framenum, int subframe, int version, unsigned char *palette)
 {
-	dspriteframe_t		*pinframe;
+	dspriteframe_t		pinframe;
 	mspriteframe_t		*pspriteframe;
-	int					width, height, size, origin[2];
+	int					width, height, origin[2];
+	size_t				size, bytesperpixel = version == SPRITE32_VERSION ? 4 : 1;
 	char				name[64];
 	uploadfmt_t			lowresfmt;
 	void				*dataptr;
 
-	pinframe = (dspriteframe_t *)pin;
+	if ((qbyte*)pend - (qbyte*)pin < (ptrdiff_t)sizeof(pinframe))
+		return NULL;
+	memcpy(&pinframe, pin, sizeof(pinframe));
 
-	width = LittleLong (pinframe->width);
-	height = LittleLong (pinframe->height);
-	size = width * height;
+	width = LittleLong (pinframe.width);
+	height = LittleLong (pinframe.height);
+	if (width <= 0 || height <= 0 || (size_t)width > INT_MAX / 4u / height)
+		return NULL;
+	size = (size_t)width * height * bytesperpixel;
 
 	pspriteframe = ZG_Malloc(&mod->memgroup, sizeof (mspriteframe_t));
 
@@ -6034,28 +6081,25 @@ static void * Mod_LoadSpriteFrame (model_t *mod, void *pin, void *pend, mspritef
 
 	*ppframe = pspriteframe;
 
-	origin[0] = LittleLong (pinframe->origin[0]);
-	origin[1] = LittleLong (pinframe->origin[1]);
+	origin[0] = LittleLong (pinframe.origin[0]);
+	origin[1] = LittleLong (pinframe.origin[1]);
 
 	pspriteframe->up = origin[1];
-	pspriteframe->down = origin[1] - height;
+	pspriteframe->down = (float)origin[1] - height;
 	pspriteframe->left = origin[0];
-	pspriteframe->right = width + origin[0];
+	pspriteframe->right = (float)width + origin[0];
 	pspriteframe->xmirror = false;
 
-	dataptr = (pinframe + 1);
+	dataptr = (qbyte*)pin + sizeof(pinframe);
 
 	if (version == SPRITE32_VERSION)
-	{
-		size *= 4;
 		lowresfmt = TF_RGBA32;
-	}
 	else if (version == SPRITEHL_VERSION)
 		lowresfmt = TF_8PAL32;
 	else
 		lowresfmt = TF_TRANS8;
 
-	if ((qbyte*)dataptr + size > (qbyte*)pend)
+	if (size > (size_t)((qbyte*)pend - (qbyte*)dataptr))
 	{
 		//tenebrae has a couple of dodgy truncated sprites. yay for replacement textures.
 		dataptr = NULL;
@@ -6068,7 +6112,7 @@ static void * Mod_LoadSpriteFrame (model_t *mod, void *pin, void *pend, mspritef
 		Q_snprintfz(name, sizeof(name), "%s_%i_%i.tga", mod->name, framenum, subframe);
 	pspriteframe->image = Image_GetTexture(name, "sprites", IF_NOMIPMAP|IF_NOGAMMA|IF_CLAMP|IF_PREMULTIPLYALPHA, dataptr, palette, width, height, lowresfmt);
 
-	return (void *)((qbyte *)(pinframe+1) + size);
+	return dataptr ? (qbyte*)dataptr + size : pend;
 }
 
 
@@ -6079,18 +6123,23 @@ Mod_LoadSpriteGroup
 */
 static void * Mod_LoadSpriteGroup (model_t *mod, void * pin, void *pend, mspriteframe_t **ppframe, int framenum, int version, unsigned char *palette)
 {
-	dspritegroup_t		*pingroup;
+	dspritegroup_t		pingroup;
 	mspritegroup_t		*pspritegroup;
 	int					i, numframes;
-	dspriteinterval_t	*pin_intervals;
+	qbyte				*pin_intervals;
 	float				*poutintervals;
 	void				*ptemp;
 	float				prevtime;
 
-	pingroup = (dspritegroup_t *)pin;
+	if ((qbyte*)pend - (qbyte*)pin < (ptrdiff_t)sizeof(pingroup))
+		return NULL;
+	memcpy(&pingroup, pin, sizeof(pingroup));
+	pin_intervals = (qbyte*)pin + sizeof(pingroup);
 
-	numframes = LittleLong (pingroup->numframes);
-	if (numframes <= 0)
+	numframes = LittleLong (pingroup.numframes);
+	if (numframes <= 0 ||
+	    (size_t)numframes > (size_t)((qbyte*)pend - pin_intervals) / (sizeof(dspriteinterval_t) + sizeof(dspriteframe_t)) ||
+	    (size_t)(numframes - 1) > (INT_MAX - sizeof(*pspritegroup)) / sizeof(pspritegroup->frames[0]))
 	{
 		Con_Printf (CON_ERROR "Mod_LoadSpriteGroup: invalid frame count\n");
 		return NULL;
@@ -6102,24 +6151,24 @@ static void * Mod_LoadSpriteGroup (model_t *mod, void * pin, void *pend, msprite
 
 	*ppframe = (mspriteframe_t *)pspritegroup;
 
-	pin_intervals = (dspriteinterval_t *)(pingroup + 1);
-
 	poutintervals = ZG_Malloc(&mod->memgroup, numframes * sizeof (float));
 
 	pspritegroup->intervals = poutintervals;
 
 	for (i=0, prevtime=0 ; i<numframes ; i++)
 	{
-		*poutintervals = LittleFloat (pin_intervals->interval);
-		if (*poutintervals <= 0.0)
+		dspriteinterval_t interval;
+		memcpy(&interval, pin_intervals, sizeof(interval));
+		*poutintervals = LittleFloat (interval.interval);
+		if (!(*poutintervals > 0.0f) || !isfinite(prevtime + *poutintervals))
 		{
-			Con_Printf (CON_ERROR "Mod_LoadSpriteGroup: interval<=0\n");
+			Con_Printf (CON_ERROR "Mod_LoadSpriteGroup: invalid frame interval\n");
 			return NULL;
 		}
 		prevtime = *poutintervals = prevtime+*poutintervals;
 
 		poutintervals++;
-		pin_intervals++;
+		pin_intervals += sizeof(interval);
 	}
 
 	ptemp = (void *)pin_intervals;
@@ -6127,6 +6176,8 @@ static void * Mod_LoadSpriteGroup (model_t *mod, void * pin, void *pend, msprite
 	for (i=0 ; i<numframes ; i++)
 	{
 		ptemp = Mod_LoadSpriteFrame (mod, ptemp, pend, &pspritegroup->frames[i], framenum, i, version, palette);
+		if (!ptemp)
+			return NULL;
 	}
 
 	return ptemp;
@@ -6144,13 +6195,16 @@ qboolean QDECL Mod_LoadSpriteModel (model_t *mod, void *buffer, size_t fsize)
 	dsprite_t			*pin;
 	msprite_t			*psprite;
 	int					numframes;
-	int					size;
-	dspriteframetype_t	*pframetype;
+	size_t				size;
+	qbyte				*pframetype, *end;
 	int rendertype=SPRHL_ALPHATEST;
 	unsigned char pal[256*4];
 	int sptype;
 	
+	if (fsize < sizeof(*pin))
+		return false;
 	pin = (dsprite_t *)buffer;
+	end = (qbyte*)buffer + fsize;
 
 	version = LittleLong (pin->version);
 	if (version != SPRITE_VERSION)
@@ -6166,13 +6220,22 @@ qboolean QDECL Mod_LoadSpriteModel (model_t *mod, void *buffer, size_t fsize)
 
 	if (LittleLong(pin->version) == SPRITEHL_VERSION)
 	{
+		if (fsize < sizeof(*pin) + 4 + sizeof(short) + 256*3)
+			return false;
 		pin = (dsprite_t*)((char*)pin + 4);
 		rendertype = LittleLong (pin->type);	//not sure what the values mean.
 	}
 
 	numframes = LittleLong (pin->numframes);
+	pframetype = (qbyte*)(pin + 1);
+	if (version == SPRITEHL_VERSION)
+		pframetype += sizeof(short) + 256*3;
+	if (numframes < 1 ||
+	    (size_t)numframes > (size_t)(end - pframetype) / (sizeof(dspriteframetype_t) + sizeof(dspriteframe_t)) ||
+	    (size_t)(numframes - 1) > (INT_MAX - sizeof(*psprite)) / sizeof(psprite->frames[0]))
+		return false;
 
-	size = sizeof (msprite_t) +	(numframes - 1) * sizeof (psprite->frames);
+	size = sizeof(*psprite) + (numframes - 1) * sizeof(psprite->frames[0]);
 
 	psprite = ZG_Malloc(&mod->memgroup, size);
 
@@ -6204,9 +6267,9 @@ qboolean QDECL Mod_LoadSpriteModel (model_t *mod, void *buffer, size_t fsize)
 	mod->synctype = LittleLong (pin->synctype);
 	psprite->numframes = numframes;
 
-	mod->mins[0] = mod->mins[1] = -psprite->maxwidth/2;
+	mod->mins[0] = mod->mins[1] = -(psprite->maxwidth/2);
 	mod->maxs[0] = mod->maxs[1] = psprite->maxwidth/2;
-	mod->mins[2] = -psprite->maxheight/2;
+	mod->mins[2] = -(psprite->maxheight/2);
 	mod->maxs[2] = psprite->maxheight/2;
 	if (qrenderer == QR_NONE)
 	{
@@ -6254,39 +6317,35 @@ qboolean QDECL Mod_LoadSpriteModel (model_t *mod, void *buffer, size_t fsize)
 			}
 		}
 
-		pframetype = (dspriteframetype_t *)(src);
 	}
-	else
-		pframetype = (dspriteframetype_t *)(pin + 1);
 
 //
 // load the frames
 //
-	if (numframes < 1)
-	{
-		Con_Printf (CON_ERROR "Mod_LoadSpriteModel: Invalid # of frames: %d\n", numframes);
-		return false;
-	}
-
 	mod->numframes = numframes;
 
 	for (i=0 ; i<numframes ; i++)
 	{
-		spriteframetype_t	frametype;
+		dspriteframetype_t diskframe;
+		spriteframetype_t frametype;
 
-		frametype = LittleLong (pframetype->type);
+		if (end - pframetype < (ptrdiff_t)sizeof(diskframe))
+			return false;
+		memcpy(&diskframe, pframetype, sizeof(diskframe));
+		pframetype += sizeof(diskframe);
+		frametype = LittleLong (diskframe.type);
+		if (frametype != SPR_SINGLE && frametype != SPR_GROUP && frametype != SPR_ANGLED)
+			return false;
 		psprite->frames[i].type = frametype;
 
 		if (frametype == SPR_SINGLE)
 		{
-			pframetype = (dspriteframetype_t *)
-					Mod_LoadSpriteFrame (mod, pframetype + 1, (qbyte*)buffer + fsize,
+			pframetype = Mod_LoadSpriteFrame (mod, pframetype, end,
 										 &psprite->frames[i].frameptr, i, -1, version, pal);
 		}
 		else
 		{
-			pframetype = (dspriteframetype_t *)
-					Mod_LoadSpriteGroup (mod, pframetype + 1, (qbyte*)buffer + fsize,
+			pframetype = Mod_LoadSpriteGroup (mod, pframetype, end,
 										 &psprite->frames[i].frameptr, i, version, pal);
 		}
 		if (pframetype == NULL)
@@ -6309,13 +6368,14 @@ qboolean QDECL Mod_LoadSprite2Model (model_t *mod, void *buffer, size_t fsize)
 	dmd2sprite_t		*pin;
 	msprite_t			*psprite;
 	int					numframes;
-	int					size;
+	size_t				size;
 	dmd2sprframe_t		*pframetype;
 	mspriteframe_t		*frame;
 	int w, h;
 	float origin[2];
 
-	
+	if (fsize < offsetof(dmd2sprite_t, frames))
+		return false;
 	pin = (dmd2sprite_t *)buffer;
 
 	version = LittleLong (pin->version);
@@ -6327,8 +6387,12 @@ qboolean QDECL Mod_LoadSprite2Model (model_t *mod, void *buffer, size_t fsize)
 	}
 
 	numframes = LittleLong (pin->numframes);
+	if (numframes < 1 ||
+	    (size_t)numframes > (fsize - offsetof(dmd2sprite_t, frames)) / sizeof(*pframetype) ||
+	    (size_t)(numframes - 1) > (INT_MAX - sizeof(*psprite)) / sizeof(psprite->frames[0]))
+		return false;
 
-	size = sizeof (msprite_t) +	(numframes - 1) * sizeof (psprite->frames);
+	size = sizeof(*psprite) + (numframes - 1) * sizeof(psprite->frames[0]);
 
 	psprite = ZG_Malloc(&mod->memgroup, size);
 
@@ -6349,12 +6413,6 @@ qboolean QDECL Mod_LoadSprite2Model (model_t *mod, void *buffer, size_t fsize)
 //
 // load the frames
 //
-	if (numframes < 1)
-	{
-		Con_Printf (CON_ERROR "Mod_LoadSpriteModel: Invalid # of frames: %d\n", numframes);
-		return false;
-	}
-
 	mod->numframes = numframes;
 
 	pframetype = pin->frames;
@@ -6362,13 +6420,16 @@ qboolean QDECL Mod_LoadSprite2Model (model_t *mod, void *buffer, size_t fsize)
 	for (i=0 ; i<numframes ; i++)
 	{
 		spriteframetype_t	frametype;
+		char name[sizeof(pframetype->name) + 1];
 
 		frametype = SPR_SINGLE;
 		psprite->frames[i].type = frametype;
 
 		frame = psprite->frames[i].frameptr = ZG_Malloc(&mod->memgroup, sizeof(mspriteframe_t));
 
-		frame->image = Image_GetTexture(pframetype->name, NULL, IF_NOMIPMAP|IF_NOGAMMA|IF_CLAMP, NULL, NULL, 0, 0, TF_INVALID);
+		memcpy(name, pframetype->name, sizeof(pframetype->name));
+		name[sizeof(name) - 1] = 0;
+		frame->image = Image_GetTexture(name, NULL, IF_NOMIPMAP|IF_NOGAMMA|IF_CLAMP, NULL, NULL, 0, 0, TF_INVALID);
 
 		w = LittleLong(pframetype->width);
 		h = LittleLong(pframetype->height);

@@ -76,6 +76,36 @@ existing whitespace, character-literal and trailing-text conventions.
 Malformed inputs are rejected or bounded; supported gameplay rules and wire
 field definitions are unchanged.
 
+## Loader and SDL audio race checks
+
+Use a native 64-bit Clang build on macOS or Linux with the ThreadSanitizer
+runtime. The macOS CI lane builds this configuration separately from
+ASan/UBSan. Both tests use original fixtures and SDL's dummy audio and
+video drivers, so they run without a display or installed game data.
+
+```sh
+cmake -S . -B build/thread-sanitize -DCMAKE_BUILD_TYPE=Debug \
+  -DFTE_THREAD_SANITIZER=ON -DFTE_TOOL_QCCGUI=OFF -DBUILD_TESTING=ON
+cmake --build build/thread-sanitize --target fteqw fteqcc --parallel
+ctest --test-dir build/thread-sanitize -R '^(music-remap|thread-lifecycle)$' --output-on-failure
+```
+
+`thread-lifecycle` changes between two synthetic BSPs, checks that the SDL
+mixer plays a WAV before and after sound and renderer restarts, resizes the
+loader pool, and quits with worker jobs queued. It verifies that a worker's
+callback runs during shutdown. It repeats the scenario in three fresh
+processes. `music-remap` exercises playback and config restoration. Each
+test stops on the first race and keeps its process logs under the build
+directory. On a sandboxed Mac, `TSAN_OPTIONS=symbolize=0` can avoid failed
+symbolizer launches while retaining race reports with binary offsets.
+
+The macOS run exposed races in loader-queue polling and acknowledgements,
+allocation statistics, the shared texture-format table, filesystem lookup
+tracking, BSP publication, and SDL mixer state. The fixes protect shared
+state with the corresponding locks and queue BSP renderer work after the
+loader finishes initializing the model. Coverage is limited to the paths
+exercised by these fixtures. See [Clang's ThreadSanitizer documentation](https://clang.llvm.org/docs/ThreadSanitizer.html).
+
 ## Run the sanitizer suite
 
 GCC or Clang, Python 3.9+, and the normal native build dependencies are required.
@@ -187,10 +217,14 @@ native graphical playtests.
 
 The macOS release all-target audit reduced ordinary Clang source-warning
 locations from 38 to one. Eight explicit developer TODO diagnostics remain
-after removal of the release-only package-signature exception, along with a gettext catalog warning and the inherited Apple linker alignment
-warning. No global warning category was disabled to obtain this reduction.
-The remaining unused capsule-height calculation is in `world.c`; that source
-was kept unchanged to preserve the collision baseline.
+after removal of the release-only package-signature exception, along with a
+gettext catalog warning. The Apple linker alignment warning was traced to the
+large tentative definitions of the engine parse token and QuakeC parameter
+names. Explicit zero initialization removed the warning in the macOS Release
+client, dedicated server, and compiler builds.
+The unused capsule-height calculation in `world.c` was subsequently removed.
+The dedicated server also omits the two skeletal transforms that only client
+rendering uses.
 
 Debug builds with the current Apple SDK also expose a separate backlog of
 legacy formatted-output deprecations. The bounded-call cleanup reduces that

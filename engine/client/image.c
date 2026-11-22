@@ -284,17 +284,18 @@ static void GenerateXMPData(char *blob, size_t blobsize, int width, int height, 
 #endif
 
 #ifdef IMAGEFMT_TGA
+#include <limits.h>
 #ifndef _WIN32
 #include <unistd.h>
 #endif
 
 typedef struct {	//cm = colourmap
-	char	id_len;		//0
+	qbyte	id_len;		//0
 	char	cm_type;	//1
 	qbyte	version;	//2
 		char pad1;
-	short	cm_idx;		//3
-	short	cm_len;		//5
+	unsigned short	cm_idx;		//3
+	unsigned short	cm_len;		//5
 	char	cm_size;	//7
 		char pad2;
 	short	originx;	//8 (ignored)
@@ -305,30 +306,30 @@ typedef struct {	//cm = colourmap
 	qbyte	attribs;	//17
 } tgaheader_t;
 
-static char *ReadGreyTargaFile (qbyte *data, int flen, tgaheader_t *tgahead, int asgrey)	//preswapped header
+static qbyte *ReadGreyTargaFile (qbyte *data, size_t length, const tgaheader_t *tgahead, int asgrey)
 {
 	int				columns, rows;
 	int				row, column;
 	qbyte			*pixbuf, *pal;
 	qboolean		flipped;
+	size_t			palettebytes = 0;
+	size_t			pixelcount = (size_t)tgahead->width * tgahead->height;
+	qbyte			*pixels;
 
-	qbyte *pixels = BZ_Malloc(tgahead->width * tgahead->height * (asgrey?1:4));
-
-	if (tgahead->version!=1
-		&& tgahead->version!=3)
-	{
-		Con_Printf("LoadGrayTGA: Only type 1 and 3 greyscale targa images are understood.\n");
-		BZ_Free(pixels);
+	if (tgahead->bpp != 8)
 		return NULL;
-	}
-
-	if (tgahead->version==1 && tgahead->bpp != 8 &&
-		tgahead->cm_size != 24 && tgahead->cm_len != 256)
+	if (tgahead->version == 1)
 	{
-		Con_Printf("LoadGrayTGA: Strange palette type\n");
-		BZ_Free(pixels);
-		return NULL;
+		if (tgahead->cm_size != 24 || !tgahead->cm_len ||
+		    tgahead->cm_idx + tgahead->cm_len > 256)
+			return NULL;
+		palettebytes = tgahead->cm_len * 3;
 	}
+	if (palettebytes + pixelcount > length)
+		return NULL;
+	pixels = BZF_Malloc(pixelcount * (asgrey ? 1 : 4));
+	if (!pixels)
+		return NULL;
 
 	columns = tgahead->width;
 	rows = tgahead->height;
@@ -342,7 +343,7 @@ static char *ReadGreyTargaFile (qbyte *data, int flen, tgaheader_t *tgahead, int
 	if (tgahead->version == 1)
 	{	//paletted data...
 		pal = data;
-		data += tgahead->cm_len*3;
+		data += palettebytes;
 		if (asgrey)
 		{
 			for(row=rows-1; row>=0; row--)
@@ -367,11 +368,16 @@ static char *ReadGreyTargaFile (qbyte *data, int flen, tgaheader_t *tgahead, int
 
 				for(column=0; column<columns; column++)
 				{
-					*pixbuf++= pal[*data*3+2];
-					*pixbuf++= pal[*data*3+1];
-					*pixbuf++= pal[*data*3+0];
+					int index = *data++ - tgahead->cm_idx;
+					if (index < 0 || index >= tgahead->cm_len)
+					{
+						BZ_Free(pixels);
+						return NULL;
+					}
+					*pixbuf++= pal[index*3+2];
+					*pixbuf++= pal[index*3+1];
+					*pixbuf++= pal[index*3+0];
 					*pixbuf++= 255;
-					data++;
 				}
 			}
 		}
@@ -416,7 +422,7 @@ static char *ReadGreyTargaFile (qbyte *data, int flen, tgaheader_t *tgahead, int
 	return pixels;
 }
 
-#define MISSHORT(ptr) (*(ptr) | (*(ptr+1) << 8))
+#define MISSHORT(ptr) ((ptr)[0] | ((ptr)[1] << 8))
 //remember to free it
 //greyonly causes the function to fail if given anything but greyscale images
 //this is for detecting heightmaps instead of normalmaps.
@@ -424,6 +430,8 @@ void *ReadTargaFile(qbyte *buf, int length, int *width, int *height, uploadfmt_t
 {
 	//tga files sadly lack a true magic header thing.
 	unsigned char *data;
+	const qbyte *end;
+	size_t pixelcount;
 
 	qboolean flipped;
 
@@ -472,8 +480,12 @@ void *ReadTargaFile(qbyte *buf, int length, int *width, int *height, uploadfmt_t
 		return NULL;
 	}
 	//validate the size to some sanity limit.
-	if ((unsigned short)tgaheader.width > 16384 || (unsigned short)tgaheader.height > 16384)
+	if (tgaheader.width <= 0 || tgaheader.width > 16384 ||
+	    tgaheader.height <= 0 || tgaheader.height > 16384 ||
+	    tgaheader.id_len > length - 18)
 		return NULL;
+	pixelcount = (size_t)tgaheader.width * tgaheader.height;
+	end = buf + length;
 
 
 	flipped = !((tgaheader.attribs & 0x20) >> 5);
@@ -501,7 +513,7 @@ void *ReadTargaFile(qbyte *buf, int length, int *width, int *height, uploadfmt_t
 			*format = PTI_L8;
 		else
 			*format = PTI_RGBX8;
-		return ReadGreyTargaFile(data, length, &tgaheader, *format==PTI_L8);
+		return ReadGreyTargaFile(data, end - data, &tgaheader, *format==PTI_L8);
 	}
 	else if (tgaheader.version == 10 || tgaheader.version == 9 || tgaheader.version == 11)
 	{
@@ -527,6 +539,8 @@ void *ReadTargaFile(qbyte *buf, int length, int *width, int *height, uploadfmt_t
 			rle_l8a8,
 		} rlemode;
 		int outbytes;
+		unsigned int pixelbytes = tgaheader.bpp / 8;
+		size_t remaining = pixelcount;
 
 		*format = PTI_RGBX8;
 		if (tgaheader.version == 9)
@@ -553,12 +567,16 @@ void *ReadTargaFile(qbyte *buf, int length, int *width, int *height, uploadfmt_t
 			if (tgaheader.cm_type)
 			{
 				qboolean grey = true;
+				unsigned int paletteend = tgaheader.cm_idx + tgaheader.cm_len;
+				if (paletteend > 256 ||
+				    tgaheader.cm_len * (tgaheader.cm_size / 8) > end - data)
+					return NULL;
 				switch(tgaheader.cm_size)
 				{
 				default:
 					return NULL;
 				case 24:
-					for (row = 0; row < tgaheader.cm_len; row++)
+					for (row = tgaheader.cm_idx; row < paletteend; row++)
 					{
 						if (data[0] != data[1] || data[0] != data[2])
 							grey = false;
@@ -573,7 +591,7 @@ void *ReadTargaFile(qbyte *buf, int length, int *width, int *height, uploadfmt_t
 						*format = PTI_RGBA8;
 					break;
 				case 32:
-					for (row = 0; row < tgaheader.cm_len; row++)
+					for (row = tgaheader.cm_idx; row < paletteend; row++)
 					{
 						if (data[0] != data[1] || data[0] != data[2] || data[3] != 0xff)
 							grey = false;
@@ -628,7 +646,11 @@ void *ReadTargaFile(qbyte *buf, int length, int *width, int *height, uploadfmt_t
 			outbytes = 2;
 		else
 			outbytes = 4;
-		targa_rgba=BZ_Malloc(rows*columns*outbytes);
+		if ((pixelcount + 127) / 128 * (pixelbytes + 1) > (size_t)(end - data))
+			return NULL;
+		targa_rgba = BZF_Malloc(pixelcount * outbytes);
+		if (!targa_rgba)
+			return NULL;
 		for(row=rows; row-->0; )
 		{
 			if (flipped)
@@ -637,8 +659,14 @@ void *ReadTargaFile(qbyte *buf, int length, int *width, int *height, uploadfmt_t
 				pixbuf = targa_rgba + ((rows-1)-row)*columns*outbytes;
 			for(column=0; column<columns; )
 			{
+				if (data == end)
+					goto truncated;
 				packetHeader=*data++;
 				packetSize = 1 + (packetHeader & 0x7f);
+				if (packetSize > remaining ||
+				    ((packetHeader & 0x80) ? pixelbytes : packetSize * pixelbytes) > (size_t)(end - data))
+					goto truncated;
+				remaining -= packetSize;
 				if (packetHeader & 0x80)
 				{	// run-length packet
 					switch (rlemode)
@@ -877,30 +905,40 @@ void *ReadTargaFile(qbyte *buf, int length, int *width, int *height, uploadfmt_t
 		breakOut:;
 
 		return targa_rgba;
+
+	truncated:
+		BZ_Free(targa_rgba);
+		return NULL;
 	}
 	else if ((tgaheader.version == 0x82||tgaheader.version == 0x83) && forceformat && forceformat!=PTI_RGBA16F)
 		Con_Printf("HTGA: required output format is not half-float\n");
 	else if ((tgaheader.version == 0x82||tgaheader.version == 0x83) && !(tgaheader.bpp&15) && tgaheader.bpp>=16 && tgaheader.bpp<=16*4)
 	{	//packed r[g[b[a]]]f
-		unsigned short *initbuf, *inrow, *outrow;
-		int x, y, mul;
+		unsigned short *initbuf, *outrow;
+		const qbyte *inrow;
+		int x, y, mul, outbytes;
 
 		if (tgaheader.version == 0x83 && tgaheader.bpp==16)
 			*format = forceformat = PTI_R16F;
 		else
 			*format = forceformat = PTI_RGBA16F; //gray+alpha needs to be rgbaf
 
-		initbuf = BZ_Malloc(tgaheader.height*tgaheader.width* ((forceformat==PTI_R16F)?2:8));
-
 		mul = tgaheader.bpp/8;
+		outbytes = (forceformat == PTI_R16F) ? 2 : 8;
+		if (pixelcount * mul > (size_t)(end - data) ||
+		    pixelcount > INT_MAX / (size_t)outbytes)
+			return NULL;
+		initbuf = BZF_Malloc(pixelcount * outbytes);
+		if (!initbuf)
+			return NULL;
 //flip +convert to 32 bit
-		outrow = &initbuf[(int)(0)*tgaheader.width*mul];
+		outrow = initbuf;
 		for (y = 0; y < tgaheader.height; y+=1)
 		{
 			if (flipped)
-				inrow = (unsigned short*)&data[(int)(tgaheader.height-y-1)*tgaheader.width*mul];
+				inrow = &data[(tgaheader.height-y-1)*tgaheader.width*mul];
 			else
-				inrow = (unsigned short*)&data[(int)(y)*tgaheader.width*mul];
+				inrow = &data[y*tgaheader.width*mul];
 
 			switch(mul)
 			{
@@ -917,17 +955,20 @@ void *ReadTargaFile(qbyte *buf, int length, int *width, int *height, uploadfmt_t
 				if (forceformat == PTI_R16F)
 				{
 					for (x = 0; x < tgaheader.width; x+=1)
-						*outrow++ = *inrow++;
+					{
+						*outrow++ = MISSHORT(inrow);
+						inrow += 2;
+					}
 				}
 				else
 				{
 					for (x = 0; x < tgaheader.width; x+=1)
 					{
-						*outrow++ = *inrow;
-						*outrow++ = *inrow;
-						*outrow++ = *inrow;
+						*outrow++ = MISSHORT(inrow);
+						*outrow++ = MISSHORT(inrow);
+						*outrow++ = MISSHORT(inrow);
 						*outrow++ = 0xf<<10; //1.0
-						inrow+=1;
+						inrow += 2;
 					}
 				}
 				break;
@@ -936,43 +977,43 @@ void *ReadTargaFile(qbyte *buf, int length, int *width, int *height, uploadfmt_t
 				{	//treat as LumAlpha
 					for (x = 0; x < tgaheader.width; x+=1)
 					{
-						*outrow++ = inrow[0];
-						*outrow++ = inrow[0];
-						*outrow++ = inrow[0];
-						*outrow++ = inrow[1];
-						inrow+=2;
+						*outrow++ = MISSHORT(inrow + 0);
+						*outrow++ = MISSHORT(inrow + 0);
+						*outrow++ = MISSHORT(inrow + 0);
+						*outrow++ = MISSHORT(inrow + 2);
+						inrow += 4;
 					}
 				}
 				else
 				{	//RG
 					for (x = 0; x < tgaheader.width; x+=1)
 					{
-						*outrow++ = inrow[0];
-						*outrow++ = inrow[1];
+						*outrow++ = MISSHORT(inrow + 0);
+						*outrow++ = MISSHORT(inrow + 2);
 						*outrow++ = 0;
 						*outrow++ = 0xf<<10; //1.0
-						inrow+=2;
+						inrow += 4;
 					}
 				}
 				break;
 			case 6: //BGR
 				for (x = 0; x < tgaheader.width; x+=1)
 				{
-					*outrow++ = inrow[2];
-					*outrow++ = inrow[1];
-					*outrow++ = inrow[0];
+					*outrow++ = MISSHORT(inrow + 4);
+					*outrow++ = MISSHORT(inrow + 2);
+					*outrow++ = MISSHORT(inrow + 0);
 					*outrow++ = 0xf<<10; //1.0
-					inrow+=3;
+					inrow += 6;
 				}
 				break;
 			case 8: //BGRA16F, swizzle to rgba
 				for (x = 0; x < tgaheader.width; x+=1)
 				{
-					*outrow++ = inrow[2];
-					*outrow++ = inrow[1];
-					*outrow++ = inrow[0];
-					*outrow++ = inrow[3];
-					inrow+=4;
+					*outrow++ = MISSHORT(inrow + 4);
+					*outrow++ = MISSHORT(inrow + 2);
+					*outrow++ = MISSHORT(inrow + 0);
+					*outrow++ = MISSHORT(inrow + 6);
+					inrow += 8;
 				}
 				break;
 			}
@@ -987,9 +1028,12 @@ void *ReadTargaFile(qbyte *buf, int length, int *width, int *height, uploadfmt_t
 
 		if (tgaheader.bpp == 8)
 			return NULL;
-		initbuf=BZ_Malloc(tgaheader.height*tgaheader.width* ((forceformat==PTI_L8)?1:4));
-
 		mul = tgaheader.bpp/8;
+		if (pixelcount * mul > (size_t)(end - data))
+			return NULL;
+		initbuf = BZF_Malloc(pixelcount * ((forceformat==PTI_L8)?1:4));
+		if (!initbuf)
+			return NULL;
 //flip +convert to 32 bit
 		if (forceformat==PTI_L8)
 		{
@@ -2730,175 +2774,126 @@ qboolean WritePCXfile (const char *filename, enum fs_relative fsroot, qbyte *dat
 LoadPCX
 ============
 */
+static qboolean PCX_ReadHeader(const qbyte *buf, int length, int *width, int *height, int *stride)
+{
+	pcx_t pcx;
+
+	if (length < (int)sizeof(pcx))
+		return false;
+	memcpy(&pcx, buf, sizeof(pcx));
+	if (pcx.manufacturer != 0x0a || pcx.version != 5 || pcx.encoding != 1 ||
+	    pcx.bits_per_pixel != 8 || pcx.color_planes != 1)
+		return false;
+
+	*width = (unsigned short)LittleShort(pcx.xmax) - (unsigned short)LittleShort(pcx.xmin) + 1;
+	*height = (unsigned short)LittleShort(pcx.ymax) - (unsigned short)LittleShort(pcx.ymin) + 1;
+	*stride = (unsigned short)LittleShort(pcx.bytes_per_line);
+	if (!*stride)
+		*stride = *width; // Some older encoders leave this field unset.
+	return *width > 0 && *height > 0 && *stride >= *width;
+}
+
+static qboolean PCX_ReadRun(const qbyte **data, const qbyte *end, int remaining, int *index, int *count)
+{
+	if (*data == end)
+		return false;
+	*index = *(*data)++;
+	*count = 1;
+	if ((*index & 0xc0) == 0xc0)
+	{
+		*count = *index & 0x3f;
+		if (!*count || *count > remaining || *data == end)
+			return false;
+		*index = *(*data)++;
+	}
+	return true;
+}
+
+static const qbyte *PCX_PixelEnd(const qbyte *buf, int length)
+{
+	const qbyte *end = buf + length;
+	if (length >= (int)sizeof(pcx_t) + 769 && end[-769] == 0x0c)
+		end -= 769;
+	return end;
+}
+
 qbyte *ReadPCXFile(qbyte *buf, int length, int *width, int *height)
 {
-	pcx_t	*pcx;
-//	pcx_t pcxbuf;
-	qbyte	*palette;
-	qbyte	*pix;
-	int		x, y;
-	int		dataByte, runLength;
-	int		count;
-	qbyte *data;
+	int w, h, stride, x, y, index, count;
+	const qbyte *data, *end, *palette;
+	qbyte *pixels, *pix;
 
-	qbyte	*pcx_rgb;
-
-	unsigned short xmin, ymin, swidth, sheight;
-
-//
-// parse the PCX file
-//
-
-	if (length < sizeof(*pcx))
+	if (!PCX_ReadHeader(buf, length, &w, &h, &stride) || w >= 1024 || h >= 1024)
 		return NULL;
 
-	pcx = (pcx_t *)buf;
-
-	xmin = LittleShort(pcx->xmin);
-	ymin = LittleShort(pcx->ymin);
-	swidth = LittleShort(pcx->xmax)-xmin+1;
-	sheight = LittleShort(pcx->ymax)-ymin+1;
-
-	if (pcx->manufacturer != 0x0a
-		|| pcx->version != 5
-		|| pcx->encoding != 1
-		|| pcx->bits_per_pixel != 8
-		|| pcx->color_planes != 1
-		|| swidth >= 1024
-		|| sheight >= 1024)
-	{
-		return NULL;
-	}
-
-	*width = swidth;
-	*height = sheight;
-
+	end = PCX_PixelEnd(buf, length);
 #ifdef HAVE_CLIENT
 	if (r_dodgypcxfiles.value)
 		palette = host_basepal;
 	else
 #endif
-		palette = buf + length-768;
-
-	data = (char *)(pcx+1);
-
-	count = (swidth) * (sheight);
-	pcx_rgb = BZ_Malloc( count * 4);
-
-	for (y=0 ; y<sheight ; y++)
 	{
-		pix = pcx_rgb + 4*y*(swidth);
-		for (x=0 ; x<swidth ; )
+		if (length < (int)sizeof(pcx_t) + 768)
+			return NULL;
+		palette = buf + length - 768;
+		if (end > palette)
+			end = palette; // Accept legacy palettes without a marker.
+	}
+
+	data = buf + sizeof(pcx_t);
+	pixels = BZF_Malloc(w * h * 4);
+	if (!pixels)
+		return NULL;
+	pix = pixels;
+	for (y = 0; y < h; y++)
+	{
+		for (x = 0; x < stride; x += count)
 		{
-			dataByte = *data;
-			data++;
-
-			if((dataByte & 0xC0) == 0xC0)
+			int visible;
+			if (!PCX_ReadRun(&data, end, stride - x, &index, &count))
 			{
-				runLength = dataByte & 0x3F;
-				if (x+runLength>swidth)
-				{
-					Con_Printf("corrupt pcx\n");
-					BZ_Free(pcx_rgb);
-					return NULL;
-				}
-				dataByte = *data;
-				data++;
+				BZ_Free(pixels);
+				return NULL;
 			}
-			else
-				runLength = 1;
-
-			while(runLength-- > 0)
+			visible = min(count, w - x);
+			while (visible-- > 0)
 			{
-				pix[0] = palette[dataByte*3];
-				pix[1] = palette[dataByte*3+1];
-				pix[2] = palette[dataByte*3+2];
-				pix[3] = 255;
-				if (dataByte == 255)
-				{
-					pix[0] = 0;	//linear filtering can mean transparent pixel colours are visible. black is a more neutral colour.
-					pix[1] = 0;
-					pix[2] = 0;
-					pix[3] = 0;
-				}
+				pix[0] = index == 255 ? 0 : palette[index * 3];
+				pix[1] = index == 255 ? 0 : palette[index * 3 + 1];
+				pix[2] = index == 255 ? 0 : palette[index * 3 + 2];
+				pix[3] = index == 255 ? 0 : 255;
 				pix += 4;
-				x++;
 			}
 		}
 	}
 
-	return pcx_rgb;
+	*width = w;
+	*height = h;
+	return pixels;
 }
 
 qbyte *ReadPCXData(qbyte *buf, int length, int width, int height, qbyte *result)
 {
-	pcx_t	*pcx;
-//	pcx_t pcxbuf;
-//	qbyte	*palette;
-	qbyte	*pix;
-	int		x, y;
-	int		dataByte, runLength;
-//	int		count;
-	qbyte *data;
+	int w, h, stride, x, y, index, count;
+	const qbyte *data, *end;
+	qbyte *row = result;
 
-	unsigned short xmin, ymin, swidth, sheight;
-
-//
-// parse the PCX file
-//
-
-	pcx = (pcx_t *)buf;
-
-	xmin = LittleShort(pcx->xmin);
-	ymin = LittleShort(pcx->ymin);
-	swidth = LittleShort(pcx->xmax)-xmin+1;
-	sheight = LittleShort(pcx->ymax)-ymin+1;
-
-	if (pcx->manufacturer != 0x0a
-		|| pcx->version != 5
-		|| pcx->encoding != 1
-		|| pcx->bits_per_pixel != 8)
-	{
+	if (!PCX_ReadHeader(buf, length, &w, &h, &stride) ||
+	    width != w || height <= 0 || height > h)
 		return NULL;
-	}
 
-	if (width != swidth ||
-		height > sheight)
+	data = buf + sizeof(pcx_t);
+	end = PCX_PixelEnd(buf, length);
+	for (y = 0; y < height; y++)
 	{
-		Con_Printf("unsupported pcx size\n");
-		return NULL;	//we can't feed the requester with enough info
-	}
-
-	data = (char *)(pcx+1);
-
-	for (y=0 ; y<height ; y++)
-	{
-		pix = result + y*swidth;
-		for (x=0 ; x<swidth ; )
+		for (x = 0; x < stride; x += count)
 		{
-			dataByte = *data;
-			data++;
-
-			if((dataByte & 0xC0) == 0xC0)
-			{
-				runLength = dataByte & 0x3F;
-				if (x+runLength>swidth)
-				{
-					Con_Printf("corrupt pcx\n");
-					return NULL;
-				}
-				dataByte = *data;
-				data++;
-			}
-			else
-				runLength = 1;
-
-			while(runLength-- > 0)
-			{
-				*pix++ = dataByte;
-				x++;
-			}
+			if (!PCX_ReadRun(&data, end, stride - x, &index, &count))
+				return NULL;
+			if (x < width)
+				memset(row + x, index, min(count, width - x));
 		}
+		row += width;
 	}
 
 	return result;
@@ -2906,29 +2901,17 @@ qbyte *ReadPCXData(qbyte *buf, int length, int width, int height, qbyte *result)
 
 qbyte *ReadPCXPalette(qbyte *buf, int len, qbyte *out)
 {
-	pcx_t	*pcx;
+	int width, height, stride;
 
-
-//
-// parse the PCX file
-//
-
-	pcx = (pcx_t *)buf;
-
-	if (pcx->manufacturer != 0x0a
-		|| pcx->version != 5
-		|| pcx->encoding != 1
-		|| pcx->bits_per_pixel != 8
-		|| LittleShort(pcx->xmax) >= 1024
-		|| LittleShort(pcx->ymax) >= 1024)
-	{
+	if (len < (int)sizeof(pcx_t) + 768 ||
+	    !PCX_ReadHeader(buf, len, &width, &height, &stride) ||
+	    width > 1024 || height > 1024)
 		return NULL;
-	}
 
-	memcpy(out, (qbyte *)pcx + len - 768, 768);
-
+	memcpy(out, buf + len - 768, 768);
 	return out;
 }
+
 #endif
 
 #ifdef IMAGEFMT_BMP
@@ -12659,11 +12642,12 @@ static void Image_ChangeFormatFlags(struct pendingtextureinfo *mips, unsigned in
 		Image_ChangeFormat(mips, p8only, origfmt, imagename);
 	}
 	else
-	{	//don't allow r8-as-indexes if its fed as an input. it won't make sense unless its explicit.
-		qboolean p8 = sh_config.texfmt[PTI_P8];
-		sh_config.texfmt[PTI_P8] = false;
-		Image_ChangeFormat(mips, sh_config.texfmt, origfmt, imagename);
-		sh_config.texfmt[PTI_P8] = p8;
+	{
+		// This conversion's palette policy is private to the loader job.
+		qboolean allowed[PTI_MAX];
+		memcpy(allowed, sh_config.texfmt, sizeof(allowed));
+		allowed[PTI_P8] = false;
+		Image_ChangeFormat(mips, allowed, origfmt, imagename);
 	}
 }
 

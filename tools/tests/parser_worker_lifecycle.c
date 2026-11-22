@@ -65,7 +65,6 @@ static int COM_DoWork(int group, int locked)
 	if (locked) Sys_LockConditional(com_workercondition[WG_MAIN]);
 	return true;
 }
-static int COM_HasWork(void) { return queued_count!=0; }
 static int Sys_ConditionWait(void *ptr)
 {
 	assert(ptr==com_workercondition[WG_MAIN]);waits++;

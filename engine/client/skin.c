@@ -190,9 +190,9 @@ void Skin_Find (player_info_t *sc)
 
 qbyte *Skin_ParsePCX(const char *name, const pcx_t *pcx, size_t pcxsize, int *pcxheight, int *pcxwidth)
 {
-	const qbyte	*raw;
+	const qbyte	*raw, *end;
 	qbyte	*out, *pix;
-	int		x, y, srcw, srch;
+	int		x, y, srcw, srch, stride;
 	int		dataByte;
 	int		runLength;
 	int fbremap[256];
@@ -204,13 +204,19 @@ qbyte *Skin_ParsePCX(const char *name, const pcx_t *pcx, size_t pcxsize, int *pc
 //
 // parse the PCX file
 //
+	if (pcxsize < sizeof(*pcx))
+		return NULL;
 	raw = (const qbyte *)(pcx+1);
+	end = (const qbyte *)pcx + pcxsize;
+	if (pcxsize >= sizeof(*pcx) + 769 && end[-769] == 0x0c)
+		end -= 769;
 
 	//check format (sizes are checked later)
 	if (pcx->manufacturer != 0x0a
 		|| pcx->version != 5
 		|| pcx->encoding != 1
-		|| pcx->bits_per_pixel != 8)
+		|| pcx->bits_per_pixel != 8
+		|| pcx->color_planes != 1)
 	{
 		Con_Printf ("Bad skin %s (unsupported format)\n", name);
 		return NULL;
@@ -230,8 +236,11 @@ qbyte *Skin_ParsePCX(const char *name, const pcx_t *pcx, size_t pcxsize, int *pc
 		return NULL;
 	}
 
-	*pcxheight = srcw;
-	*pcxwidth = srch;
+	stride = (unsigned short)LittleShort(pcx->bytes_per_line);
+	if (!stride)
+		stride = srcw;
+	if (stride < srcw)
+		return NULL;
 
 	out = BZ_Malloc(srcw*srch);
 	if (!out)
@@ -242,69 +251,41 @@ qbyte *Skin_ParsePCX(const char *name, const pcx_t *pcx, size_t pcxsize, int *pc
 		fbremap[x] = x + (256-vid.fullbright);	//fullbrights don't exist, so don't loose palette info.
 
 
-	pix = out;
-//	memset (out, 0, skin->width*skin->height);
-
-	dataByte = 0;	//typically black (this is in case a 0*0 file is loaded... which won't happen anyway)
-	for (y=0 ; y < srch ; y++, pix += srcw)
+	for (y = 0, pix = out; y < srch; y++, pix += srcw)
 	{
-		for (x=0 ; x < srcw ; )
+		for (x = 0; x < stride; x += runLength)
 		{
-			if (raw - (const qbyte*)pcx > pcxsize)
-			{
-				BZ_Free(out);
-				Con_Printf ("Skin %s was malformed.  You should delete it.\n", name);
-				return NULL;
-			}
+			if (raw == end)
+				goto malformed;
 			dataByte = *raw++;
 
 			if((dataByte & 0xC0) == 0xC0)
 			{
 				runLength = dataByte & 0x3F;
-				if (raw - (const qbyte*)pcx > pcxsize)
-				{
-					BZ_Free(out);
-					Con_Printf ("Skin %s was malformed.  You should delete it.\n", name);
-					return NULL;
-				}
+				if (!runLength || runLength > stride - x || raw == end)
+					goto malformed;
 				dataByte = *raw++;
 			}
 			else
 				runLength = 1;
 
-			// skin sanity check
-			if (runLength + x > xmax + 2)
-			{
-				BZ_Free(out);
-				Con_Printf ("Skin %s was malformed.  You should delete it.\n", name);
-				return NULL;
-			}
-
 			if (dataByte >= 256-vid.fullbright)	//kill the fb componant
 				if (!r_fb_models.ival)
 					dataByte = fbremap[dataByte + vid.fullbright-256];
 
-			while(runLength-- > 0)
-				pix[x++] = dataByte;
+			if (x < srcw)
+				memset(pix + x, dataByte, min(runLength, srcw - x));
 		}
-
-		//pad the end of the scan line with the trailing pixel
-		for ( ; x < srcw ; )
-			pix[x++] = dataByte;
-	}
-	//pad the bottom of the skin with that final pixel
-	for ( ; y < srch; y++, pix += srcw)
-		for (x = 0; x < srcw; )
-			pix[x++] = dataByte;
-
-	if ( raw - (const qbyte *)pcx > pcxsize)
-	{
-		BZ_Free(out);
-		Con_Printf ("Skin %s was malformed.  You should delete it.\n", name);
-		return NULL;
 	}
 
+	*pcxheight = srcw;
+	*pcxwidth = srch;
 	return out;
+
+malformed:
+	BZ_Free(out);
+	Con_Printf ("Skin %s was malformed.  You should delete it.\n", name);
+	return NULL;
 }
 
 void Skin_WorkerDone(void *skinptr, void *skindata, size_t width, size_t height)

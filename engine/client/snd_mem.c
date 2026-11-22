@@ -929,7 +929,9 @@ void S_UnregisterSoundInputModule(void *module)
 static void S_LoadedOrFailed (void *ctx, void *ctxdata, size_t a, size_t b)
 {
 	sfx_t *s = ctx;
+	S_LockMixer();
 	s->loadstate = a;
+	S_UnlockMixer();
 }
 /*
 ==============
@@ -937,7 +939,7 @@ S_LoadSound
 ==============
 */
 
-static void S_LoadSoundWorker (void *ctx, void *ctxdata, size_t forcedecode, size_t b)
+static void S_LoadSoundWorker (void *ctx, void *ctxdata, size_t forcedecode, size_t syspath)
 {
 	sfx_t *s = ctx;
 	char	namebuffer[256];
@@ -949,7 +951,7 @@ static void S_LoadSoundWorker (void *ctx, void *ctxdata, size_t forcedecode, siz
 
 	s->loopstart = -1;
 
-	if (s->syspath)
+	if (syspath)
 	{
 		vfsfile_t *f;
 
@@ -994,7 +996,7 @@ static void S_LoadSoundWorker (void *ctx, void *ctxdata, size_t forcedecode, siz
 		if (*name == '*')	//q2 sexed sounds
 		{
 			//clq2_parsestartsound detects this also, and should not try playing these sounds.
-			s->loadstate = SLS_FAILED;
+			COM_AddWork(WG_MAIN, S_LoadedOrFailed, s, NULL, SLS_FAILED, 0);
 			return;
 		}
 
@@ -1076,7 +1078,8 @@ qboolean S_LoadSound (sfx_t *s, qboolean force)
 	if (s->loadstate == SLS_NOTLOADED && sndcardinfo)
 	{
 		s->loadstate = SLS_LOADING;
-		COM_AddWork(WG_LOADER, S_LoadSoundWorker, s, NULL, force, 0);
+		// The loader's input shares a bitfield with the main thread's touched flag.
+		COM_AddWork(WG_LOADER, S_LoadSoundWorker, s, NULL, force, s->syspath);
 	}
 	if (s->loadstate == SLS_FAILED)
 		return false;	//it failed to load once before, don't bother trying again.

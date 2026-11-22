@@ -4400,7 +4400,7 @@ unsigned int COM_DeQuake(unsigned int chr)
 //============================================================================
 
 #define TOKENSIZE sizeof(com_token)
-char		com_token[TOKENSIZE];
+char		com_token[TOKENSIZE] = {0};
 int		com_argc;
 const char	**com_argv;
 
@@ -5902,16 +5902,16 @@ void *com_resourcemutex;
 static int com_liveworkers[WG_COUNT];
 static void *com_workercondition[WG_COUNT];
 int com_hadwork[WG_COUNT];
-static volatile int com_workeracksequence;
+static int com_workeracksequence;
 static struct com_worker_s
 {
 	void *thread;
-	volatile enum {
+	enum {
 		WR_NONE,
 		WR_DIE,
 		WR_ACK	//updates ackseq to com_workeracksequence and sends a signal to WG_MAIN
 	} request;
-	volatile int ackseq;
+	int ackseq;
 } com_worker[WORKERTHREADS];
 qboolean com_workererror;
 static struct com_work_s
@@ -5933,7 +5933,13 @@ qboolean COM_HasWork(void)
 	unsigned int i;
 	for (i = 0; i < WG_COUNT; i++)
 	{
-		if (com_work_head[i])
+		qboolean pending;
+		if (!com_workercondition[i])
+			continue;
+		Sys_LockConditional(com_workercondition[i]);
+		pending = com_work_head[i] != NULL;
+		Sys_UnlockConditional(com_workercondition[i]);
+		if (pending)
 			return true;
 	}
 	return false;
@@ -6033,15 +6039,10 @@ void COM_AddWork(wgroup_t tg, void(*func)(void *ctx, void *data, size_t a, size_
 qboolean COM_DoWork(int tg, qboolean leavelocked)
 {
 	struct com_work_s *work;
-	if (tg >= WG_COUNT)
+	if (tg >= WG_COUNT || !com_workercondition[tg])
 		return false;
 	if (!leavelocked)
-	{
-		//skip the locks if it looks like we can be lazy.
-		if (!com_work_head[tg])
-			return false;
 		Sys_LockConditional(com_workercondition[tg]);
-	}
 	work = com_work_head[tg];
 	if (work)
 		com_work_head[tg] = work->next;
@@ -6318,7 +6319,6 @@ void COM_WorkerUnlock(void)
 //fully flushes ALL pending work.
 void COM_WorkerFullSync(void)
 {
-	qboolean repeat;
 	int i;
 
 	while(COM_DoWork(WG_MAIN, false))
@@ -6327,49 +6327,44 @@ void COM_WorkerFullSync(void)
 	if (!com_liveworkers[WG_LOADER])
 		return;
 
-	com_workeracksequence++;
-
 	Sys_LockConditional(com_workercondition[WG_MAIN]);
-	do
+	Sys_LockConditional(com_workercondition[WG_LOADER]);
+	com_workeracksequence++;
+	Sys_UnlockConditional(com_workercondition[WG_LOADER]);
+	while (!com_workererror)
 	{
-		if (!COM_HasWork())
+		qboolean pending = false, wake = false;
+
+		if (COM_DoWork(WG_MAIN, true))
 		{
-			Sys_UnlockConditional(com_workercondition[WG_MAIN]);
+			// A main-thread callback may have queued new loader work.
 			Sys_LockConditional(com_workercondition[WG_LOADER]);
-			repeat = false;
-			for (i = 0; i < WORKERTHREADS; i++)
-			{
-				if (com_worker[i].ackseq != com_workeracksequence && com_worker[i].request == WR_NONE)
-				{
-					com_worker[i].request = WR_ACK;
-					repeat = true;
-				}
-			}
-			if (repeat)	//we're unable to signal a specific thread due to only having one condition. oh well. WAKE UP GUYS!
-				Sys_ConditionBroadcast(com_workercondition[WG_LOADER]);
-			Sys_UnlockConditional(com_workercondition[WG_LOADER]);
-			Sys_LockConditional(com_workercondition[WG_MAIN]);
-		}
-
-		repeat = COM_DoWork(WG_MAIN, true);
-
-		if (repeat)
-		{	//if we just did something, we may have posted something new to a worker... bum.
 			com_workeracksequence++;
+			Sys_UnlockConditional(com_workercondition[WG_LOADER]);
+			continue;
 		}
-		else
+
+		// Check acknowledgements under the loader lock. Holding the main
+		// condition through this check prevents missing a worker's signal.
+		Sys_LockConditional(com_workercondition[WG_LOADER]);
+		for (i = 0; i < WORKERTHREADS; i++)
 		{
-			for (i = 0; i < WORKERTHREADS; i++)
+			if (!com_worker[i].thread || com_worker[i].ackseq == com_workeracksequence)
+				continue;
+			pending = true;
+			if (com_worker[i].request == WR_NONE)
 			{
-				if (com_worker[i].thread && com_worker[i].ackseq != com_workeracksequence)
-					repeat = true;
+				com_worker[i].request = WR_ACK;
+				wake = true;
 			}
-			if (repeat)
-				Sys_ConditionWait(com_workercondition[WG_MAIN]);
 		}
-		if (com_workererror)
+		if (wake)
+			Sys_ConditionBroadcast(com_workercondition[WG_LOADER]);
+		Sys_UnlockConditional(com_workercondition[WG_LOADER]);
+		if (!pending)
 			break;
-	} while(repeat);
+		Sys_ConditionWait(com_workercondition[WG_MAIN]);
+	}
 	Sys_UnlockConditional(com_workercondition[WG_MAIN]);
 }
 
@@ -6500,23 +6495,16 @@ static void QDECL COM_WorkerCount_Change(cvar_t *var, char *oldvalue)
 	while(COM_DoWork(WG_MAIN, false))
 		;
 
-	for (i = 0; i < WORKERTHREADS; i++)
-	{
-		if (i >= count)
-		{
-			//higher thread indexes need to die.
-			com_worker[i].request = WR_DIE;	//flag them all to die
-		}
-		else
-		{
-			//lower thread indexes need to be created
-			if (!com_worker[i].thread)
-			{
-				COM_StartWorkerThread(i);
-			}
-		}
-	}
+	count = bound(0, count, WORKERTHREADS);
+	Sys_LockConditional(com_workercondition[WG_LOADER]);
+	for (i = count; i < WORKERTHREADS; i++)
+		com_worker[i].request = WR_DIE;
 	Sys_ConditionBroadcast(com_workercondition[WG_LOADER]);	//and make sure they ALL wake up to check their new death values.
+	Sys_UnlockConditional(com_workercondition[WG_LOADER]);
+
+	for (i = 0; i < count; i++)
+		if (!com_worker[i].thread)
+			COM_StartWorkerThread(i);
 }
 static void COM_InitWorkerThread(void)
 {

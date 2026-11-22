@@ -5,6 +5,7 @@ static int filtermip[3] = {1, 1, 1}, filterpic[3] = {1, 1, 1};
 static int mipcap[2] = {0, 1000};
 static float samplerbias, sampleranisotropy = 1;
 static size_t texturebytes;
+static cvar_t gpu_lightmap_partial = CVARD("gpu_lightmap_partial", "1", "Upload only changed lightmap regions. Zero uploads whole lightmaps for comparison.");
 
 size_t GPU_TextureBytes(void) { return texturebytes; }
 size_t GPU_ImageBytes(texid_t tex) { return tex && tex->gpuimage ? tex->gpuimage->bytes : 0; }
@@ -35,6 +36,8 @@ SDL_GPUTextureFormat GPU_TextureFormat(uploadfmt_t fmt)
 void GPU_InitTextureFormats(void)
 {
     unsigned i;
+    if (Cvar_FindVar(gpu_lightmap_partial.name) != &gpu_lightmap_partial)
+        Cvar_Register(&gpu_lightmap_partial, "SDL GPU");
     for (i = 0; i < PTI_MAX; ++i) {
         SDL_GPUTextureFormat fmt = GPU_TextureFormat(i);
         sh_config.texfmt[i] = fmt != SDL_GPU_TEXTUREFORMAT_INVALID &&
@@ -227,26 +230,147 @@ SDL_GPUTextureSamplerBinding GPU_TextureBinding(texid_t tex, texid_t fallback)
     return binding;
 }
 
+typedef struct {
+    lightmapinfo_t *lightmap;
+    SDL_GPUTextureRegion dst;
+    Uint32 offset, bytes;
+    qboolean opaque;
+} gpu_lightmap_region_t;
+
+static qboolean GPU_LightmapRegion(lightmapinfo_t *lm, uploadfmt_t encoding, gpu_lightmap_region_t *region)
+{
+    const image_t *tex = lm->lightmap_texture;
+    const gpu_image_t *img = tex ? tex->gpuimage : NULL;
+    glRect_t rect = lm->rectchange;
+    qboolean opaque = encoding == PTI_BGRX8 || encoding == PTI_RGBX8;
+
+    if ((!opaque && encoding != PTI_RGBA8) || lm->pixbytes != 4 ||
+        !tex || tex->status != TEX_LOADED || tex->gpustream || !img || !img->texture ||
+        img->format != GPU_TextureFormat(encoding) || img->type != SDL_GPU_TEXTURETYPE_2D ||
+        img->levels != 1 || img->width != lm->width || img->height != lm->height ||
+        rect.l >= rect.r || rect.t >= rect.b || rect.r > lm->width || rect.b > lm->height ||
+        (!rect.l && !rect.t && rect.r == lm->width && rect.b == lm->height))
+        return false;
+
+    *region = (gpu_lightmap_region_t){.lightmap = lm, .opaque = opaque,
+        .dst = {.texture = img->texture, .x = rect.l, .y = rect.t,
+                .w = rect.r - rect.l, .h = rect.b - rect.t, .d = 1}};
+    region->bytes = region->dst.w * region->dst.h * 4;
+    return true;
+}
+
+static void GPU_ClearLightmapChanges(lightmapinfo_t *lm)
+{
+    lm->modified = false;
+    lm->rectchange.l = lm->width; lm->rectchange.t = lm->height;
+    lm->rectchange.r = lm->rectchange.b = 0;
+}
+
+static void GPU_UploadFullLightmap(lightmapinfo_t *lm)
+{
+    struct pendingtextureinfo mips = {0};
+    if (!lm->lightmap_texture)
+        lm->lightmap_texture = Image_CreateTexture("***lightmap***", NULL, IF_LINEAR | IF_CLAMP | IF_NOMIPMAP);
+    mips.type = PTI_2D; mips.encoding = lm->fmt; mips.mipcount = 1;
+    if (mips.encoding == PTI_BGRA8) mips.encoding = PTI_BGRX8;
+    mips.mip[0].data = lm->lightmaps; mips.mip[0].width = lm->width;
+    mips.mip[0].height = lm->height; mips.mip[0].depth = 1;
+    mips.mip[0].datasize = lm->width*lm->height*lm->pixbytes;
+    if (!GPU_LoadTextureMips(lm->lightmap_texture, &mips))
+        return;
+    lm->lightmap_texture->status = TEX_LOADED;
+    lm->lightmap_texture->width = lm->width; lm->lightmap_texture->height = lm->height;
+    gpu.lightmapbytes += mips.mip[0].datasize * (mips.encoding == PTI_L8 ? 4 : 1);
+    GPU_ClearLightmapChanges(lm);
+}
+
+static qboolean GPU_UploadLightmapRegions(const gpu_lightmap_region_t *regions, unsigned count, Uint32 bytes)
+{
+    SDL_GPUTransferBufferCreateInfo ti = {.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, .size = bytes};
+    SDL_GPUTransferBuffer *transfer = SDL_CreateGPUTransferBuffer(gpu.device, &ti);
+    SDL_GPUCommandBuffer *command;
+    SDL_GPUCopyPass *copy;
+    qbyte *mapped;
+
+    if (!transfer)
+        return false;
+    mapped = SDL_MapGPUTransferBuffer(gpu.device, transfer, false);
+    if (!mapped) {
+        SDL_ReleaseGPUTransferBuffer(gpu.device, transfer);
+        return false;
+    }
+    for (unsigned i = 0; i < count; ++i) {
+        const gpu_lightmap_region_t *region = &regions[i];
+        const SDL_GPUTextureRegion *dst = &region->dst;
+        const lightmapinfo_t *lm = region->lightmap;
+        unsigned pitch = dst->w * 4;
+        unsigned stride = lm->width * 4;
+        qbyte *pixels = mapped + region->offset;
+        for (unsigned row = 0; row < dst->h; ++row)
+            memcpy(pixels + row * pitch, lm->lightmaps + (dst->y + row) * stride + dst->x * 4, pitch);
+        if (region->opaque)
+            for (unsigned b = 3; b < region->bytes; b += 4) pixels[b] = 255;
+    }
+    SDL_UnmapGPUTransferBuffer(gpu.device, transfer);
+    command = SDL_AcquireGPUCommandBuffer(gpu.device);
+    if (!command) {
+        SDL_ReleaseGPUTransferBuffer(gpu.device, transfer);
+        return false;
+    }
+    copy = SDL_BeginGPUCopyPass(command);
+    for (unsigned i = 0; i < count; ++i) {
+        SDL_GPUTextureTransferInfo src = {.transfer_buffer = transfer, .offset = regions[i].offset};
+        // Preserve texels outside each dirty rectangle.
+        SDL_UploadToGPUTexture(copy, &src, &regions[i].dst, false);
+    }
+    SDL_EndGPUCopyPass(copy);
+    if (!SDL_SubmitGPUCommandBuffer(command)) GPU_Error("submit lightmap regions");
+    SDL_ReleaseGPUTransferBuffer(gpu.device, transfer);
+    return true;
+}
+
+static void GPU_FlushLightmapRegions(gpu_lightmap_region_t *regions, unsigned count, Uint32 bytes)
+{
+    if (!count)
+        return;
+    if (GPU_UploadLightmapRegions(regions, count, bytes)) {
+        for (unsigned i = 0; i < count; ++i) {
+            gpu.lightmapbytes += regions[i].bytes;
+            GPU_ClearLightmapChanges(regions[i].lightmap);
+        }
+    } else {
+        for (unsigned i = 0; i < count; ++i)
+            GPU_UploadFullLightmap(regions[i].lightmap);
+    }
+}
+
 void GPU_UploadLightmaps(qboolean force)
 {
-    unsigned i;
-    for (i = 0; i < numlightmaps; ++i) {
+    gpu_lightmap_region_t regions[64];
+    unsigned count = 0;
+    Uint32 bytes = 0;
+
+    for (unsigned i = 0; i < numlightmaps; ++i) {
         lightmapinfo_t *lm = lightmap[i];
-        struct pendingtextureinfo mips = {0};
+        gpu_lightmap_region_t region;
         if (!lm || lm->external || (!force && !lm->modified)) continue;
-        if (!lm->lightmap_texture)
-            lm->lightmap_texture = Image_CreateTexture("***lightmap***", NULL, IF_LINEAR | IF_CLAMP | IF_NOMIPMAP);
-        mips.type = PTI_2D; mips.encoding = lm->fmt; mips.mipcount = 1;
-        if (mips.encoding == PTI_BGRA8) mips.encoding = PTI_BGRX8;
-        mips.mip[0].data = lm->lightmaps; mips.mip[0].width = lm->width;
-        mips.mip[0].height = lm->height; mips.mip[0].depth = 1;
-        mips.mip[0].datasize = lm->width*lm->height*lm->pixbytes;
-        if (GPU_LoadTextureMips(lm->lightmap_texture, &mips)) {
-            lm->lightmap_texture->status = TEX_LOADED;
-            lm->lightmap_texture->width = lm->width; lm->lightmap_texture->height = lm->height;
-            lm->modified = false;
-            lm->rectchange.l = lm->width; lm->rectchange.t = lm->height;
-            lm->rectchange.r = lm->rectchange.b = 0;
+        if (!force && gpu_lightmap_partial.ival &&
+            GPU_LightmapRegion(lm, lm->fmt == PTI_BGRA8 ? PTI_BGRX8 : lm->fmt, &region)) {
+            size_t offset = ((size_t)bytes + 15) & ~(size_t)15;
+            if (count == countof(regions) || offset > UINT32_MAX - region.bytes) {
+                GPU_FlushLightmapRegions(regions, count, bytes);
+                count = 0;
+                offset = 0;
+            }
+            region.offset = offset;
+            regions[count++] = region;
+            bytes = region.offset + region.bytes;
+        } else {
+            // Full uploads submit their own commands. Keep atlas upload order.
+            GPU_FlushLightmapRegions(regions, count, bytes);
+            count = bytes = 0;
+            GPU_UploadFullLightmap(lm);
         }
     }
+    GPU_FlushLightmapRegions(regions, count, bytes);
 }

@@ -230,11 +230,13 @@ void S_SoundInfo_f(void)
 		Con_Printf ("No sound cards\n");
 		return;
 	}
+	S_LockMixer();
 	for (sc = sndcardinfo; sc; sc = sc->next)
 	{
 		Con_Printf("Audio Device: %s\n", sc->name);
 		Con_Printf(" %d channels, %gkhz, %d bit audio%s\n", sc->sn.numchannels, sc->sn.speed/1000.0, sc->sn.samplebytes*8, sc->selfpainting?", threaded":"");
-		Con_Printf(" %d samples in buffer\n", sc->sn.samples);
+		if (!sc->selfpainting)
+			Con_Printf(" %d samples in buffer\n", sc->sn.samples);
 		for (i = 0, active = 0, known = 0; i < sc->total_chans; i++)
 		{
 			if (sc->channel[i].sfx)
@@ -260,6 +262,7 @@ void S_SoundInfo_f(void)
 			Con_Printf(" chan %i: fwd:%-4g rt:%-4g up:%-4g dist:%-4g\n", i, sc->speakerdir[i][0], sc->speakerdir[i][1], sc->speakerdir[i][2], sc->dist[i]);
 		}
 	}
+	S_UnlockMixer();
 }
 
 #ifdef VOICECHAT
@@ -2535,7 +2538,10 @@ void S_Purge(qboolean retaintouched)
 
 			//trying to shut down or something.
 			//make sure there's no worker about to write to sfx after the memory is freed
+			// The main-thread completion callback takes the mixer lock.
+			S_UnlockMixer();
 			COM_WorkerPartialSync(sfx, &sfx->loadstate, SLS_LOADING);
+			S_LockMixer();
 		}
 
 		/*don't purge the file if its still relevent*/

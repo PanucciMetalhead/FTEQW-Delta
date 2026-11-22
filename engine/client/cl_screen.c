@@ -1905,8 +1905,10 @@ void SCR_DrawTurtle (void)
 
 void SCR_DrawDisk (void)
 {
-	extern float fs_accessed_time;
-	if ((float)realtime - fs_accessed_time > scr_diskicontimeout.value)
+	static double lastaccess;
+	if (FS_TakeActivity())
+		lastaccess = realtime;
+	if (realtime - lastaccess > scr_diskicontimeout.value)
 		return;
 	if (!draw_disc || !scr_showdisk.ival)
 		return;

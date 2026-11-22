@@ -1,4 +1,5 @@
 #include "quakedef.h"
+#include <stddef.h>
 
 #include "pr_common.h"
 
@@ -2566,7 +2567,7 @@ typedef struct {
 struct bspx_header_s {
     char id[4];  // 'BSPX'
     unsigned int numlumps;
-	bspx_lump_t lumps[1];
+	bspx_lump_t lumps[];
 };
 //supported lumps (read specs/bspx.txt for more details):
 //RGBLIGHTING (.lit)
@@ -2604,39 +2605,42 @@ bspx_header_t *BSPX_Setup(model_t *mod, char *filebase, size_t filelen, lump_t *
 {
 	size_t i;
 	size_t offs = 0;
-	bspx_header_t *h;
+	size_t padding;
+	const size_t headersize = offsetof(bspx_header_t, lumps);
+	bspx_header_t *h = NULL;
 
 	for (i = 0; i < numlumps; i++, lumps++)
 	{
-		if (offs < lumps->fileofs + lumps->filelen)
-			offs = lumps->fileofs + lumps->filelen;
+		if (!BSP_LumpInRange(lumps, filelen))
+			return NULL;
+		offs = max(offs, (size_t)lumps->fileofs + lumps->filelen);
 	}
-	offs = (offs + 3) & ~3;
-	if (offs + sizeof(*h) > filelen)
-		h = NULL; /*no space for it*/
-	else
+	padding = (4 - (offs & 3)) & 3;
+	if (padding > filelen - offs)
+		return NULL;
+	offs += padding;
+	if (filelen - offs >= headersize && !memcmp(filebase + offs, "BSPX", 4))
 	{
+		size_t count;
 		h = (bspx_header_t*)(filebase + offs);
-
-		i = LittleLong(h->numlumps);
-		/*verify the header*/
-		if (*(int*)h->id != (('B'<<0)|('S'<<8)|('P'<<16)|('X'<<24)) ||
-			i < 0 ||
-			offs + sizeof(*h) + sizeof(h->lumps[0])*(i-1) > filelen)
-			h = NULL;
-		else
+		count = (unsigned int)LittleLong(h->numlumps);
+		if (count > (filelen - offs - headersize) / sizeof(h->lumps[0]))
+			return NULL;
+		offs += headersize + count * sizeof(h->lumps[0]);
+		for (i = 0; i < count; i++)
 		{
-			h->numlumps = i;
-			while(i-->0)
-			{
-				h->lumps[i].fileofs = LittleLong(h->lumps[i].fileofs);
-				h->lumps[i].filelen = LittleLong(h->lumps[i].filelen);
-				if (h->lumps[i].fileofs + h->lumps[i].filelen > filelen)
-					return NULL;	//some sort of corruption/truncation.
-
-				if (offs < h->lumps[i].fileofs + h->lumps[i].filelen)
-					offs = h->lumps[i].fileofs + h->lumps[i].filelen;
-			}
+			lump_t range;
+			range.fileofs = LittleLong(h->lumps[i].fileofs);
+			range.filelen = LittleLong(h->lumps[i].filelen);
+			if (!BSP_LumpInRange(&range, filelen))
+				return NULL;
+			offs = max(offs, (size_t)range.fileofs + range.filelen);
+		}
+		h->numlumps = count;
+		for (i = 0; i < count; i++)
+		{
+			h->lumps[i].fileofs = LittleLong(h->lumps[i].fileofs);
+			h->lumps[i].filelen = LittleLong(h->lumps[i].filelen);
 		}
 	}
 

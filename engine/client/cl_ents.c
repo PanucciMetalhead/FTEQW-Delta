@@ -613,6 +613,7 @@ void FlushEntityPacket (void)
 
 		CLQW_ParseDelta (&olde, &newe, word);
 	}
+	CL_NetBenchmarkSnapshot(cls.netchan.incoming_sequence, false);
 }
 
 // Quantize first, then wrap the integer bits before narrowing. A direct
@@ -1276,6 +1277,7 @@ void CLFTE_ParseEntities(void)
 
 		CL_AckedInputFrame(cls.netchan.incoming_sequence, inputframe, false);
 	}
+	CL_NetBenchmarkSnapshot(cls.netchan.incoming_sequence, isvalid && !msg_badread);
 }
 
 static packet_entities_t *CLQW_FindDeltaBase(int from)
@@ -1503,6 +1505,7 @@ void CLQW_ParsePacketEntities (qboolean delta)
 	}
 
 	newp->num_entities = newindex;
+	CL_NetBenchmarkSnapshot(cls.netchan.incoming_sequence, cl.validsequence != 0 && !msg_badread);
 }
 
 

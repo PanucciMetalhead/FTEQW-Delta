@@ -584,6 +584,7 @@ typedef struct searchpath_s
 
 	struct searchpath_s *next;
 	struct searchpath_s *nextpure;
+	qboolean referenced; // guarded by the filesystem tracking lock
 } searchpath_t;
 typedef struct flocation_s{
 	struct searchpath_s	*search;			//used to say which filesystem driver to open the file from
@@ -620,6 +621,8 @@ const char *FS_GetRootPackagePath(flocation_t *loc);			//favours packages, but f
 searchpath_t *FS_GetPackage(const char *package); //for fancy stuff that should probably have its own helper...
 qboolean FS_GetPackageDownloadable(const char *package);
 char *FS_GetPackHashes(char *buffer, int buffersize, qboolean referencedonly);
+unsigned int FS_TakeSearchCount(void);
+qboolean FS_TakeActivity(void);
 char *FS_GetPackNames(char *buffer, int buffersize, int referencedonly, qboolean ext);
 qboolean FS_GenCachedPakName(const char *pname, const char *crc, char *local, int llen);	//returns false if the name is invalid.
 void FS_ReferenceControl(unsigned int refflag, unsigned int resetflags);

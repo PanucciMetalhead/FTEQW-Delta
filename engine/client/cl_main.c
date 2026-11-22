@@ -419,12 +419,9 @@ void CL_UpdateWindowTitle(void)
 #endif
 void CL_MakeActive(char *gamename)
 {
-	extern int fs_finds;
-	if (fs_finds)
-	{
-		Con_DPrintf("%i additional FS searches\n", fs_finds);
-		fs_finds = 0;
-	}
+	unsigned int finds = FS_TakeSearchCount();
+	if (finds)
+		Con_DPrintf("%u additional FS searches\n", finds);
 	cl.matchgametimestart = 0;
 	cls.state = ca_active;
 
@@ -2311,6 +2308,7 @@ void CL_ClearState (qboolean gamestart)
 #endif
 
 	CL_ReconfigureCommands(cls.protocol);
+	CL_CancelNetBenchmark();
 
 	CL_UpdateWindowTitle();
 
@@ -2519,6 +2517,7 @@ void CL_Disconnect (const char *reason)
 	qbyte	final[13];
 	int i;
 
+	CL_CancelNetBenchmark();
 	if (reason)
 		Cvar_Set(&cl_disconnectreason, reason);
 

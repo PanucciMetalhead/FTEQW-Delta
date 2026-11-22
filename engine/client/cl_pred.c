@@ -28,6 +28,79 @@ static cvar_t	cl_lerp_driftfrac = CVARD("cl_lerp_driftfrac", "0", "Proportion of
 cvar_t	cl_nopred = CVARD("cl_nopred","0", "Disables clientside movement prediction.");
 static cvar_t	cl_pushlatency = CVAR("pushlatency","-999");
 
+static struct {
+	qboolean active;
+	int sequence;
+	unsigned int snapshots, invalid, gaps, predictions, history_fallbacks, missing_bases;
+	double previous, worst, intervals[4096];
+} net_benchmark;
+
+void CL_CancelNetBenchmark(void)
+{
+	net_benchmark.active = false;
+}
+
+static int QDECL CL_CompareSnapshotGaps(const void *a, const void *b)
+{
+	double x = *(const double *)a, y = *(const double *)b;
+	return (x > y) - (x < y);
+}
+
+static void CL_NetBenchmark_f(void)
+{
+	if (Cmd_IsInsecure())
+		return;
+	if (!strcmp(Cmd_Argv(1), "start"))
+	{
+		if (cls.state != ca_active || cls.protocol != CP_QUAKEWORLD || cls.demoplayback)
+		{
+			Con_Printf("Net benchmark requires an active QuakeWorld connection\n");
+			return;
+		}
+		memset(&net_benchmark, 0, sizeof(net_benchmark));
+		net_benchmark.active = true;
+		net_benchmark.sequence = cls.netchan.incoming_sequence;
+		Con_Printf("Net benchmark started\n");
+	}
+	else if (!strcmp(Cmd_Argv(1), "stop") && net_benchmark.active)
+	{
+		unsigned int n = min(net_benchmark.gaps, countof(net_benchmark.intervals));
+		const double *gaps = net_benchmark.intervals;
+		CL_CancelNetBenchmark();
+		qsort(net_benchmark.intervals, n, sizeof(*gaps), CL_CompareSnapshotGaps);
+		Con_Printf("Net benchmark: %u snapshots, %u invalid, %u gap samples, p50 %.3f ms, p95 %.3f ms, p99 %.3f ms, max %.3f ms, %u prediction samples, %u history fallbacks, %u missing bases\n",
+			net_benchmark.snapshots, net_benchmark.invalid, n,
+			n ? gaps[(n-1)*50/100]*1000 : 0, n ? gaps[(n-1)*95/100]*1000 : 0,
+			n ? gaps[(n-1)*99/100]*1000 : 0, net_benchmark.worst*1000,
+			net_benchmark.predictions, net_benchmark.history_fallbacks, net_benchmark.missing_bases);
+	}
+	else
+		Con_Printf("Usage: net_benchmark start|stop (while connected to a QuakeWorld server)\n");
+}
+
+void CL_NetBenchmarkSnapshot(int sequence, qboolean valid)
+{
+	double now;
+	if (!net_benchmark.active || cls.state != ca_active || cls.protocol != CP_QUAKEWORLD ||
+		sequence == net_benchmark.sequence)
+		return;
+	net_benchmark.sequence = sequence;
+	if (!valid)
+	{
+		++net_benchmark.invalid;
+		return;
+	}
+	now = Sys_DoubleTime();
+	if (net_benchmark.snapshots)
+	{
+		double gap = max(0, now - net_benchmark.previous);
+		net_benchmark.intervals[net_benchmark.gaps++ % countof(net_benchmark.intervals)] = gap;
+		net_benchmark.worst = max(net_benchmark.worst, gap);
+	}
+	net_benchmark.previous = now;
+	++net_benchmark.snapshots;
+}
+
 extern float	pm_airaccelerate;
 
 extern usercmd_t cl_pendingcmd[MAX_SPLITS];
@@ -1121,6 +1194,12 @@ void CL_PredictMovePNum (int seat)
 	{
 		nopred = true;
 	}
+	else if (net_benchmark.active && !seat && !cl_nopred.ival && !pv->spectator)
+	{
+		++net_benchmark.predictions;
+		if (nopred)
+			++net_benchmark.history_fallbacks;
+	}
 
 	// figure out the first frame to lerp from.
 	// we generate one new input frame every 1/72th of a second, with a refresh rate of 60hz that's blatently obvious
@@ -1129,6 +1208,12 @@ void CL_PredictMovePNum (int seat)
 
 	if (nopred)
 	{
+		// Keeping a replacement-delta base for the receiver does not restore
+		// overwritten movement commands. Hold the last predicted camera until
+		// an update arrives.
+		if (cls.protocol == CP_QUAKEWORLD && (cls.fteprotocolextensions2 & PEXT2_REPLACEMENTDELTAS) &&
+			cls.netchan.outgoing_sequence - cl.validsequence >= UPDATE_BACKUP-1)
+			return;
 		lerpangles = false;
 		//match interpolation info
 		from.frame = ((char*)cl.previouspackentities - (char*)&cl.inframes[0].packet_entities) / sizeof(inframe_t);
@@ -1188,6 +1273,8 @@ void CL_PredictMovePNum (int seat)
 			if (from.time < simtime && from.frame != to.frame)
 				break;	//okay, we found the first frame that is older, no need to continue looking
 		}
+		if (net_benchmark.active && !seat && !pv->spectator && !from.frame)
+			++net_benchmark.missing_bases;
 	}
 
 //	Con_DPrintf("sim%f, %i(%i-%i): old%f, cur%f\n", simtime, cl.ackedmovesequence, fromframe, toframe, fromtime, totime);
@@ -1532,6 +1619,7 @@ CL_InitPrediction
 void CL_InitPrediction (void)
 {
 	extern char cl_predictiongroup[];
+	Cmd_AddCommandD("net_benchmark", CL_NetBenchmark_f, "Measure accepted QuakeWorld snapshot gaps and prediction history: net_benchmark start|stop.");
 	Cvar_Register (&cl_pushlatency, cl_predictiongroup);
 	Cvar_Register (&cl_nopred,	cl_predictiongroup);
 	Cvar_Register (&cl_predict_extrapolate,	cl_predictiongroup);

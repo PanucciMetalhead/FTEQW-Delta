@@ -80,6 +80,11 @@ typedef struct
 	unsigned int		fileofs, filelen;
 } lump_t;
 
+static inline qboolean BSP_LumpInRange(const lump_t *lump, size_t filelen)
+{
+	return lump->fileofs <= filelen && lump->filelen <= filelen - lump->fileofs;
+}
+
 #define	LUMP_ENTITIES	0
 #define	LUMP_PLANES		1
 #define	LUMP_TEXTURES	2

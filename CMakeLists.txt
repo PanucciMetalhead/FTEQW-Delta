@@ -1562,6 +1562,8 @@ if(FTE_MIDI_SOUNDFONT)
     endforeach()
 endif()
 
+include(cmake/FTEServerPGO.cmake)
+
 # A C-only link omits Clang's C++ UBSan runtime (vptr cache/handlers), which
 # instrumented Jolt modules need at dlopen time. Source files remain C17; only
 # sanitizer-enabled plugin hosts use the C++ linker driver for complete runtimes.
@@ -1588,6 +1590,13 @@ if(BUILD_TESTING)
             COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/music_remap.py"
                 --engine $<TARGET_FILE:fteqw> --out "${CMAKE_BINARY_DIR}/music-remap")
         set_tests_properties(music-remap PROPERTIES TIMEOUT 90)
+    endif()
+    if(FTE_THREAD_SANITIZER AND TARGET fteqw AND TARGET fteqcc AND Python3_Interpreter_FOUND)
+        add_test(NAME thread-lifecycle
+            COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/thread_lifecycle.py"
+                --engine $<TARGET_FILE:fteqw> --qcc $<TARGET_FILE:fteqcc>
+                --out "${CMAKE_BINARY_DIR}/thread-lifecycle")
+        set_tests_properties(thread-lifecycle PROPERTIES TIMEOUT 120)
     endif()
     if(TARGET fte-midi-core)
         add_executable(midi-tests tools/tests/midi_fluid.c)

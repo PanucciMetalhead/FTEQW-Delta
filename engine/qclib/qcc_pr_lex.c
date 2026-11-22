@@ -5157,9 +5157,9 @@ Parses a variable type, including field and functions types
 ============
 */
 #ifdef MAX_EXTRA_PARMS
-char	pr_parm_names[MAX_PARMS+MAX_EXTRA_PARMS][MAX_NAME];
+char	pr_parm_names[MAX_PARMS+MAX_EXTRA_PARMS][MAX_NAME] = {0};
 #else
-char	pr_parm_names[MAX_PARMS][MAX_NAME];
+char	pr_parm_names[MAX_PARMS][MAX_NAME] = {0};
 #endif
 char *pr_parm_argcount_name;
 

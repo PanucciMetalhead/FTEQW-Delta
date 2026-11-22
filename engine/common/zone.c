@@ -55,8 +55,8 @@ qbyte sentinelkey;
 
 #define TAGLESS 1
 
-size_t zmemtotal;
-size_t zmemdelta;
+static size_t zmemtotal;
+static size_t zmemdelta;
 
 typedef struct memheader_s {
 	size_t size;
@@ -466,16 +466,27 @@ void *Z_Realloc(void *data, int newsize)
 }
 */
 
+static void Z_RecordAllocation(size_t size)
+{
+#ifdef MULTITHREAD
+	if (zonelock)
+		Sys_LockMutex(zonelock);
+#endif
+	zmemdelta += size;
+	zmemtotal += size;
+#ifdef MULTITHREAD
+	if (zonelock)
+		Sys_UnlockMutex(zonelock);
+#endif
+}
+
 #ifdef USE_MSVCRT_DEBUG
 void *BZF_MallocNamed(int size, const char *file, int line)	//BZ_MallocNamed but allowed to fail - like straight malloc.
 {
 	void *mem;
 	mem = _malloc_dbg(size, _NORMAL_BLOCK, file, line);
 	if (mem)
-	{
-		zmemdelta += size;
-		zmemtotal += size;
-	}
+		Z_RecordAllocation(size);
 	return mem;
 }
 #else
@@ -484,10 +495,7 @@ void *BZF_Malloc(size_t size)	//BZ_Malloc but allowed to fail - like straight ma
 	void *mem;
 	mem = malloc(size);
 	if (mem)
-	{
-		zmemdelta += size;
-		zmemtotal += size;
-	}
+		Z_RecordAllocation(size);
 	return mem;
 }
 #endif
@@ -752,8 +760,20 @@ void Cache_Flush(void)
 
 static void Hunk_Print_f (void)
 {
-	Con_Printf("Z Delta: %"PRIuSIZE"KB\n", zmemdelta/1024); zmemdelta = 0;
-	Con_Printf("Z Total: %"PRIuSIZE"KB\n", zmemtotal/1024);
+	size_t delta, total;
+#ifdef MULTITHREAD
+	if (zonelock)
+		Sys_LockMutex(zonelock);
+#endif
+	delta = zmemdelta;
+	total = zmemtotal;
+	zmemdelta = 0;
+#ifdef MULTITHREAD
+	if (zonelock)
+		Sys_UnlockMutex(zonelock);
+#endif
+	Con_Printf("Z Delta: %"PRIuSIZE"KB\n", delta/1024);
+	Con_Printf("Z Total: %"PRIuSIZE"KB\n", total/1024);
 	//note: Zone memory isn't tracked reliably. we don't track the mem that is freed, so it'll just climb and climb
 	//we don't track reallocs either.
 

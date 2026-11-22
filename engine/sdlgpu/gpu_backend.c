@@ -616,7 +616,7 @@ void GPU_BeginFrame(void)
         staticsurfaces = cl.worldmodel ? cl.worldmodel->surfaces : NULL; staticinvalid = false;
     }
     gpu.numvertices = gpu.numstreamvertices = gpu.numindices = gpu.numdraws = numtempbatches = numshadowlights = 0;
-    gpu.cachedvertices = gpu.uploadedbytes = gpu.shadowdraws = gpu.shadowculled = 0;
+    gpu.cachedvertices = gpu.uploadedbytes = gpu.lightmapbytes = gpu.shadowdraws = gpu.shadowculled = 0;
     gpu.shadowhits = 0;
     GPU_StreamFrame();
     GPU_LightingBeginFrame();

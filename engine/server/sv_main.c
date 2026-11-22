@@ -5505,6 +5505,70 @@ static void SV_PauseChanged(void)
 }
 
 double server_frametime;
+static struct
+{
+	double work[8192], started, total;
+	unsigned int count, target;
+	int spawncount;
+} sv_benchmark;
+
+static int QDECL SV_CompareFrameTime(const void *a, const void *b)
+{
+	double x = *(const double *)a, y = *(const double *)b;
+	return (x > y) - (x < y);
+}
+
+static void SV_Benchmark_f(void)
+{
+	long frames = 600;
+	char *end;
+
+	if (!isDedicated || sv.state != ss_active || Cmd_IsInsecure())
+		return;
+	if (Cmd_Argc() == 2)
+	{
+		frames = strtol(Cmd_Argv(1), &end, 10);
+		if (*end)
+			frames = 0;
+	}
+	if (Cmd_Argc() > 2 || frames < 2 || frames > (long)countof(sv_benchmark.work))
+	{
+		Con_Printf("Usage: sv_benchmark [frames (2-8192)]\n");
+		return;
+	}
+	if (sv_benchmark.target && sv_benchmark.spawncount == svs.spawncount)
+	{
+		Con_Printf("Server benchmark already running\n");
+		return;
+	}
+	sv_benchmark.spawncount = svs.spawncount;
+	sv_benchmark.count = 0;
+	sv_benchmark.target = frames;
+	sv_benchmark.total = 0;
+	Con_Printf("Server benchmark started: %ld physics-bearing frames\n", frames);
+}
+
+static void SV_BenchmarkFrame(double start, double end)
+{
+	unsigned int n = sv_benchmark.count;
+	double duration = max(0, end - start);
+
+	if (!n)
+		sv_benchmark.started = start;
+	sv_benchmark.work[n++] = duration;
+	sv_benchmark.total += duration;
+	sv_benchmark.count = n;
+	if (n < sv_benchmark.target)
+		return;
+
+	sv_benchmark.target = 0;
+	qsort(sv_benchmark.work, n, sizeof(sv_benchmark.work[0]), SV_CompareFrameTime);
+	Con_Printf("Server benchmark: %u frames in %.6f s, mean %.6f ms, p50 %.6f ms, p95 %.6f ms, p99 %.6f ms, max %.6f ms\n",
+		n, end - sv_benchmark.started, sv_benchmark.total * 1000 / n,
+		sv_benchmark.work[(n-1)*50/100] * 1000, sv_benchmark.work[(n-1)*95/100] * 1000,
+		sv_benchmark.work[(n-1)*99/100] * 1000, sv_benchmark.work[n-1] * 1000);
+}
+
 /*
 ==================
 SV_Frame
@@ -5520,8 +5584,11 @@ float SV_Frame (void)
 	qboolean isidle;
 	float timedelta;
 	float delay;
+	qboolean benchphysics = false;
+	qboolean benchactive;
 
 	start = Sys_DoubleTime ();
+	benchactive = sv_benchmark.target && sv_benchmark.spawncount == svs.spawncount;
 	svs.stats.idle += start - end;
 	end = start;
 
@@ -5687,6 +5754,7 @@ float SV_Frame (void)
 		if (SV_Physics ())
 		{
 			isidle = false;
+			benchphysics = benchactive;
 
 #ifdef SAVEDGAMES
 			if (sv.time > sv.autosave_time)
@@ -5807,6 +5875,8 @@ float SV_Frame (void)
 	oldpackets = svs.stats.packets;
 
 	server_frametime += end-start;
+	if (benchphysics && sv_benchmark.spawncount == svs.spawncount)
+		SV_BenchmarkFrame(start, end);
 	return delay;
 }
 
@@ -5896,6 +5966,7 @@ void SV_InitLocal (void)
 	Cvar_Register (&sv_crypt_rcon,	cvargroup_servercontrol);
 	Cvar_Register (&spectator_password,	cvargroup_servercontrol);
 
+	Cmd_AddCommandD("sv_benchmark", SV_Benchmark_f, "Measure dedicated-server work on frames that advance physics: sv_benchmark [frames].");
 	Cvar_Register (&sv_mintic,	cvargroup_servercontrol);
 	Cvar_Register (&sv_maxtic,	cvargroup_servercontrol);
 	Cvar_Register (&sv_limittics,	cvargroup_servercontrol);

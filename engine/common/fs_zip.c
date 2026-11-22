@@ -1,5 +1,6 @@
 #include "quakedef.h"
 #include "fs.h"
+#include <limits.h>
 
 //#define AVAIL_BZLIB
 //#define DYNAMIC_BZLIB
@@ -1698,6 +1699,7 @@ struct ziplocalentry
 #define LittleU8FromPtr(p) qofs_Make(LittleU4FromPtr(p), LittleU4FromPtr((p)+4))
 
 #define SIZE_LOCALENTRY 30
+#define SIZE_CENTRALENTRY 46
 #define SIZE_ENDOFCENTRALDIRECTORY 22
 #define SIZE_ZIP64ENDOFCENTRALDIRECTORY_V1 56
 #define SIZE_ZIP64ENDOFCENTRALDIRECTORY_V2 84
@@ -1712,13 +1714,17 @@ static qboolean FSZIP_ValidateLocalHeader(zipfile_t *zip, zpackfile_t *zfile, qo
 	struct ziplocalentry local;
 	qbyte localdata[SIZE_LOCALENTRY];
 	qofs_t localstart = zfile->localpos;
+	qboolean readok;
 
-	
+	if (localstart > zip->rawsize || sizeof(localdata) > zip->rawsize - localstart)
+		return false;
 	if (!Sys_LockMutex(zip->mutex))
 		return false;	//ohnoes
-	VFS_SEEK(zip->raw, localstart);
-	VFS_READ(zip->raw, localdata, sizeof(localdata));
+	readok = VFS_SEEK(zip->raw, localstart) &&
+		VFS_READ(zip->raw, localdata, sizeof(localdata)) == sizeof(localdata);
 	Sys_UnlockMutex(zip->mutex);
+	if (!readok)
+		return false;
 
 	//make sure we found the right sort of table.
 	if (localdata[0] != 'P' ||
@@ -1739,6 +1745,8 @@ static qboolean FSZIP_ValidateLocalHeader(zipfile_t *zip, zpackfile_t *zfile, qo
 	local.extra_len = LittleU2FromPtr(localdata+28);
 
 	localstart += SIZE_LOCALENTRY;
+	if (local.fname_len + local.extra_len > zip->rawsize - localstart)
+		return false;
 	localstart += local.fname_len;
 
 	//parse extra
@@ -1753,41 +1761,39 @@ static qboolean FSZIP_ValidateLocalHeader(zipfile_t *zip, zpackfile_t *zfile, qo
 
 		if (!Sys_LockMutex(zip->mutex))
 			return false;	//ohnoes
-		VFS_SEEK(zip->raw, localstart);
-		VFS_READ(zip->raw, extradata, sizeof(extradata));
+		readok = VFS_SEEK(zip->raw, localstart) &&
+			VFS_READ(zip->raw, extradata, local.extra_len) == local.extra_len;
 		Sys_UnlockMutex(zip->mutex);
+		if (!readok)
+			return false;
 
 
-		while(extra+4 < extraend)
+		while (extraend - extra >= 4)
 		{
 			extrachunk_tag = LittleU2FromPtr(extra+0);
 			extrachunk_len = LittleU2FromPtr(extra+2);
-			if (extra + extrachunk_len > extraend)
-				break;	//error
 			extra += 4;
+			if (extrachunk_len > extraend - extra)
+				return false;
 
 			switch(extrachunk_tag)
 			{
 			case 1:	//zip64 extended information extra field. the attributes are only present if the reegular file info is nulled out with a -1
+				if (extrachunk_len < 8 * ((local.usize == 0xffffffffu) + (local.csize == 0xffffffffu)))
+					return false;
 				if (local.usize == 0xffffffffu)
 				{
 					local.usize = LittleU8FromPtr(extra);
-					extra += 8;
+					if (local.csize == 0xffffffffu)
+						local.csize = LittleU8FromPtr(extra+8);
 				}
-				if (local.csize == 0xffffffffu)
-				{
+				else if (local.csize == 0xffffffffu)
 					local.csize = LittleU8FromPtr(extra);
-					extra += 8;
-				}
 				break;
 			default:
-/*				Con_Printf("Unknown chunk %x\n", extrachunk_tag);
-			case 0x000a:	//NTFS (timestamps)
-			case 0x5455:	//extended timestamp
-			case 0x7875:	//unix uid/gid
-*/				extra += extrachunk_len;
 				break;
 			}
+			extra += extrachunk_len;
 		}
 	}
 	localstart += local.extra_len;
@@ -1810,11 +1816,12 @@ static qboolean FSZIP_ValidateLocalHeader(zipfile_t *zip, zpackfile_t *zfile, qo
 
 	//FIXME: with pure paths, we still don't bother checking the crc (again, would require decompressing the entire file in advance).
 
-	if (localstart+local.csize > zip->rawsize)
+	if (local.csize > zip->rawsize - localstart)
 		return false;	//FIXME: proper spanned zips fragment compressed data over multiple spans, but we don't support that
 
 	if (local.cmethod == 0)
-		return (zfile->flags & ZFL_COMPRESSIONTYPE) == ZFL_STORED;
+		return (zfile->flags & ZFL_COMPRESSIONTYPE) == ZFL_STORED &&
+			zfile->filelen <= zip->rawsize - localstart;
 #if defined(AVAIL_ZLIB)
 	if (local.cmethod == 8)
 		return (zfile->flags & ZFL_COMPRESSIONTYPE) == ZFL_DEFLATED;
@@ -1830,20 +1837,20 @@ static qboolean FSZIP_ValidateLocalHeader(zipfile_t *zip, zpackfile_t *zfile, qo
 	return false;	//some other method that we don't know.
 }
 
-static qboolean FSZIP_ReadCentralEntry(zipfile_t *zip, qbyte *data, struct zipcentralentry *entry)
+static qboolean FSZIP_ReadCentralEntry(qbyte *data, qofs_t available, struct zipcentralentry *entry)
 {
 	struct tm t;
 	entry->flags = 0;
 	entry->fname = "";
 	entry->fname_len = 0;
 
-	if (data[0] != 'P' ||
+	if (available < SIZE_CENTRALENTRY ||
+		data[0] != 'P' ||
 		data[1] != 'K' ||
 		data[2] != 1 ||
 		data[3] != 2)
 		return false;	//verify the signature
 
-	//if we read too much, we'll catch it after.
 	entry->version_madeby = LittleU2FromPtr(data+4);
 	entry->version_needed = LittleU2FromPtr(data+6);
 	entry->gflags = LittleU2FromPtr(data+8);
@@ -1860,7 +1867,9 @@ static qboolean FSZIP_ReadCentralEntry(zipfile_t *zip, qbyte *data, struct zipce
 	entry->iattributes = LittleU2FromPtr(data+36);
 	entry->eattributes = LittleU4FromPtr(data+38);
 	entry->localheaderoffset = LittleU4FromPtr(data+42);
-	entry->cesize = 46;
+	entry->cesize = SIZE_CENTRALENTRY;
+	if (entry->fname_len + entry->extra_len + entry->comment_len > available - entry->cesize)
+		return false;
 
 	//mark the filename position
 	entry->fname = data+entry->cesize;
@@ -1882,37 +1891,41 @@ static qboolean FSZIP_ReadCentralEntry(zipfile_t *zip, qbyte *data, struct zipce
 		qbyte *extraend = extra + entry->extra_len;
 		unsigned short extrachunk_tag;
 		unsigned short extrachunk_len;
-		while(extra+4 < extraend)
+		while (extraend - extra >= 4)
 		{
+			qbyte *chunk;
 			extrachunk_tag = LittleU2FromPtr(extra+0);
 			extrachunk_len = LittleU2FromPtr(extra+2);
-			if (extra + extrachunk_len > extraend)
-				break;	//error
 			extra += 4;
+			if (extrachunk_len > extraend - extra)
+				return false;
+			chunk = extra;
+			extra += extrachunk_len;
 
 			switch(extrachunk_tag)
 			{
 			case 1:	//zip64 extended information extra field. the attributes are only present if the reegular file info is nulled out with a -1
+				if (extrachunk_len < 8 * ((entry->usize == 0xffffffffu) +
+				    (entry->csize == 0xffffffffu) + (entry->localheaderoffset == 0xffffffffu)) +
+				    4 * (entry->disknum == 0xffffu))
+					return false;
 				if (entry->usize == 0xffffffffu)
 				{
-					entry->usize = LittleU8FromPtr(extra);
-					extra += 8;
+					entry->usize = LittleU8FromPtr(chunk);
+					chunk += 8;
 				}
 				if (entry->csize == 0xffffffffu)
 				{
-					entry->csize = LittleU8FromPtr(extra);
-					extra += 8;
+					entry->csize = LittleU8FromPtr(chunk);
+					chunk += 8;
 				}
 				if (entry->localheaderoffset == 0xffffffffu)
 				{
-					entry->localheaderoffset = LittleU8FromPtr(extra);
-					extra += 8;
+					entry->localheaderoffset = LittleU8FromPtr(chunk);
+					chunk += 8;
 				}
 				if (entry->disknum == 0xffffu)
-				{
-					entry->disknum = LittleU4FromPtr(extra);
-					extra += 4;
-				}
+					entry->disknum = LittleU4FromPtr(chunk);
 				break;
 #if !defined(_MSC_VER) || _MSC_VER > 1200
 			case 0x000a:	//NTFS extra field
@@ -1922,38 +1935,30 @@ static qboolean FSZIP_ReadCentralEntry(zipfile_t *zip, qbyte *data, struct zipce
 				//8+8: mtime
 				//16+8: atime
 				//24+8: ctime
-				if (extrachunk_len >= 32 && LittleU2FromPtr(extra+4) == 1 && LittleU2FromPtr(extra+6) == 8*3)	
-					entry->mtime = LittleU8FromPtr(extra+8) / 10000000ULL - 11644473600ULL;
+				if (extrachunk_len >= 32 && LittleU2FromPtr(chunk+4) == 1 && LittleU2FromPtr(chunk+6) == 8*3)
+					entry->mtime = LittleU8FromPtr(chunk+8) / 10000000ULL - 11644473600ULL;
 				else
 					Con_Printf("zip: unsupported ntfs subchunk %x\n", extrachunk_tag);
-				extra += extrachunk_len;
 				break;
 #endif
 			case 0x5455:
-				if (extra[0] & 1)
-					entry->mtime = LittleU4FromPtr(extra+1);
+				if (extrachunk_len >= 5 && (chunk[0] & 1))
+					entry->mtime = LittleU4FromPtr(chunk+1);
 				//access and creation do NOT exist in the central header.
-				extra += extrachunk_len;
 				break;
 			case 0x7075:	//unicode (utf-8) filename replacements.
-				if (extra[0] == 1)	//version
+				if (extrachunk_len >= 5 && chunk[0] == 1)	//version
 				{
 					//if (LittleU4FromPtr(extra+1) == qcrc32(?,entry->fname, entry->fnane_len))
 					{
-						entry->fname = extra+5;
+						entry->fname = chunk+5;
 						entry->fname_len = extrachunk_len-5;
-						extra += extrachunk_len;
 
 						entry->gflags |= (1u<<11);	//just set that flag. we don't support comments anyway.
 					}
 				}
 				break;
 			default:
-/*				Con_Printf("Unknown chunk %x\n", extrachunk_tag);
-			case 0x5455:	//extended timestamp
-			case 0x7875:	//unix uid/gid
-			case 0x9901:	//aes crypto
-*/				extra += extrachunk_len;
 				break;
 			}
 		}
@@ -2049,20 +2054,37 @@ static qboolean FSZIP_EnumerateCentralDirectory(zipfile_t *zip, struct zipinfo *
 	zpackfile_t		*f;
 	struct zipcentralentry entry;
 	qofs_t ofs = 0;
+	qofs_t start;
 	unsigned int i;
+	qbyte *centraldir;
+
+	if (info->zipoffset > info->centraldir_end ||
+	    info->centraldir_offset > info->centraldir_end - info->zipoffset)
+		return false;
+	start = info->centraldir_offset + info->zipoffset;
+	if (info->centraldir_size > info->centraldir_end - start ||
+	    info->centraldir_size > INT_MAX ||
+	    info->centraldir_numfiles_disk > info->centraldir_size / SIZE_CENTRALENTRY ||
+	    info->centraldir_numfiles_disk > INT_MAX / sizeof(*f))
+		return false;
+
 	//lazily read the entire thing.
-	qbyte *centraldir = BZ_Malloc(info->centraldir_size);
-	if (centraldir)
+	centraldir = BZF_Malloc(max(info->centraldir_size, 1));
+	if (!centraldir)
+		return false;
+
+	if (VFS_SEEK(zip->raw, start) &&
+	    (!info->centraldir_size || VFS_READ(zip->raw, centraldir, info->centraldir_size) == info->centraldir_size))
 	{
-		VFS_SEEK(zip->raw, info->centraldir_offset+info->zipoffset);
-		if (VFS_READ(zip->raw, centraldir, info->centraldir_size) == info->centraldir_size)
+		zip->files = f = ZF_Malloc(max(info->centraldir_numfiles_disk, 1) * sizeof(*f));
+		if (f)
 		{
 			zip->numfiles = info->centraldir_numfiles_disk;
-			zip->files = f = Z_Malloc (zip->numfiles * sizeof(zpackfile_t));
 
 			for (i = 0; i < zip->numfiles; i++)
 			{
-				if (!FSZIP_ReadCentralEntry(zip, centraldir+ofs, &entry) || ofs + entry.cesize > info->centraldir_size)
+				if (!FSZIP_ReadCentralEntry(centraldir+ofs, info->centraldir_size-ofs, &entry) ||
+				    entry.localheaderoffset > qofs_ErrorValue() - info->zipoffset)
 					break;
 
 				f->disknum = entry.disknum;
@@ -2071,11 +2093,11 @@ static qboolean FSZIP_EnumerateCentralDirectory(zipfile_t *zip, struct zipinfo *
 				//copy out the filename and lowercase it
 				if (entry.gflags & (1u<<11))
 				{	//already utf-8 encoding, still need to work around windows though.
+					unsigned int j;
 					if (entry.fname_len > sizeof(f->name)-1)
 						entry.fname_len = sizeof(f->name)-1;
-					for (i = 0; i < entry.fname_len; i++)
-						f->name[i] = (entry.fname[i]=='\\')?'/':entry.fname[i];
-					memcpy(f->name, entry.fname, entry.fname_len);
+					for (j = 0; j < entry.fname_len; j++)
+						f->name[j] = (entry.fname[j]=='\\')?'/':entry.fname[j];
 					f->name[entry.fname_len] = 0;
 				}
 				else
@@ -2143,13 +2165,14 @@ static qboolean FSZIP_EnumerateCentralDirectory(zipfile_t *zip, struct zipinfo *
 			}
 
 			success = i == zip->numfiles;
-			if (!success)
+			if (success)
+				zip->numfiles = f - zip->files;
+			else
 			{
 				Z_Free(zip->files);
 				zip->files = NULL;
 				zip->numfiles = 0;
 			}
-			zip->numfiles = f - zip->files;
 		}
 	}
 
@@ -2163,21 +2186,27 @@ static qboolean FSZIP_FindEndCentralDirectory(zipfile_t *zip, struct zipinfo *in
 	//zip comment is capped to 65k or so, so we can use a single buffer for this
 	qbyte traildata[0x10000 + SIZE_ENDOFCENTRALDIRECTORY+SIZE_ZIP64ENDOFCENTRALDIRECTORYLOCATOR];
 	qbyte *magic;
+	unsigned int offset;
 	unsigned int trailsize = 0x10000 + SIZE_ENDOFCENTRALDIRECTORY+SIZE_ZIP64ENDOFCENTRALDIRECTORYLOCATOR;
+	if (qofs_Error(zip->rawsize) || zip->rawsize < SIZE_ENDOFCENTRALDIRECTORY)
+		return false;
 	if (trailsize > zip->rawsize)
 		trailsize = zip->rawsize;
 	//FIXME: do in a loop to avoid a huge block of stack use
-	VFS_SEEK(zip->raw, zip->rawsize - trailsize);
-	VFS_READ(zip->raw, traildata, trailsize);
+	if (!VFS_SEEK(zip->raw, zip->rawsize - trailsize) ||
+	    VFS_READ(zip->raw, traildata, trailsize) != trailsize)
+		return false;
 
 	memset(info, 0, sizeof(*info));
 
-	for (magic = traildata+trailsize-SIZE_ENDOFCENTRALDIRECTORY; magic >= traildata; magic--)
+	for (offset = trailsize - SIZE_ENDOFCENTRALDIRECTORY + 1; offset > 0; )
 	{
+		magic = traildata + --offset;
 		if (magic[0] == 'P' && 
 			magic[1] == 'K' && 
 			magic[2] == 5 && 
-			magic[3] == 6)
+			magic[3] == 6 &&
+			LittleU2FromPtr(magic+20) <= trailsize - offset - SIZE_ENDOFCENTRALDIRECTORY)
 		{
 			info->centraldir_end = (zip->rawsize-trailsize)+(magic-traildata);
 
@@ -2197,34 +2226,47 @@ static qboolean FSZIP_FindEndCentralDirectory(zipfile_t *zip, struct zipinfo *in
 	}
 
 	if (!result)
+	{
 		Con_Printf("%s: unable to find end-of-central-directory (not a zip?)\n", zip->filename);	//usually just not a zip.
-	else
+		return false;
+	}
 
 	//now look for a zip64 header.
 	//this gives more larger archives, more files, larger files, more spanned disks.
 	//note that the central directory itself is the same, it just has a couple of extra attributes on files that need them.
-	for (magic -= SIZE_ZIP64ENDOFCENTRALDIRECTORYLOCATOR; magic >= traildata; magic--)
+	if (offset >= SIZE_ZIP64ENDOFCENTRALDIRECTORYLOCATOR)
 	{
+		magic = traildata + offset - SIZE_ZIP64ENDOFCENTRALDIRECTORYLOCATOR;
 		if (magic[0] == 'P' && 
 			magic[1] == 'K' && 
 			magic[2] == 6 && 
 			magic[3] == 7)
 		{
 			qbyte z64eocd[SIZE_ZIP64ENDOFCENTRALDIRECTORY];
+			qofs_t locator = info->centraldir_end - SIZE_ZIP64ENDOFCENTRALDIRECTORYLOCATOR;
+			qofs_t recordsize;
 
 			info->zip64_centraldirend_disk		= LittleU4FromPtr(magic+4);
 			info->zip64_centraldirend_offset	= LittleU8FromPtr(magic+8);
 			info->diskcount						= LittleU4FromPtr(magic+16);
 
-			VFS_SEEK(zip->raw, info->zip64_centraldirend_offset);
-			VFS_READ(zip->raw, z64eocd, sizeof(z64eocd));
+			if (info->zip64_centraldirend_offset > locator ||
+			    SIZE_ZIP64ENDOFCENTRALDIRECTORY_V1 > locator - info->zip64_centraldirend_offset ||
+			    !VFS_SEEK(zip->raw, info->zip64_centraldirend_offset) ||
+			    VFS_READ(zip->raw, z64eocd, SIZE_ZIP64ENDOFCENTRALDIRECTORY_V1) != SIZE_ZIP64ENDOFCENTRALDIRECTORY_V1)
+				return false;
+			recordsize = LittleU8FromPtr(z64eocd+4);
+			if (recordsize < SIZE_ZIP64ENDOFCENTRALDIRECTORY_V1 - 12 ||
+			    recordsize > locator - info->zip64_centraldirend_offset - 12)
+				return false;
 
 			if (z64eocd[0] == 'P' &&
 				z64eocd[1] == 'K' &&
 				z64eocd[2] == 6 &&
 				z64eocd[3] == 6)
 			{
-				info->zip64_eocdsize						= LittleU8FromPtr(z64eocd+4) + 12;
+				info->centraldir_end = info->zip64_centraldirend_offset;
+				info->zip64_eocdsize						= recordsize + 12;
 				info->zip64_version_madeby					= LittleU2FromPtr(z64eocd+12);
 				info->zip64_version_needed       			= LittleU2FromPtr(z64eocd+14);
 				info->thisdisk             					= LittleU4FromPtr(z64eocd+16);
@@ -2236,6 +2278,10 @@ static qboolean FSZIP_FindEndCentralDirectory(zipfile_t *zip, struct zipinfo *in
 
 				if (info->zip64_eocdsize >= 84)
 				{
+					if (VFS_READ(zip->raw, z64eocd + SIZE_ZIP64ENDOFCENTRALDIRECTORY_V1,
+					    SIZE_ZIP64ENDOFCENTRALDIRECTORY_V2 - SIZE_ZIP64ENDOFCENTRALDIRECTORY_V1) !=
+					    SIZE_ZIP64ENDOFCENTRALDIRECTORY_V2 - SIZE_ZIP64ENDOFCENTRALDIRECTORY_V1)
+						return false;
 					info->centraldir_compressionmethod		= LittleU2FromPtr(z64eocd+56);
 //					info->zip64_2_centraldir_csize			= LittleU8FromPtr(z64eocd+58);
 //					info->zip64_2_centraldir_usize			= LittleU8FromPtr(z64eocd+66);
@@ -2259,7 +2305,6 @@ static qboolean FSZIP_FindEndCentralDirectory(zipfile_t *zip, struct zipinfo *in
 				return false;
 			}
 
-			break;
 		}
 	}
 
@@ -2308,21 +2353,15 @@ searchpathfuncs_t *QDECL FSZIP_LoadArchive (vfsfile_t *packhandle, searchpathfun
 		return NULL;
 	}
 
-	//find the central directory.
-	if (!FSZIP_FindEndCentralDirectory(zip, &info))
-	{
-		Z_Free(zip);
-		Con_TPrintf ("Failed opening zipfile \"%s\" corrupt?\n", desc);
-		return NULL;
-	}
-
 	//now read it.
 	if (!FSZIP_EnumerateCentralDirectory(zip, &info, prefix))
 	{
 		//uh oh... the central directory wasn't where it was meant to be!
 		//assuming that the endofcentraldir is packed at the true end of the centraldir (and that we're not zip64 and thus don't have an extra block), then we can guess based upon the offset difference
-		info.zipoffset = info.centraldir_end - (info.centraldir_offset+info.centraldir_size);
-		if (!FSZIP_EnumerateCentralDirectory(zip, &info, prefix))
+		if (info.centraldir_offset > info.centraldir_end ||
+		    info.centraldir_size > info.centraldir_end - info.centraldir_offset ||
+		    !(info.zipoffset = info.centraldir_end - info.centraldir_offset - info.centraldir_size) ||
+		    !FSZIP_EnumerateCentralDirectory(zip, &info, prefix))
 		{
 			Z_Free(zip);
 			Con_TPrintf ("zipfile \"%s\" appears to be missing its central directory\n", desc);

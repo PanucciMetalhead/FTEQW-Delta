@@ -105,6 +105,16 @@ jobs:
           ASAN_OPTIONS: detect_leaks=0
           UBSAN_OPTIONS: halt_on_error=1
         run: ctest --test-dir build-sanitize --output-on-failure
+      - name: Configure ThreadSanitizer client
+        if: runner.os == 'macOS'
+        shell: bash
+        run: cmake -S . -B build-thread-sanitize -DCMAKE_BUILD_TYPE=Debug -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/build-deps/install" -DFTE_THREAD_SANITIZER=ON -DFTE_TOOL_QCCGUI=OFF -DFTE_DEP_FLUIDSYNTH=OFF -DBUILD_TESTING=ON
+      - name: Build ThreadSanitizer client and QuakeC compiler
+        if: runner.os == 'macOS'
+        run: cmake --build build-thread-sanitize --target fteqw fteqcc --parallel 2
+      - name: Check loader and SDL audio lifecycles for races
+        if: runner.os == 'macOS'
+        run: ctest --test-dir build-thread-sanitize -R '^(music-remap|thread-lifecycle)$' --output-on-failure
       - name: Collect macOS crash reports
         if: failure() && runner.os == 'macOS'
         shell: bash
@@ -123,6 +133,9 @@ jobs:
           name: diagnostics-${{ matrix.os }}-${{ matrix.cc || 'default' }}
           path: |
             build/Testing/Temporary/LastTest.log
+            build-thread-sanitize/Testing/Temporary/LastTest.log
+            build-thread-sanitize/thread-lifecycle/*/*.log
+            build-thread-sanitize/music-remap/*/*.log
             build/crash-reports/
             build/qcc-tests/*.log
             build/physics-tests/**

@@ -214,7 +214,8 @@ static qboolean	Headless_SCR_UpdateScreen			(void)
 	// Keep client gamecode and its independent physics world alive without a GPU.
 	CSQC_DrawView();
 #endif
-	if (!cls.timedemo)
+	// Active headless clients use the normal client frame limiter.
+	if (!cls.timedemo && !COM_CheckParm("-headless-active"))
 	{
 #ifdef FTE_SDL
 		SDL_Delay(100);		

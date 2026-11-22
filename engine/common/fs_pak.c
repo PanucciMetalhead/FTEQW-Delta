@@ -2,6 +2,7 @@
 #include "fs.h"
 
 #ifdef PACKAGE_Q1PAK
+#include <limits.h>
 
 //
 // in memory
@@ -192,25 +193,28 @@ typedef struct {
 static int QDECL VFSPAK_ReadBytes (struct vfsfile_s *vfs, void *buffer, int bytestoread)
 {
 	vfspack_t *vfsp = (vfspack_t*)vfs;
+	qofs_t remaining;
 	int read;
 
-	if (bytestoread == 0)
+	if (bytestoread <= 0)
 		return 0;
 
-	if (vfsp->currentpos - vfsp->startpos + bytestoread > vfsp->length)
-		bytestoread = vfsp->length - (vfsp->currentpos - vfsp->startpos);
-	if (bytestoread <= 0)
-	{
+	remaining = vfsp->length - (vfsp->currentpos - vfsp->startpos);
+	if (!remaining)
 		return -1;
-	}
+	if ((qofs_t)bytestoread > remaining)
+		bytestoread = remaining;
 
 	if (Sys_LockMutex(vfsp->parentpak->mutex))
 	{
-		if (vfsp->parentpak->filepos != vfsp->currentpos)
-			VFS_SEEK(vfsp->parentpak->handle, vfsp->currentpos);
-		read = VFS_READ(vfsp->parentpak->handle, buffer, bytestoread);
-		vfsp->currentpos += read;
-		vfsp->parentpak->filepos = vfsp->currentpos;
+		if (vfsp->parentpak->filepos == vfsp->currentpos ||
+		    VFS_SEEK(vfsp->parentpak->handle, vfsp->currentpos))
+			read = VFS_READ(vfsp->parentpak->handle, buffer, bytestoread);
+		else
+			read = -1;
+		if (read > 0)
+			vfsp->currentpos += read;
+		vfsp->parentpak->filepos = read < 0 ? qofs_ErrorValue() : vfsp->currentpos;
 		Sys_UnlockMutex(vfsp->parentpak->mutex);
 	}
 	else
@@ -305,14 +309,14 @@ of the list so they override previous pack files.
 */
 searchpathfuncs_t *QDECL FSPAK_LoadArchive (vfsfile_t *file, searchpathfuncs_t *parent, const char *filename, const char *desc, const char *prefix)
 {
-	dpackheader_t	header = {};
+	dpackheader_t	header;
 	int				i;
 	mpackfile_t		*newfiles;
 	int				numpackfiles;
 	pack_t			*pack;
 	vfsfile_t		*packhandle;
 	dpackfile_t		info;
-	int read;
+	qofs_t			packlen;
 
 	packhandle = file;
 	if (packhandle == NULL)
@@ -321,52 +325,71 @@ searchpathfuncs_t *QDECL FSPAK_LoadArchive (vfsfile_t *file, searchpathfuncs_t *
 	if (prefix && *prefix)
 		return NULL;	//not supported at this time
 
-	read = VFS_READ(packhandle, &header, sizeof(header));
-	if (read < sizeof(header) || header.id[0] != 'P' || header.id[1] != 'A'
-	|| header.id[2] != 'C' || header.id[3] != 'K')
+	if (VFS_READ(packhandle, &header, sizeof(header)) != sizeof(header) ||
+	    memcmp(header.id, "PACK", sizeof(header.id)))
 	{
-		header.dirofs = 0;
-		Con_Printf("%s is not a pak - \"%s\"\n", desc, header.id);
+		Con_Printf("%s has an invalid PAK header\n", desc);
 		return NULL;
 	}
 	header.dirofs = LittleLong (header.dirofs);
 	header.dirlen = LittleLong (header.dirlen);
 
+	packlen = VFS_GETLEN(packhandle);
+	if (qofs_Error(packlen) || header.dirofs > packlen ||
+	    header.dirlen > packlen - header.dirofs ||
+	    header.dirlen % sizeof(dpackfile_t) ||
+	    (header.dirlen && header.dirofs < sizeof(header)) ||
+	    !VFS_SEEK(packhandle, header.dirofs))
+	{
+		Con_Printf("%s has an invalid PAK directory\n", desc);
+		return NULL;
+	}
+
 	numpackfiles = header.dirlen / sizeof(dpackfile_t);
 
-	newfiles = (mpackfile_t*)Z_Malloc (numpackfiles * sizeof(mpackfile_t));
+	// The debug zone allocator takes an int size.
+	newfiles = NULL;
+	if ((size_t)numpackfiles <= INT_MAX / sizeof(*newfiles))
+		newfiles = ZF_Malloc(max(numpackfiles, 1) * sizeof(*newfiles));
+	if (!newfiles)
+	{
+		Con_Printf("%s could not allocate its PAK directory\n", desc);
+		return NULL;
+	}
 
-	VFS_SEEK(packhandle, header.dirofs);
-
-	pack = (pack_t*)Z_Malloc (sizeof (pack_t));
 // parse the directory
 	for (i=0 ; i<numpackfiles ; i++)
 	{
-		*info.name = '\0';
-		read = VFS_READ(packhandle, &info, sizeof(info));
-		if (read != sizeof(info))
+		if (VFS_READ(packhandle, &info, sizeof(info)) != sizeof(info))
 		{
-			Con_Printf("PAK file table truncated, only found %i files out of %i\n", i, numpackfiles);
-			numpackfiles = i;
-			break;
+			Con_Printf("%s has a truncated PAK directory at entry %i\n", desc, i);
+			Z_Free(newfiles);
+			return NULL;
 		}
 
+		newfiles[i].filepos = LittleLong(info.filepos);
+		newfiles[i].filelen = LittleLong(info.filelen);
+		if (newfiles[i].filepos > packlen ||
+		    newfiles[i].filelen > packlen - newfiles[i].filepos)
+		{
+			Con_Printf("%s has an invalid PAK member range at entry %i\n", desc, i);
+			Z_Free(newfiles);
+			return NULL;
+		}
 		memcpy(newfiles[i].name, info.name, sizeof(info.name));
 		newfiles[i].name[min(sizeof(info.name), MAX_QPATH-1)] = 0; //paranoid
 		COM_CleanUpPath(newfiles[i].name);	//blooming tanks.
-		newfiles[i].filepos = LittleLong(info.filepos);
-		newfiles[i].filelen = LittleLong(info.filelen);
 	}
 /*
 	if (crc != PAK0_CRC || numpackfiles != PAK0_COUNT)
 		com_modified = true;
 */
-	strcpy (pack->descname, desc);
+	pack = Z_Malloc(sizeof(*pack));
+	Q_strncpyz(pack->descname, desc, sizeof(pack->descname));
 	pack->handle = packhandle;
 	pack->numfiles = numpackfiles;
 	pack->files = newfiles;
-	pack->filepos = 0;
-	VFS_SEEK(packhandle, pack->filepos);
+	pack->filepos = (qofs_t)header.dirofs + header.dirlen;
 
 	pack->references++;
 

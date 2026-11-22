@@ -229,7 +229,6 @@ static searchpath_t *fs_allowfileuri;
 int waitingformanifest;
 static unsigned int fs_restarts;
 void *fs_thread_mutex;
-float fs_accessed_time;	//timestamp of read (does not include flocates, which should normally happen via a cache).
 
 static cvar_t fs_hidesyspaths		= CVARFD	("fs_hidesyspaths", IFWEB("0","1"), 0, "0: Show system paths in console prints that might appear in screenshots or video capture.\n1: Replace the start of filenames in console prints with generic prefixes that cannot leak private info like your operating system's user name.");
 static cvar_t com_fs_cache			= CVARFD	("fs_cache", IFMINIMAL("2","1"), CVAR_ARCHIVE, "0: Do individual lookups.\n1: Scan all files for accelerated lookups. This provides a performance boost on windows and avoids case sensitivity issues on linux.\n2: like 1, but don't bother checking for external changes (avoiding the cost of rebuild the cache).");
@@ -243,8 +242,79 @@ static cvar_t dpcompat_ignoremodificationtimes = CVARAFD("fs_packageprioritisati
 cvar_t	fs_dlURL					= CVARAFD(/*ioq3*/"sv_dlURL", "", /*dp*/"sv_curl_defaulturl", CVAR_SERVERINFO|IFWEB(CVAR_NOSAVE,CVAR_ARCHIVE), "Provides clients with an external url from which they can obtain pk3s/packages from an external http server instead of having to download over udp.");
 cvar_t  cl_download_mapsrc			= CVARFD("cl_download_mapsrc", "", CVAR_ARCHIVE, "Specifies an http location prefix for map downloads. EG: \"http://example.com/path/gamemaps/\"");
 int active_fs_cachetype;
-static int fs_referencetype;
-int fs_finds;
+static void *fs_tracking_mutex;
+static qboolean fs_reference_files;
+static unsigned int fs_finds;
+static qboolean fs_accessed;
+
+static void FS_RecordActivity(void)
+{
+	if (fs_tracking_mutex)
+		Sys_LockMutex(fs_tracking_mutex);
+	fs_accessed = true;
+	if (fs_tracking_mutex)
+		Sys_UnlockMutex(fs_tracking_mutex);
+}
+
+qboolean FS_TakeActivity(void)
+{
+	qboolean accessed;
+	if (fs_tracking_mutex)
+		Sys_LockMutex(fs_tracking_mutex);
+	accessed = fs_accessed;
+	fs_accessed = false;
+	if (fs_tracking_mutex)
+		Sys_UnlockMutex(fs_tracking_mutex);
+	return accessed;
+}
+
+static void FS_RecordSearches(unsigned int count)
+{
+	if (fs_tracking_mutex)
+		Sys_LockMutex(fs_tracking_mutex);
+	fs_finds += count;
+	if (fs_tracking_mutex)
+		Sys_UnlockMutex(fs_tracking_mutex);
+}
+
+unsigned int FS_TakeSearchCount(void)
+{
+	unsigned int count;
+	if (fs_tracking_mutex)
+		Sys_LockMutex(fs_tracking_mutex);
+	count = fs_finds;
+	fs_finds = 0;
+	if (fs_tracking_mutex)
+		Sys_UnlockMutex(fs_tracking_mutex);
+	return count;
+}
+
+static qboolean FS_IsReferenced(const searchpath_t *search)
+{
+	qboolean referenced;
+	if (fs_tracking_mutex)
+		Sys_LockMutex(fs_tracking_mutex);
+	referenced = search->referenced;
+	if (fs_tracking_mutex)
+		Sys_UnlockMutex(fs_tracking_mutex);
+	return referenced;
+}
+
+static void FS_MarkReferenced(searchpath_t *search, const char *filename)
+{
+	qboolean changed = false;
+	if (fs_tracking_mutex)
+		Sys_LockMutex(fs_tracking_mutex);
+	if (!filename || fs_reference_files)
+	{
+		changed = !search->referenced;
+		search->referenced = true;
+	}
+	if (fs_tracking_mutex)
+		Sys_UnlockMutex(fs_tracking_mutex);
+	if (changed && filename)
+		Con_DPrintf("%s became referenced due to %s\n", search->purepath, filename);
+}
 void COM_CheckRegistered (void);
 void Mods_FlushModList(void);
 static void FS_ReloadPackFilesFlags(unsigned int reloadflags);
@@ -1441,7 +1511,7 @@ static void COM_PathLine(searchpath_t *s)
 	else
 		FS_DisplayPath(s->logicalpath, FS_SYSTEM, displaypath,sizeof(displaypath));
 	Con_Printf(" %s" U8("%s")"  %s%s%s%s%s%s%s%s\n", col, displaypath,
-		(s->flags & SPF_REFERENCED)?"^[(ref)\\tip\\Referenced\\desc\\Package will auto-download to clients^]":"",
+		FS_IsReferenced(s)?"^[(ref)\\tip\\Referenced\\desc\\Package will auto-download to clients^]":"",
 		(s->flags & SPF_TEMPORARY)?"^[(temp)\\tip\\Temporary\\desc\\Flushed on map change^]":"",
 		(s->flags & SPF_SERVER)?"^[(srv)\\tip\\Server-Specified\\desc\\Loaded to match the server, closed on disconnect^]":"",
 		(s->flags & SPF_COPYPROTECTED)?"^[(c)\\tip\\Copyrighted\\desc\\Copy-Protected and is not downloadable^]":"",
@@ -2159,6 +2229,7 @@ Sets com_filesize and one of handle or file
 int FS_FLocateFile(const char *filename, unsigned int lflags, flocation_t *loc)
 {
 	int depth=0;
+	unsigned int finds = 0;
 	searchpath_t	*search;
 	char cleanpath[MAX_OSPATH];
 	flocation_t allownoloc;
@@ -2179,7 +2250,7 @@ int FS_FLocateFile(const char *filename, unsigned int lflags, flocation_t *loc)
 	{
 		if (fs_allowfileuri && Sys_ResolveFileURL(filename, strlen(filename), cleanpath, sizeof(cleanpath)))
 		{
-			fs_finds++;
+			++finds;
 			found = fs_allowfileuri->handle->FindFile(fs_allowfileuri->handle, loc, cleanpath, NULL);
 			if (found)
 				loc->search = fs_allowfileuri;
@@ -2218,16 +2289,12 @@ int FS_FLocateFile(const char *filename, unsigned int lflags, flocation_t *loc)
 				continue;
 			if (!((lflags & FSLF_IGNOREBASEDEPTH) && (search->flags & SPF_BASEPATH)))
 				depth += ((search->flags & SPF_EXPLICIT) || (lflags & FSLF_DEPTH_INEXPLICIT));
-			fs_finds++;
+			++finds;
 			found = search->handle->FindFile(search->handle, loc, filename, pf);
 			if (found)
 			{
 				if (!(lflags & FSLF_DONTREFERENCE))
-				{
-					if ((search->flags & fs_referencetype) != fs_referencetype)
-						Con_DPrintf("%s became referenced due to %s\n", search->purepath, filename);
-					search->flags |= fs_referencetype;
-				}
+					FS_MarkReferenced(search, filename);
 				loc->search = search;
 				break;
 			}
@@ -2243,22 +2310,19 @@ int FS_FLocateFile(const char *filename, unsigned int lflags, flocation_t *loc)
 				continue;
 			if (!((lflags & FSLF_IGNOREBASEDEPTH) && (search->flags & SPF_BASEPATH)))
 				depth += ((search->flags & SPF_EXPLICIT) || (lflags & FSLF_DEPTH_INEXPLICIT));
-			fs_finds++;
+			++finds;
 			found = search->handle->FindFile(search->handle, loc, filename, pf);
 			if (found)
 			{
 				if (!(lflags & FSLF_DONTREFERENCE))
-				{
-					if ((search->flags & fs_referencetype) != fs_referencetype)
-						Con_DPrintf("%s became referenced due to %s\n", search->purepath, filename);
-					search->flags |= fs_referencetype;
-				}
+					FS_MarkReferenced(search, filename);
 				loc->search = search;
 				break;
 			}
 		}
 	}
 fail:
+	if (finds) FS_RecordSearches(finds);
 	if (found == FF_SYMLINK && !(lflags & FSLF_IGNORELINKS))
 	{
 		static int blocklink;
@@ -2409,7 +2473,7 @@ const char *FS_WhichPackForLocation(flocation_t *loc, unsigned int flags)
 	if (flags & WP_FULLPATH)
 	{
 		if (flags & WP_REFERENCE)
-			loc->search->flags |= SPF_REFERENCED;
+			FS_MarkReferenced(loc->search, NULL);
 		return loc->search->purepath;
 	}
 	else
@@ -2421,7 +2485,7 @@ const char *FS_WhichPackForLocation(flocation_t *loc, unsigned int flags)
 			if (!strchr(ret, '/'))
 			{
 				if (flags & WP_REFERENCE)
-					loc->search->flags |= SPF_REFERENCED;
+					FS_MarkReferenced(loc->search, NULL);
 				return ret;
 			}
 		}
@@ -2460,7 +2524,7 @@ char *FS_GetPackHashes(char *buffer, int buffersize, qboolean referencedonly)
 	{
 		for (search = com_purepaths ; search ; search = search->nextpure)
 		{
-			if (referencedonly && !(search->flags & SPF_REFERENCED))
+			if (referencedonly && !FS_IsReferenced(search))
 				continue;
 			Q_strncatz(buffer, va("%i ", search->crc_check), buffersize);
 		}
@@ -2470,7 +2534,7 @@ char *FS_GetPackHashes(char *buffer, int buffersize, qboolean referencedonly)
 	{
 		for (search = com_searchpaths ; search ; search = search->next)
 		{
-			if (search->crc_check && (!referencedonly || (search->flags & SPF_REFERENCED)))
+			if (search->crc_check && (!referencedonly || FS_IsReferenced(search)))
 			{
 				Q_strncatz(buffer, va("%i ", search->crc_check), buffersize);
 			}
@@ -2496,9 +2560,9 @@ char *FS_GetPackNames(char *buffer, int buffersize, int referencedonly, qboolean
 	{
 		for (search = com_purepaths ; search ; search = search->nextpure)
 		{
-			if (referencedonly == 1 && !(search->flags & SPF_REFERENCED))
+			if (referencedonly == 1 && !FS_IsReferenced(search))
 				continue;
-			if (referencedonly == 2 && (search->flags & SPF_REFERENCED))
+			if (referencedonly == 2 && FS_IsReferenced(search))
 				Q_strncatz(buffer, "*", buffersize);
 
 			if (!ext)
@@ -2519,9 +2583,9 @@ char *FS_GetPackNames(char *buffer, int buffersize, int referencedonly, qboolean
 		{
 			if (search->crc_check)
 			{
-				if (referencedonly == 1 && !(search->flags & SPF_REFERENCED))
+				if (referencedonly == 1 && !FS_IsReferenced(search))
 					continue;
-				if (referencedonly == 2 && (search->flags & SPF_REFERENCED))
+				if (referencedonly == 2 && FS_IsReferenced(search))
 				{
 					// '*' prefix is meant to mean 'referenced'.
 					//really all that means to the client is that it definitely wants to download it.
@@ -2552,15 +2616,14 @@ void FS_ReferenceControl(unsigned int refflag, unsigned int resetflags)
 	refflag &= SPF_REFERENCED;
 	resetflags &= SPF_REFERENCED;
 
+	if (fs_tracking_mutex)
+		Sys_LockMutex(fs_tracking_mutex);
 	if (resetflags)
-	{
-		for (s=com_searchpaths ; s ; s=s->next)
-		{
-			s->flags &= ~resetflags;
-		}
-	}
-
-	fs_referencetype = refflag;
+		for (s = com_searchpaths; s; s = s->next)
+			s->referenced = false;
+	fs_reference_files = refflag != 0;
+	if (fs_tracking_mutex)
+		Sys_UnlockMutex(fs_tracking_mutex);
 }
 
 //outbuf might not be written into
@@ -2998,7 +3061,7 @@ vfsfile_t *QDECL FS_OpenVFS(const char *filename, const char *mode, enum fs_rela
 
 	//eventually, this function will be the *ONLY* way to get at files
 
-	fs_accessed_time = realtime;
+	FS_RecordActivity();
 
 	if (fs_readonly && *mode == 'w')
 		return NULL;
@@ -3359,7 +3422,7 @@ qbyte *COM_LoadFile (const char *path, unsigned int locateflags, int usehunk, si
 	if (loc.len > 0x7fffffff)	//don't malloc 5000gb sparse files or anything crazy on a 32bit system...
 		return NULL;
 
-	fs_accessed_time = realtime;
+	FS_RecordActivity();
 
 	f = loc.search->handle->OpenVFS(loc.search->handle, &loc, "rb");
 	if (!f)
@@ -3799,7 +3862,7 @@ static searchpathfuncs_t *FS_GetOldPath(searchpath_t **oldpaths, const char *dir
 
 		if (!Q_strcasecmp(p->logicalpath, dir))
 		{
-			*keepflags |= p->flags & (SPF_REFERENCED | SPF_UNTRUSTED);
+			*keepflags |= (p->flags & SPF_UNTRUSTED) | (FS_IsReferenced(p) ? SPF_REFERENCED : 0);
 			*oldpaths = p->next;
 			r = p->handle;
 			Z_Free(p);
@@ -3845,7 +3908,7 @@ static void FS_AddSingleDataFile (const char *descriptor, wildpaks_t *param, sea
 		}
 		else
 		{
-			fs_finds++;
+			FS_RecordSearches(1);
 			if (!funcs->FindFile(funcs, &loc, descriptor, NULL))
 				return;	//not found..
 			vfs = funcs->OpenVFS(funcs, &loc, "rb");
@@ -4191,7 +4254,7 @@ static void FS_AddDataFiles(searchpath_t **oldpaths, const char *purepath, const
 			for (i=0 ; okay ; i++)
 			{
 				snprintf (pakfile, sizeof(pakfile), "pak%i.%s", i, extension);
-				fs_finds++;
+				FS_RecordSearches(1);
 				if (search->handle->FindFile(search->handle, &loc, pakfile, NULL))
 				{
 					snprintf (logicalfile, sizeof(logicalfile), "%spak%i.%s", logicalpaths, i, extension);
@@ -4287,7 +4350,8 @@ static searchpath_t *FS_AddPathHandle(searchpath_t **oldpaths, const char *purep
 		Q_strncpyz(search->prefix, prefix, sizeof(search->prefix));
 		flags |= SPF_COPYPROTECTED; //don't do downloading weirdness when there's weird prefix shenanegans going on.
 	}
-	search->flags = flags;
+	search->flags = flags & ~SPF_REFERENCED;
+	search->referenced = !!(flags & SPF_REFERENCED);
 
 	search->crc_check = 0;
 	search->crc_seed = ~fs_pureseed;
@@ -6239,6 +6303,9 @@ void FS_Shutdown(void)
 	PM_ManifestChanged(NULL);
 #endif
 	FS_FreePaths();
+	if (fs_tracking_mutex)
+		Sys_DestroyMutex(fs_tracking_mutex);
+	fs_tracking_mutex = NULL;
 	Sys_DestroyMutex(fs_thread_mutex);
 	fs_thread_mutex = NULL;
 
@@ -8553,6 +8620,7 @@ void COM_InitFilesystem (void)
 	}
 
 	fs_thread_mutex = Sys_CreateMutex();
+	fs_tracking_mutex = Sys_CreateMutex();
 }
 
 

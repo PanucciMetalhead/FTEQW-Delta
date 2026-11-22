@@ -437,6 +437,7 @@ static void Alias_TransformVerticies_V(const float *bonepose, int vertcount, bon
 #endif
 }
 
+#ifndef SERVERONLY
 /*transforms some skeletal vecV_t values*/
 static void Alias_TransformVerticies_VN(const float *bonepose, int vertcount, const boneidx_t *bidx, float *weights,
 										const float *xyzin, float *fte_restrict xyzout,
@@ -539,6 +540,8 @@ static void Alias_TransformVerticies_VNST(const float *bonepose, int vertcount, 
 		tdirin+=sizeof(vec3_t)/sizeof(vec_t);
 	}
 }
+
+#endif
 
 //converts one entire frame to another skeleton type
 //only writes to destbuffer if absolutely needed
