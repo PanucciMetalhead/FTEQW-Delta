@@ -243,6 +243,7 @@ static cvar_t dpcompat_ignoremodificationtimes = CVARAFD("fs_packageprioritisati
 cvar_t	fs_dlURL					= CVARAFD(/*ioq3*/"sv_dlURL", "", /*dp*/"sv_curl_defaulturl", CVAR_SERVERINFO|IFWEB(CVAR_NOSAVE,CVAR_ARCHIVE), "Provides clients with an external url from which they can obtain pk3s/packages from an external http server instead of having to download over udp.");
 cvar_t  cl_download_mapsrc			= CVARFD("cl_download_mapsrc", "", CVAR_ARCHIVE, "Specifies an http location prefix for map downloads. EG: \"http://example.com/path/gamemaps/\"");
 int active_fs_cachetype;
+// Protects filesystem hash contents, generations and lookup tracking.
 static void *fs_tracking_mutex;
 
 static void FS_InvalidateHash(void)
@@ -1997,36 +1998,43 @@ struct fsbucketblock
 };
 static struct fsbucketblock *fs_hash_filebuckets;
 
+static void FS_ClearHashLocked(void)
+{
+	int i;
+
+	++fs_hash_generation;
+	for (i = 0; i < filesystemhash.numbuckets; i++)
+		filesystemhash.bucket[i] = NULL;
+
+	while (fs_hash_filebuckets)
+	{
+		struct fsbucketblock *next = fs_hash_filebuckets->prev;
+		Z_Free(fs_hash_filebuckets);
+		fs_hash_filebuckets = next;
+	}
+}
+
 static void FS_FlushFSHashReally(qboolean domutexes)
 {
 	COM_AssertMainThread("FS_FlushFSHashReally");
 	if (!domutexes || Sys_LockMutex(fs_thread_mutex))
 	{
-		FS_InvalidateHash();
-
-		if (filesystemhash.numbuckets)
-		{
-			int i;
-			for (i = 0; i < filesystemhash.numbuckets; i++)
-				filesystemhash.bucket[i] = NULL;
-		}
-
-		while (fs_hash_filebuckets)
-		{
-			struct fsbucketblock *n = fs_hash_filebuckets->prev;
-			Z_Free(fs_hash_filebuckets);
-			fs_hash_filebuckets = n;
-		}
-
+		if (fs_tracking_mutex)
+			Sys_LockMutex(fs_tracking_mutex);
+		FS_ClearHashLocked();
+		if (fs_tracking_mutex)
+			Sys_UnlockMutex(fs_tracking_mutex);
 		if (domutexes)
 			Sys_UnlockMutex(fs_thread_mutex);
 	}
 }
 
-static void QDECL FS_AddFileHashUnsafe(int depth, const char *fname, fsbucket_t *filehandle, void *pathhandle)
+static void FS_AddFileHashLocked(int depth, const char *fname, fsbucket_t *filehandle, void *pathhandle, qboolean replace)
 {
-	//threading stuff is fucked.
 	fsbucket_t *old;
+
+	if (!filesystemhash.numbuckets)
+		return;
 
 	old = Hash_GetInsensitiveBucket(&filesystemhash, fname);
 
@@ -2038,9 +2046,8 @@ static void QDECL FS_AddFileHashUnsafe(int depth, const char *fname, fsbucket_t 
 			return;
 		}
 
-		//remove the old version
-		//FIXME: needs to be atomic. just live with multiple in there.
-		//Hash_RemoveBucket(&filesystemhash, fname, &old->buck);
+		if (replace)
+			Hash_RemoveBucket(&filesystemhash, fname, &old->buck);
 	}
 
 	if (!filehandle)
@@ -2068,53 +2075,29 @@ static void QDECL FS_AddFileHashUnsafe(int depth, const char *fname, fsbucket_t 
 	Hash_AddInsensitive(&filesystemhash, fname, pathhandle, &filehandle->buck);
 	fs_hash_files++;
 }
+
 static void QDECL FS_AddFileHash(int depth, const char *fname, fsbucket_t *filehandle, void *pathhandle)
 {
-	fsbucket_t *old;
+	if (fs_tracking_mutex)
+		Sys_LockMutex(fs_tracking_mutex);
+	FS_AddFileHashLocked(depth, fname, filehandle, pathhandle, true);
+	if (fs_tracking_mutex)
+		Sys_UnlockMutex(fs_tracking_mutex);
+}
 
-	old = Hash_GetInsensitiveBucket(&filesystemhash, fname);
-
-	if (old)
-	{
-		fs_hash_dups++;
-		if (depth >= old->depth)
-		{
-			return;
-		}
-
-		//remove the old version
-		Hash_RemoveBucket(&filesystemhash, fname, &old->buck);
-	}
-
-	if (!filehandle)
-	{
-		int nlen = strlen(fname)+1;
-		int plen = sizeof(*filehandle)+nlen;
-		plen = (plen+fte_alignof(fsbucket_t)-1) & ~(fte_alignof(fsbucket_t)-1);
-		if (!fs_hash_filebuckets || fs_hash_filebuckets->used+plen > fs_hash_filebuckets->total)
-		{
-			void *o = fs_hash_filebuckets;
-			fs_hash_filebuckets = Z_Malloc(65536);
-			fs_hash_filebuckets->total = 65536 - sizeof(*fs_hash_filebuckets);
-			fs_hash_filebuckets->prev = o;
-		}
-		filehandle = (fsbucket_t*)(fs_hash_filebuckets->data+fs_hash_filebuckets->used);
-		fs_hash_filebuckets->used += plen;
-
-		if (!filehandle)
-			return;	//eep!
-		memcpy((char*)(filehandle+1), fname, nlen);
-		fname = (char*)(filehandle+1);
-	}
-	filehandle->depth = depth;
-
-	Hash_AddInsensitive(&filesystemhash, fname, pathhandle, &filehandle->buck);
-	fs_hash_files++;
+static void QDECL FS_AddFileHashKeepOlder(int depth, const char *fname, fsbucket_t *filehandle, void *pathhandle)
+{
+	if (fs_tracking_mutex)
+		Sys_LockMutex(fs_tracking_mutex);
+	FS_AddFileHashLocked(depth, fname, filehandle, pathhandle, false);
+	if (fs_tracking_mutex)
+		Sys_UnlockMutex(fs_tracking_mutex);
 }
 
 static void FS_RebuildFSHash(qboolean domutex)
 {
 	int depth = 1;
+	int files, duplicates;
 	unsigned int generation;
 	searchpath_t	*search;
 	if (!FS_HashChanged())
@@ -2127,26 +2110,22 @@ static void FS_RebuildFSHash(qboolean domutex)
 	if (com_fsneedreload)
 		FS_ReloadPackFilesFlags(~0);
 
+	if (fs_tracking_mutex)
+		Sys_LockMutex(fs_tracking_mutex);
+	FS_ClearHashLocked();
 	if (!filesystemhash.numbuckets)
 	{
 		filesystemhash.numbuckets = 1024;
 		filesystemhash.bucket = (bucket_t**)Z_Malloc(Hash_BytesForBuckets(filesystemhash.numbuckets));
 	}
-	else
-	{
-		FS_FlushFSHashReally(false);
-	}
 	Hash_InitTable(&filesystemhash, filesystemhash.numbuckets, filesystemhash.bucket);
 
 	// A write during enumeration must still invalidate the new table.
-	if (fs_tracking_mutex)
-		Sys_LockMutex(fs_tracking_mutex);
 	generation = fs_hash_generation;
-	if (fs_tracking_mutex)
-		Sys_UnlockMutex(fs_tracking_mutex);
-
 	fs_hash_dups = 0;
 	fs_hash_files = 0;
+	if (fs_tracking_mutex)
+		Sys_UnlockMutex(fs_tracking_mutex);
 
 	if (com_purepaths)
 	{	//go for the pure paths first.
@@ -2166,6 +2145,8 @@ static void FS_RebuildFSHash(qboolean domutex)
 	if (fs_tracking_mutex)
 		Sys_LockMutex(fs_tracking_mutex);
 	fs_built_hash_generation = generation;
+	files = fs_hash_files;
+	duplicates = fs_hash_dups;
 	if (fs_tracking_mutex)
 		Sys_UnlockMutex(fs_tracking_mutex);
 	com_fsneedreload = false;
@@ -2173,7 +2154,7 @@ static void FS_RebuildFSHash(qboolean domutex)
 	if (domutex)
 		Sys_UnlockMutex(fs_thread_mutex);
 
-	Con_DPrintf("%i unique files, %i duplicates\n", fs_hash_files, fs_hash_dups);
+	Con_DPrintf("%i unique files, %i duplicates\n", files, duplicates);
 }
 
 static void FS_RebuildFSHash_Update(const char *fname)
@@ -2214,20 +2195,26 @@ static void FS_RebuildFSHash_Update(const char *fname)
 
 
 	COM_WorkerLock();
-	if (!Sys_LockMutex(fs_thread_mutex))
-		return;	//amg!
-
-	old = Hash_GetInsensitiveBucket(&filesystemhash, fname);
-	if (old)
+	if (Sys_LockMutex(fs_thread_mutex))
 	{
-		Hash_RemoveBucket(&filesystemhash, fname, &old->buck);
-		fs_hash_files--;
+		if (fs_tracking_mutex)
+			Sys_LockMutex(fs_tracking_mutex);
+		if (fs_hash_generation == fs_built_hash_generation)
+		{
+			old = Hash_GetInsensitiveBucket(&filesystemhash, fname);
+			if (old)
+			{
+				Hash_RemoveBucket(&filesystemhash, fname, &old->buck);
+				fs_hash_files--;
+			}
+
+			if (filehandle)
+				FS_AddFileHashLocked(depth, fname, NULL, filehandle, true);
+		}
+		if (fs_tracking_mutex)
+			Sys_UnlockMutex(fs_tracking_mutex);
+		Sys_UnlockMutex(fs_thread_mutex);
 	}
-
-	if (filehandle)
-		FS_AddFileHash(depth, fname, NULL, filehandle);
-
-	Sys_UnlockMutex(fs_thread_mutex);
 	COM_WorkerUnlock();
 }
 
@@ -2299,19 +2286,30 @@ int FS_FLocateFile(const char *filename, unsigned int lflags, flocation_t *loc)
 		goto fail;
 	}
 
-	if (com_fs_cache.ival && !(lflags & FSLF_IGNOREPURE) && !FS_HashChanged())
+	pf = NULL;
+	if (com_fs_cache.ival && !(lflags & FSLF_IGNOREPURE))
 	{
-		bucket_t *b = Hash_GetInsensitiveBucket(&filesystemhash, filename);
-		if (b)
+		qboolean cachemiss = false;
+		if (fs_tracking_mutex)
+			Sys_LockMutex(fs_tracking_mutex);
+		if (fs_hash_generation == fs_built_hash_generation)
 		{
-			pf = b->data;
-			filename = b->key.string;	//update the filename to use the correct file case...
+			bucket_t *b = Hash_GetInsensitiveBucket(&filesystemhash, filename);
+			if (b)
+			{
+				pf = b->data;
+				// Keep the canonical case without retaining a pointer into the cache.
+				Q_strncpyz(cleanpath, b->key.string, sizeof(cleanpath));
+				filename = cleanpath;
+			}
+			else
+				cachemiss = true;
 		}
-		else
+		if (fs_tracking_mutex)
+			Sys_UnlockMutex(fs_tracking_mutex);
+		if (cachemiss)
 			goto fail;
 	}
-	else
-		pf = NULL;
 
 	if (com_purepaths && found == FF_NOTFOUND && !(lflags & FSLF_IGNOREPURE))
 	{
@@ -4410,6 +4408,7 @@ static searchpath_t *FS_AddPathHandle(searchpath_t **oldpaths, const char *purep
 	if (flags & (SPF_TEMPORARY|SPF_SERVER))
 	{
 		int depth = 1;
+		qboolean hashtableallocated;
 		searchpath_t *s;
 		//add at end. pureness will reorder if needed.
 		link = &com_searchpaths;
@@ -4430,8 +4429,13 @@ static searchpath_t *FS_AddPathHandle(searchpath_t **oldpaths, const char *purep
 		}
 		*link = search;
 
-		if (filesystemhash.numbuckets)
-			search->handle->BuildHash(search->handle, depth, FS_AddFileHashUnsafe);
+		if (fs_tracking_mutex)
+			Sys_LockMutex(fs_tracking_mutex);
+		hashtableallocated = filesystemhash.numbuckets != 0;
+		if (fs_tracking_mutex)
+			Sys_UnlockMutex(fs_tracking_mutex);
+		if (hashtableallocated)
+			search->handle->BuildHash(search->handle, depth, FS_AddFileHashKeepOlder);
 	}
 	else
 	{
@@ -6312,15 +6316,17 @@ static void FS_FreePaths(void)
 		com_searchpaths = next;
 	}
 
-	FS_InvalidateHash();
-
-
+	if (fs_tracking_mutex)
+		Sys_LockMutex(fs_tracking_mutex);
+	++fs_hash_generation;
 	if (filesystemhash.numbuckets)
 	{
 		BZ_Free(filesystemhash.bucket);
 		filesystemhash.bucket = NULL;
 		filesystemhash.numbuckets = 0;
 	}
+	if (fs_tracking_mutex)
+		Sys_UnlockMutex(fs_tracking_mutex);
 
 	FS_Manifest_Free(fs_manifest);
 	fs_manifest = NULL;
