@@ -4,14 +4,18 @@
 #include <stdlib.h>
 #include <string.h>
 typedef int qboolean;
-enum { false, true, MAX_OSPATH = 1024, SPF_REFERENCED = 1, SPF_COPYPROTECTED = 2 };
+enum { false, true, MAX_OSPATH = 1024, SPF_COPYPROTECTED = 2 };
 typedef struct searchpath_s {
 	struct searchpath_s *next, *nextpure;
 	int flags, crc_check;
 	char *purepath;
+	qboolean referenced;
 } searchpath_t;
 static searchpath_t *com_searchpaths, *com_purepaths;
 static char *fs_refcrcs, *fs_refnames;
+static void *fs_tracking_mutex;
+static void Sys_LockMutex(void *mutex) { (void)mutex; }
+static void Sys_UnlockMutex(void *mutex) { (void)mutex; }
 static char *va(const char *format, ...)
 {
 	static char out[2048]; va_list ap;
@@ -55,8 +59,9 @@ static void reference_lookup(int rebuild, int checksum, const char *expected)
 }
 int main(void)
 {
-	searchpath_t b = {NULL, NULL, 0, 22, "baseoa/pak2-players.pk3"};
-	searchpath_t a = {&b, &b, SPF_REFERENCED, 11, "baseoa/pak0.pk3"};
+	searchpath_t b = {.crc_check = 22, .purepath = "baseoa/pak2-players.pk3"};
+	searchpath_t a = {.next = &b, .nextpure = &b, .crc_check = 11,
+	                  .purepath = "baseoa/pak0.pk3", .referenced = true};
 	char out[1024];
 	com_searchpaths = &a;
 	for (int pure = 0; pure < 2; pure++) {

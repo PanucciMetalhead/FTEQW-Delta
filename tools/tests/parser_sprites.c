@@ -2,6 +2,7 @@
 #include <limits.h>
 #include <math.h>
 #include <stddef.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -29,7 +30,6 @@ typedef struct {
 
 #define QDECL
 #define Q_memset memset
-#define Q_snprintfz snprintf
 #define Con_Printf(...) ((void)0)
 #define Con_DPrintf(...) ((void)0)
 static const struct { int ival; } r_sprite_backfacing = {0};
@@ -37,6 +37,16 @@ static const int qrenderer = QR_TEST;
 static unsigned int textures, replacement_textures;
 static void *allocations[32];
 static size_t allocation_count;
+
+static qboolean Q_snprintfz(char *out, size_t size, const char *format, ...)
+{
+	va_list args;
+	va_start(args, format);
+	int written = vsnprintf(out, size, format, args);
+	va_end(args);
+	out[size - 1] = 0;
+	return written < 0 || (size_t)written >= size ? true : false;
+}
 
 static void *ZG_Malloc(void **group, size_t size)
 {

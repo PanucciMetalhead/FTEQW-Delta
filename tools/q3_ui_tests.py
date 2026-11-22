@@ -53,7 +53,7 @@ def main():
         'disconnect': (parse, ('CLQ3_Disconnect',)),
         'download': (parse, ('CLQ3_ParseDownload',)),
         'browserinfo': (source, ('UI_AppendServerInfo', 'UI_WriteServerInfo')),
-        'packages': (filesystem, ('FS_GetPackHashes', 'FS_GetPackNames')),
+        'packages': (filesystem, ('FS_IsReferenced', 'FS_GetPackHashes', 'FS_GetPackNames')),
         'reject': ('', ()),
         'packet': ('', ()),
         'cvars': ((ROOT / 'plugins/quake3/q3common.c').read_text(), ('VMQ3_Cvar_Register', 'VMQ3_Cvar_Update')),
