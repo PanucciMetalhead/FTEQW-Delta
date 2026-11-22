@@ -50,7 +50,8 @@ void() update = {
 };
 void() StartFrame = {
     local vector p,s,t,h;
-    if(!physics_supported()) return;
+    // A full client can run another server tick before the queued quit.
+    if(phase==7 || !physics_supported()) return;
     elapsed+=frametime;
     if(phase==1 && !source_changed && elapsed>resume_time+.08) {drive_pose('256 0 64');source_changed=1;}
     if(phase==1 && cvar("checkpoint_loaded")==1) {
@@ -98,7 +99,8 @@ void() StartFrame = {
         verify(s_z<released_z-20,"released restored rig continues passive simulation");
         verify(physics_supported(0)==0 && physics_supported(1)==1,"restored worlds teardown and restart safely");
         verify(skel_ragupdate(soft,"cleardoll",source)==1,"clear restored rig after backend restart");
-        dprint("SAVE_RIG_OK\n");phase=7;localcmd("quit force\n");
+        // Let the completed fixture survive additional ticks after teardown.
+        dprint("SAVE_RIG_OK\n");phase=7;localcmd("defer .2 quit force\n");
     }
 };
 void() main={};void() PlayerPreThink={};void() PlayerPostThink={};void() ClientKill={};
