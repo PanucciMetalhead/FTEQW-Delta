@@ -75,6 +75,16 @@ static model_t *staticworld;
 static msurface_t *staticsurfaces;
 static qboolean staticinvalid;
 static unsigned staticpagecount;
+static cvar_t gpu_occlusion = CVARD("gpu_occlusion", "0", "Test opaque and translucent scene batches against the current view's hierarchical depth buffer.");
+static struct {
+    SDL_GPUComputePipeline *reduce, *test;
+    SDL_GPUSampler *sampler;
+    SDL_GPUBuffer *tiles, *candidates, *commands;
+    SDL_GPUTransferBuffer *upload;
+    unsigned tilecapacity, drawcapacity;
+    qboolean unavailable;
+} occlusion;
+
 static cvar_t gpu_staticgeometry = CVARD("gpu_staticgeometry", "1", "Keep immutable world vertices on the GPU. Zero uses the reference streaming path.");
 static cvar_t gpu_shadowcull = CVARD("gpu_shadowcull", "1", "Cull shadow casters against each light and cubemap face. Zero submits all casters for comparison.");
 static cvar_t gpu_shadowcache = CVARD("gpu_shadowcache", "0", "Reuse realtime world shadow faces containing only unchanged opaque world geometry.");
@@ -460,6 +470,7 @@ void GPU_BackendInit(void)
     SDL_GPUGraphicsPipelineCreateInfo pi = {0};
     SDL_GPUColorTargetDescription color = {0};
     SDL_GPUSamplerCreateInfo si = {0};
+    if (Cvar_FindVar(gpu_occlusion.name) != &gpu_occlusion) Cvar_Register(&gpu_occlusion, "SDL GPU");
     if (Cvar_FindVar(gpu_staticgeometry.name) != &gpu_staticgeometry) Cvar_Register(&gpu_staticgeometry, "SDL GPU");
     if (Cvar_FindVar(gpu_shadowcull.name) != &gpu_shadowcull) Cvar_Register(&gpu_shadowcull, "SDL GPU");
     if (Cvar_FindVar(gpu_shadowcache.name) != &gpu_shadowcache) Cvar_Register(&gpu_shadowcache, "SDL GPU");
@@ -600,6 +611,14 @@ void GPU_BackendShutdown(void)
     if (gpu.transfer) SDL_ReleaseGPUTransferBuffer(gpu.device, gpu.transfer);
     if (gpu.scene) SDL_ReleaseGPUTexture(gpu.device, gpu.scene);
     if (gpu.depth) SDL_ReleaseGPUTexture(gpu.device, gpu.depth);
+    if (occlusion.sampler) SDL_ReleaseGPUSampler(gpu.device, occlusion.sampler);
+    if (occlusion.reduce) SDL_ReleaseGPUComputePipeline(gpu.device, occlusion.reduce);
+    if (occlusion.test) SDL_ReleaseGPUComputePipeline(gpu.device, occlusion.test);
+    if (occlusion.tiles) SDL_ReleaseGPUBuffer(gpu.device, occlusion.tiles);
+    if (occlusion.candidates) SDL_ReleaseGPUBuffer(gpu.device, occlusion.candidates);
+    if (occlusion.commands) SDL_ReleaseGPUBuffer(gpu.device, occlusion.commands);
+    if (occlusion.upload) SDL_ReleaseGPUTransferBuffer(gpu.device, occlusion.upload);
+    memset(&occlusion, 0, sizeof(occlusion));
     Z_Free(gpu.cpuvertices); Z_Free(gpu.cpuindices); Z_Free(gpu.draws);
     for (i = 0; i < maxtempbatches; ++i) Z_Free(tempbatches[i]);
     Z_Free(tempbatches); tempbatches = NULL; numtempbatches = maxtempbatches = 0;
@@ -658,6 +677,9 @@ void GPU_BeginFrame(void)
         ci.format = gpu.colorformat;
         gpu.present = SDL_CreateGPUTexture(gpu.device, &ci);
         ci.format = gpu.depthformat; ci.usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET;
+        if (SDL_GPUTextureSupportsFormat(gpu.device, ci.format, ci.type,
+                ci.usage | SDL_GPU_TEXTUREUSAGE_SAMPLER))
+            ci.usage |= SDL_GPU_TEXTUREUSAGE_SAMPLER;
         gpu.depth = SDL_CreateGPUTexture(gpu.device, &ci);
         if (!gpu.scene || !gpu.depth || !gpu.present) GPU_Error("resize frame targets");
         R2D_Console_Resize();
@@ -915,7 +937,7 @@ static void GPU_SnapshotOverlay(size_t index, gpu_overlay_snapshot_t **snapshots
     }
 }
 
-static void GPU_DrawCommands(SDL_GPURenderPass *pass, size_t first, size_t end, qboolean overlays)
+static void GPU_DrawCommands(SDL_GPURenderPass *pass, size_t first, size_t end, qboolean overlays, qboolean indirect)
 {
     SDL_GPUBufferBinding vb = {gpu.vertices,0}, ib = {gpu.indices,0};
     SDL_GPUGraphicsPipeline *boundpipeline = NULL;
@@ -956,7 +978,11 @@ static void GPU_DrawCommands(SDL_GPURenderPass *pass, size_t first, size_t end, 
         if (!previous || memcmp(&previous->frag,&d->frag,sizeof(d->frag))) SDL_PushGPUFragmentUniformData(gpu.command, 0, &d->frag, sizeof(d->frag));
         if (!previous || memcmp(previous->samplers,d->samplers,sizeof(d->samplers))) SDL_BindGPUFragmentSamplers(pass, 0, d->samplers, GPU_SAMPLERS);
         if (!previous || previous->lighting != d->lighting) GPU_LightingBind(pass,d);
-        SDL_DrawGPUIndexedPrimitives(pass, d->numindices, 1, d->firstindex, d->vertexoffset, 0);
+        if (indirect && d->occlusion_slot)
+            SDL_DrawGPUIndexedPrimitivesIndirect(pass, occlusion.commands,
+                (d->occlusion_slot - 1) * sizeof(SDL_GPUIndexedIndirectDrawCommand), 1);
+        else
+            SDL_DrawGPUIndexedPrimitives(pass, d->numindices, 1, d->firstindex, d->vertexoffset, 0);
         previous = gpu.batching ? d : NULL;
     }
 }
@@ -1032,6 +1058,180 @@ static SDL_GPUTexture *GPU_Bloom(void)
     return gpu.bloom[0];
 }
 
+#define GPU_OCCLUSION_TILE 8
+
+typedef struct {
+    Uint32 rect[4];
+    float near_depth;
+    SDL_GPUIndexedIndirectDrawCommand draw;
+    Uint32 padding[2];
+} gpu_occlusion_candidate_t;
+_Static_assert(sizeof(gpu_occlusion_candidate_t) == 48, "occlusion shader candidate stride");
+_Static_assert(sizeof(SDL_GPUIndexedIndirectDrawCommand) == 20, "occlusion indirect command stride");
+
+/* Project all corners. Positive w makes the corner extrema conservative for
+ * the whole box. Leave near-plane intersections and screen edges to rasterization. */
+static qboolean GPU_OcclusionCandidate(const gpu_draw_t *draw, gpu_occlusion_candidate_t *candidate)
+{
+    const float *m = draw->vert.mvp;
+    float xmin = INFINITY, ymin = INFINITY, xmax = -INFINITY, ymax = -INFINITY, near_depth = 1;
+
+    if (!draw->occlusion_bounds || draw->lines || draw->screenoverlay ||
+        (draw->bits & SBITS_MISC_NODEPTHTEST) ||
+        (draw->bits & SBITS_DEPTHFUNC_BITS) == SBITS_DEPTHFUNC_FURTHER ||
+        draw->depthbias.unit || draw->depthbias.factor ||
+        draw->viewport.min_depth != 0 || draw->viewport.max_depth != 1)
+        return false;
+
+    for (unsigned corner = 0; corner < 8; ++corner) {
+        float x = (corner & 1) ? draw->occlusion_maxs[0] : draw->occlusion_mins[0];
+        float y = (corner & 2) ? draw->occlusion_maxs[1] : draw->occlusion_mins[1];
+        float z = (corner & 4) ? draw->occlusion_maxs[2] : draw->occlusion_mins[2];
+        float w = m[3]*x + m[7]*y + m[11]*z + m[15];
+        if (!(w > 0) || !isfinite(w)) return false;
+        float sx = (m[0]*x + m[4]*y + m[8]*z + m[12])/w;
+        float sy = -(m[1]*x + m[5]*y + m[9]*z + m[13])/w;
+        float depth = (m[2]*x + m[6]*y + m[10]*z + m[14])/w;
+        if (!isfinite(sx) || !isfinite(sy) || !(depth > 0 && depth <= 1)) return false;
+        sx = draw->viewport.x + (sx+1)*draw->viewport.w*0.5f;
+        sy = draw->viewport.y + (sy+1)*draw->viewport.h*0.5f;
+        xmin = min(xmin, sx); xmax = max(xmax, sx);
+        ymin = min(ymin, sy); ymax = max(ymax, sy);
+        near_depth = min(near_depth, depth);
+    }
+
+    if (xmax < 0 || ymax < 0 || xmin >= gpu.width || ymin >= gpu.height) return false;
+
+    /* Include a pixel of padding for projection and rasterization rounding. */
+    candidate->rect[0] = (unsigned)max(0, xmin-1) / GPU_OCCLUSION_TILE;
+    candidate->rect[1] = (unsigned)max(0, ymin-1) / GPU_OCCLUSION_TILE;
+    candidate->rect[2] = (unsigned)min(gpu.width-1, xmax+1) / GPU_OCCLUSION_TILE;
+    candidate->rect[3] = (unsigned)min(gpu.height-1, ymax+1) / GPU_OCCLUSION_TILE;
+    if ((candidate->rect[2]-candidate->rect[0]+1) * (candidate->rect[3]-candidate->rect[1]+1) > 256)
+        return false;
+    candidate->near_depth = near_depth;
+    candidate->draw = (SDL_GPUIndexedIndirectDrawCommand){draw->numindices, 1, draw->firstindex, draw->vertexoffset, 0};
+    return true;
+}
+
+static SDL_GPUComputePipeline *GPU_OcclusionPipeline(const unsigned char *spv, size_t spv_size,
+    const unsigned char *msl, qboolean reduce)
+{
+    SDL_GPUComputePipelineCreateInfo info = {0};
+    if (SDL_GetGPUShaderFormats(gpu.device) & SDL_GPU_SHADERFORMAT_MSL) {
+        info.code = msl; info.code_size = strlen((const char *)msl);
+        info.format = SDL_GPU_SHADERFORMAT_MSL; info.entrypoint = "main0";
+    } else {
+        info.code = spv; info.code_size = spv_size;
+        info.format = SDL_GPU_SHADERFORMAT_SPIRV; info.entrypoint = "main";
+    }
+    info.num_samplers = reduce ? 1 : 0;
+    info.num_readonly_storage_buffers = reduce ? 0 : 2;
+    info.num_readwrite_storage_buffers = 1;
+    info.num_uniform_buffers = reduce ? 0 : 1;
+    info.threadcount_x = reduce ? 8 : 64;
+    info.threadcount_y = reduce ? 8 : 1;
+    info.threadcount_z = 1;
+    return SDL_CreateGPUComputePipeline(gpu.device, &info);
+}
+
+static unsigned GPU_PrepareOcclusion(size_t first, size_t end)
+{
+    const unsigned tiles = ((gpu.width+7)/8) * ((gpu.height+7)/8);
+    const unsigned capacity = min(end-first, 65536);
+    SDL_GPUBufferCreateInfo info = {0};
+    unsigned count = 0;
+
+    if (occlusion.unavailable) return 0;
+    if (!occlusion.reduce) {
+        SDL_GPUSamplerCreateInfo sampler = {0};
+        if (!SDL_GPUTextureSupportsFormat(gpu.device, gpu.depthformat, SDL_GPU_TEXTURETYPE_2D,
+            SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER)) {
+            occlusion.unavailable = true;
+            return 0;
+        }
+        occlusion.reduce = GPU_OcclusionPipeline(gpu_occlusion_depth_comp_spv,
+            sizeof(gpu_occlusion_depth_comp_spv), gpu_occlusion_depth_comp_msl, true);
+        occlusion.test = GPU_OcclusionPipeline(gpu_occlusion_draw_comp_spv,
+            sizeof(gpu_occlusion_draw_comp_spv), gpu_occlusion_draw_comp_msl, false);
+        sampler.min_filter = sampler.mag_filter = SDL_GPU_FILTER_NEAREST;
+        sampler.address_mode_u = sampler.address_mode_v = sampler.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+        occlusion.sampler = SDL_CreateGPUSampler(gpu.device, &sampler);
+        if (!occlusion.reduce || !occlusion.test || !occlusion.sampler) goto unavailable;
+    }
+    if (tiles > occlusion.tilecapacity) {
+        if (occlusion.tiles) SDL_ReleaseGPUBuffer(gpu.device, occlusion.tiles);
+        info.usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ | SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_WRITE;
+        info.size = tiles * sizeof(float);
+        occlusion.tiles = SDL_CreateGPUBuffer(gpu.device, &info);
+        if (!occlusion.tiles) goto unavailable;
+        occlusion.tilecapacity = tiles;
+    }
+    if (capacity > occlusion.drawcapacity) {
+        if (occlusion.candidates) SDL_ReleaseGPUBuffer(gpu.device, occlusion.candidates);
+        if (occlusion.commands) SDL_ReleaseGPUBuffer(gpu.device, occlusion.commands);
+        if (occlusion.upload) SDL_ReleaseGPUTransferBuffer(gpu.device, occlusion.upload);
+        SDL_GPUTransferBufferCreateInfo transfer = {SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
+            capacity * sizeof(gpu_occlusion_candidate_t), 0};
+        info.usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ;
+        info.size = transfer.size;
+        occlusion.candidates = SDL_CreateGPUBuffer(gpu.device, &info);
+        info.usage = SDL_GPU_BUFFERUSAGE_INDIRECT | SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_WRITE;
+        info.size = capacity * sizeof(SDL_GPUIndexedIndirectDrawCommand);
+        occlusion.commands = SDL_CreateGPUBuffer(gpu.device, &info);
+        occlusion.upload = SDL_CreateGPUTransferBuffer(gpu.device, &transfer);
+        if (!occlusion.candidates || !occlusion.commands || !occlusion.upload) goto unavailable;
+        occlusion.drawcapacity = capacity;
+    }
+    gpu_occlusion_candidate_t *map = SDL_MapGPUTransferBuffer(gpu.device, occlusion.upload, true);
+    if (!map) goto unavailable;
+    for (size_t i = first; i < end && count < capacity; ++i) {
+        gpu_draw_t *draw = &gpu.draws[i];
+        if (draw->shadowonly || (gpu.sceneonlygamma && draw->screenoverlay)) continue;
+        /* The snapshot remains conservative only while subsequent depth
+         * writes can move depth closer or leave it unchanged. */
+        if ((draw->bits & SBITS_MISC_DEPTHWRITE) && ((draw->bits & SBITS_MISC_NODEPTHTEST) ||
+            (draw->bits & SBITS_DEPTHFUNC_BITS) == SBITS_DEPTHFUNC_FURTHER)) break;
+        if (GPU_OcclusionCandidate(draw, &map[count]))
+            draw->occlusion_slot = ++count;
+    }
+    SDL_UnmapGPUTransferBuffer(gpu.device, occlusion.upload);
+    if (count) {
+        SDL_GPUTransferBufferLocation src = {occlusion.upload, 0};
+        SDL_GPUBufferRegion dst = {occlusion.candidates, 0, count * sizeof(*map)};
+        SDL_GPUCopyPass *copy = SDL_BeginGPUCopyPass(gpu.command);
+        SDL_UploadToGPUBuffer(copy, &src, &dst, true);
+        SDL_EndGPUCopyPass(copy);
+    }
+    return count;
+
+unavailable:
+    Con_Printf("SDL GPU occlusion unavailable: %s\n", SDL_GetError());
+    occlusion.unavailable = true;
+    return 0;
+}
+
+static void GPU_DispatchOcclusion(unsigned count)
+{
+    Uint32 params[4] = {count, (gpu.width+7)/8, 0, 0};
+    SDL_GPUTextureSamplerBinding depth = {gpu.depth, occlusion.sampler};
+    SDL_GPUStorageBufferReadWriteBinding output = {occlusion.tiles, true};
+    SDL_GPUBuffer *inputs[] = {occlusion.tiles, occlusion.candidates};
+    SDL_GPUComputePass *pass = SDL_BeginGPUComputePass(gpu.command, NULL, 0, &output, 1);
+    SDL_BindGPUComputePipeline(pass, occlusion.reduce);
+    SDL_BindGPUComputeSamplers(pass, 0, &depth, 1);
+    SDL_DispatchGPUCompute(pass, params[1], (gpu.height+7)/8, 1);
+    SDL_EndGPUComputePass(pass);
+
+    output.buffer = occlusion.commands;
+    pass = SDL_BeginGPUComputePass(gpu.command, NULL, 0, &output, 1);
+    SDL_BindGPUComputePipeline(pass, occlusion.test);
+    SDL_BindGPUComputeStorageBuffers(pass, 0, inputs, countof(inputs));
+    SDL_PushGPUComputeUniformData(gpu.command, 0, params, sizeof(params));
+    SDL_DispatchGPUCompute(pass, (count+63)/64, 1, 1);
+    SDL_EndGPUComputePass(pass);
+}
+
 void GPU_EndFrame(void)
 {
     SDL_GPUColorTargetInfo color = {0};
@@ -1085,9 +1285,22 @@ void GPU_EndFrame(void)
         depth.load_op = seen ? SDL_GPU_LOADOP_LOAD : SDL_GPU_LOADOP_CLEAR;
         depth.store_op = SDL_GPU_STOREOP_STORE;
         depth.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE; depth.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
+        size_t split = first + (end - first) / 3;
+        unsigned candidates = 0;
+        if (gpu_occlusion.ival && initial->target == gpu.scene && end - first >= 16)
+            candidates = GPU_PrepareOcclusion(split, end);
         pass = SDL_BeginGPURenderPass(gpu.command, &color, 1, &depth);
         if (!pass) GPU_Error("begin material render pass");
-        GPU_DrawCommands(pass, first, end, false);
+        if (candidates) {
+            GPU_DrawCommands(pass, first, split, false, false);
+            SDL_EndGPURenderPass(pass);
+            GPU_DispatchOcclusion(candidates);
+            color.load_op = depth.load_op = SDL_GPU_LOADOP_LOAD;
+            pass = SDL_BeginGPURenderPass(gpu.command, &color, 1, &depth);
+            if (!pass) GPU_Error("resume material render pass");
+            first = split;
+        }
+        GPU_DrawCommands(pass, first, end, false, candidates != 0);
         i = end;
         if (initial->target == gpu.scene) sceneinitialized = true;
         SDL_EndGPURenderPass(pass);
@@ -1121,7 +1334,7 @@ void GPU_EndFrame(void)
         depth.load_op = sceneinitialized ? SDL_GPU_LOADOP_LOAD : SDL_GPU_LOADOP_CLEAR;
         pass = SDL_BeginGPURenderPass(gpu.command, &color, 1, &depth);
         if (!pass) GPU_Error("begin screen overlay pass");
-        GPU_DrawCommands(pass, 0, gpu.numdraws, true);
+        GPU_DrawCommands(pass, 0, gpu.numdraws, true, false);
         SDL_EndGPURenderPass(pass);
     }
     {
@@ -1462,7 +1675,7 @@ static void GPU_DrawMesh(shader_t *shader, mesh_t *mesh, vbo_t *vbo, texnums_t *
         else memset(d, 0, sizeof(*d));
         d->firstindex = gpu.numindices; d->numindices = mesh->numindexes;
         d->vertexoffset = cached ? 0 : gpu.numstreamvertices;
-        d->vertexbuffer = vertexbuffer; d->boundsvalid = false;
+        d->vertexbuffer = vertexbuffer; d->boundsvalid = d->occlusion_bounds = false;
         if (cached) base = cached->first;
     }
     if (!prepared) {
@@ -1766,6 +1979,25 @@ static void GPU_DrawMesh(shader_t *shader, mesh_t *mesh, vbo_t *vbo, texnums_t *
             d->boundsvalid = true;
         }
     }
+    if (gpu_occlusion.ival && d->target == gpu.scene && !gpu.drawing2d && !d->shadowonly &&
+        !d->lines && !(d->bits & SBITS_MISC_NODEPTHTEST) && d->viewport.max_depth == 1) {
+        if (cached) {
+            for (i = 0; i < 3; ++i) {
+                d->occlusion_mins[i] = d->occlusion_bounds ? min(d->occlusion_mins[i], cached->mins[i]) : cached->mins[i];
+                d->occlusion_maxs[i] = d->occlusion_bounds ? max(d->occlusion_maxs[i], cached->maxs[i]) : cached->maxs[i];
+            }
+            d->occlusion_bounds = true;
+        } else {
+            for (i = 0; i < mesh->numvertexes; ++i) {
+                const float *position = gpu.cpuvertices[gpu.numstreamvertices+i].position;
+                for (unsigned axis = 0; axis < 3; ++axis) {
+                    d->occlusion_mins[axis] = d->occlusion_bounds ? min(d->occlusion_mins[axis], position[axis]) : position[axis];
+                    d->occlusion_maxs[axis] = d->occlusion_bounds ? max(d->occlusion_maxs[axis], position[axis]) : position[axis];
+                }
+                d->occlusion_bounds = true;
+            }
+        }
+    }
     /* Combine adjacent geometry without changing triangle/blend order. The
      * zero-initialized draw record after vertexoffset contains all render
      * state, texture bindings and uniforms; differing state ends a batch. */
@@ -1787,6 +2019,11 @@ static void GPU_DrawMesh(shader_t *shader, mesh_t *mesh, vbo_t *vbo, texnums_t *
             for (i = 0; i < mesh->numindexes; ++i) gpu.cpuindices[gpu.numindices+i] += base;
             prev->numindices += d->numindices;
             prev->boundsvalid = prev->boundsvalid && d->boundsvalid;
+            prev->occlusion_bounds = prev->occlusion_bounds && d->occlusion_bounds;
+            if (prev->occlusion_bounds) for (i = 0; i < 3; ++i) {
+                prev->occlusion_mins[i] = min(prev->occlusion_mins[i], d->occlusion_mins[i]);
+                prev->occlusion_maxs[i] = max(prev->occlusion_maxs[i], d->occlusion_maxs[i]);
+            }
             for (i = 0; i < 3; ++i) {
                 prev->mins[i] = min(prev->mins[i], d->mins[i]);
                 prev->maxs[i] = max(prev->maxs[i], d->maxs[i]);

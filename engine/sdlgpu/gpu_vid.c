@@ -85,13 +85,14 @@ static void GPU_Info_f(void)
 {
     extern texid_t r_whiteimage, missing_texture;
     size_t i; unsigned material[7] = {0}, lights = 0, shadows = 0, loaded = 0, fallback = 0;
-    unsigned cutouts = 0, missing = 0, cutoutshadows = 0;
+    unsigned cutouts = 0, missing = 0, cutoutshadows = 0, occlusiontests = 0;
     for (i = 0; i < gpu.numdraws; ++i) {
         gpu_draw_t *d = &gpu.draws[i];
         unsigned type = d->frag.material[0];
         if (type < countof(material) && !d->shadowonly) ++material[type];
         lights = max(lights, (unsigned)d->frag.material[3]);
         if (d->castshadow) ++shadows;
+        if (d->occlusion_slot) ++occlusiontests;
         if (d->frag.material[2] == 4 || d->frag.material[2] == 5) {
             if (d->castshadow) ++cutoutshadows;
             if (!d->shadowonly) {
@@ -120,6 +121,7 @@ static void GPU_Info_f(void)
     Con_Printf("Geometry: %u cached, %u streamed vertices, %u bytes uploaded; shadows: %u submitted, %u culled\n",
         (unsigned)gpu.cachedvertices, (unsigned)gpu.numstreamvertices, (unsigned)gpu.uploadedbytes,
         (unsigned)gpu.shadowdraws, (unsigned)gpu.shadowculled);
+    Con_Printf("Occlusion: %u batches tested\n", occlusiontests);
     Con_Printf("Shadow cache: %u faces reused\n", (unsigned)gpu.shadowhits);
 }
 

@@ -1,0 +1,19 @@
+#version 450
+layout(local_size_x=8, local_size_y=8) in;
+layout(set=0,binding=0) uniform sampler2D sourceDepth;
+layout(set=1,binding=0,std430) writeonly buffer DepthTiles { float depths[]; };
+shared float tile[64];
+
+void main()
+{
+    uvec2 size = uvec2(textureSize(sourceDepth, 0));
+    uvec2 pixel = gl_GlobalInvocationID.xy;
+    uint lane = gl_LocalInvocationIndex;
+    tile[lane] = all(lessThan(pixel, size)) ? texelFetch(sourceDepth, ivec2(pixel), 0).r : 1.0;
+    barrier();
+    for (uint step = 32; step != 0; step >>= 1) {
+        if (lane < step) tile[lane] = max(tile[lane], tile[lane + step]);
+        barrier();
+    }
+    if (lane == 0) depths[gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x] = tile[0];
+}

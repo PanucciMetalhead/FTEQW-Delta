@@ -70,6 +70,9 @@ typedef struct gpu_draw_s {
     unsigned firstindex, numindices, vertexoffset;
     vec3_t mins, maxs;
     qboolean boundsvalid;
+    vec3_t occlusion_mins, occlusion_maxs;
+    qboolean occlusion_bounds;
+    unsigned occlusion_slot; /* One-based index in the current indirect draw buffer. */
     unsigned bits, cull;
     polyoffset_t depthbias;
     SDL_GPUBuffer *vertexbuffer; /* NULL selects the frame's streamed vertices. */

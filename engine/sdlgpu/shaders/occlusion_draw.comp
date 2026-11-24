@@ -1,0 +1,21 @@
+#version 450
+layout(local_size_x=64) in;
+struct Command { uint indices, instances, firstIndex; int vertexOffset; uint firstInstance; };
+struct Candidate { uvec4 rect; float nearDepth; Command draw; };
+layout(set=0,binding=0,std430) readonly buffer DepthTiles { float depths[]; };
+layout(set=0,binding=1,std430) readonly buffer Candidates { Candidate candidates[]; };
+layout(set=1,binding=0,std430) writeonly buffer Draws { Command draws[]; };
+layout(set=2,binding=0,std140) uniform Params { uvec4 params; };
+
+void main()
+{
+    uint id = gl_GlobalInvocationID.x;
+    if (id >= params.x) return;
+    Candidate c = candidates[id];
+    float farDepth = 0;
+    for (uint y = c.rect.y; y <= c.rect.w; ++y)
+        for (uint x = c.rect.x; x <= c.rect.z; ++x)
+            farDepth = max(farDepth, depths[y * params.y + x]);
+    if (c.nearDepth > farDepth + 0.00001) c.draw.indices = 0;
+    draws[id] = c.draw;
+}

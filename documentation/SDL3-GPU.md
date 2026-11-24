@@ -544,6 +544,47 @@ measurements without `--debug` and without another engine or build running.
 The data-free math test checks shadow clip planes/sphere boundaries and
 conservative cluster coverage under off-centre/flipped projections.
 
+### Experimental GPU occlusion culling
+
+Use `gpu_occlusion 1` to enable occlusion culling for eligible batches in the
+main SDL GPU scene. Use `gpu_occlusion 0` to restore the default path. The
+setting applies immediately and is not saved in the config. BSP/PVS and frustum
+culling still run first.
+
+The renderer snapshots depth from earlier in the same frame and reduces it
+to the farthest depth in each 8×8 tile. A batch can be skipped only when its
+whole projected bounds lie behind every tile they cover. Draws with
+near-plane intersections or incompatible depth state use the regular path.
+`gpu_info` reports how many batches were tested, independent of how many the
+GPU skipped.
+
+Local Metal validation on 2026-11-24 used a MacBook Air with an Apple M2
+(10-core GPU, 8 GB unified memory), macOS 27.2.1 and SDL 3.4.20. An isolated
+Metal test rejected a fully hidden draw and preserved a visible draw and a
+draw overlapping a partial tile. An in-game AD Tears comparison with Metal
+validation tested 82 batches and produced pixel-identical screenshots with
+culling on and off at 1600×1200. The renderer math test also passed.
+The Vulkan shaders passed SPIR-V validation. Native Vulkan runtime testing
+remains deferred.
+
+The 1600×1200 timing run used paused scenes and measured Metal command-buffer
+duration directly. Each scene ran for four seconds with culling off, on, then
+off again. The off column averages the two off-run medians. Windowed throughput
+was about 60 FPS throughout.
+
+| Scene | Batches tested | Median off | Median on | GPU time change |
+| --- | ---: | ---: | ---: | ---: |
+| AD Tears of the False God | 81 | 9.74 ms | 9.90 ms | +1.7% |
+| Quake E1M1 | 3 | 13.99 ms | 14.67 ms | +4.9% |
+| Quake E1M2 | 7 | 14.22 ms | 13.99 ms | −1.6% |
+
+The render-pass split can add color and depth store/reload traffic on Metal.
+Depth reduction and batch testing also have a cost. PVS and frustum culling
+can leave few candidates, and batches that span visible and hidden surfaces
+remain eligible for rendering in full. The timing run did not count rejected
+batches. The small E1M2 improvement needs replication, and the measured
+regressions support keeping the feature opt-in.
+
 ## Local validation record
 
 On 2026-11-21, CPU sampling in AD Tears showed that full lightmap uploads
