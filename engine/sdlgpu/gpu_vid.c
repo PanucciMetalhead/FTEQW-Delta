@@ -103,7 +103,7 @@ static void GPU_Info_f(void)
     }
     Con_Printf("SDL GPU %s %ux%u: %u draws, %u vertices, %u indices; material draws %u/%u/%u/%u/%u/%u/%u, %u lights, %u shadow caster draws\n",
         SDL_GetGPUDeviceDriver(gpu.device), gpu.width, gpu.height,
-        (unsigned)gpu.numdraws, (unsigned)gpu.numvertices, (unsigned)gpu.numindices,
+        (unsigned)gpu.numdraws, (unsigned)gpu.numvertices, (unsigned)(gpu.numindices+gpu.kvxindices),
         material[0],material[1],material[2],material[3],material[4],material[5],material[6],lights,shadows);
     for (i = 0; i < numlightmaps; ++i) {
         lightmapinfo_t *lm = lightmap[i];
@@ -113,6 +113,7 @@ static void GPU_Info_f(void)
         if (!gpu.draws[i].shadowonly && !gpu.draws[i].vertexlit && gpu.draws[i].frag.material[0] == 1 &&
             gpu.draws[i].samplers[4].texture == r_whiteimage->gpuimage->texture) ++fallback;
     GPU_PaniniInfo();
+    GPU_KVXInfo();
     Con_Printf("Lightmaps: %u/%u loaded, %u draws using fallback\n",loaded,numlightmaps,fallback);
     Con_Printf("Cutouts: %u draws, %u using missing texture, %u shadow caster draws\n",cutouts,missing,cutoutshadows);
     GPU_WaterInfo();

@@ -10695,6 +10695,7 @@ static qboolean QDECL Mod_LoadKVXModel(model_t *mod, void *buffer, size_t bytes)
 	mod->fromgame = fg_new;
 	mod->flags = 0;
 	mod->numframes = 1;
+	mod->engineflags |= MDLF_KVX;
 	Mod_ClampModelSize(mod);
 	Mod_SetMeshModelFuncs(mod, true);
 	return true;

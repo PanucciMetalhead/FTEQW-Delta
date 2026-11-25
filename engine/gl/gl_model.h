@@ -1148,6 +1148,7 @@ typedef struct model_s
 #define MDLF_EZQUAKEFBCHEAT  0x0400 // this is a blatent cheat, one that can disadvantage us fairly significantly if we don't support it.
 #define MDLF_NOLERP		     0x0800 // doesn't lerp, ever. for dodgy models that don't scale to nothingness before jumping.
 #define MDLF_RECALCULATERAIN 0x1000 // particles changed, recalculate any sky polys
+#define MDLF_KVX             0x2000 // immutable mesh generated from a KVX surface
 
 //============================================================================
 #endif	// __MODEL__

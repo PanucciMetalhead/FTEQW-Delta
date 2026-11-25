@@ -75,6 +75,21 @@ static model_t *staticworld;
 static msurface_t *staticsurfaces;
 static qboolean staticinvalid;
 static unsigned staticpagecount;
+
+/* The alias VBO's CPU index allocation identifies a surface for the life
+ * of its model. The mesh and VBO wrappers used to submit it are temporary. */
+typedef struct gpu_kvx_mesh_s {
+    const void *owner;
+    SDL_GPUBuffer *vertices, *indices;
+    qbyte *upload;
+    size_t vertexbytes, indexbytes;
+    vec3_t mins, maxs;
+    struct gpu_kvx_mesh_s *next, *nextupload;
+} gpu_kvx_mesh_t;
+static gpu_kvx_mesh_t *kvxmeshes[GPU_STATIC_BUCKETS], *kvxuploads, *kvxretired;
+static size_t kvxbytes;
+static cvar_t gpu_kvx_cache = CVARD("gpu_kvx_cache", "1", "Keep immutable KVX pose meshes on the GPU. Zero streams their geometry for comparison.");
+
 static cvar_t gpu_occlusion = CVARD("gpu_occlusion", "0", "Test opaque and translucent scene batches against the current view's hierarchical depth buffer.");
 static struct {
     SDL_GPUComputePipeline *reduce, *test;
@@ -108,9 +123,90 @@ static void GPU_FreeStaticGeometry(void)
     numshadowcasters = numshadowindices = 0;
 }
 
-static unsigned GPU_StaticHash(const mesh_t *mesh)
+static unsigned GPU_StaticHash(const void *key)
 {
-    return ((uintptr_t)mesh >> 4) % GPU_STATIC_BUCKETS;
+    return ((uintptr_t)key >> 4) % GPU_STATIC_BUCKETS;
+}
+
+static void GPU_VertexBounds(const gpu_vertex_t *vertices, unsigned count, vec3_t mins, vec3_t maxs)
+{
+    VectorCopy(vertices[0].position, mins);
+    VectorCopy(vertices[0].position, maxs);
+    for (unsigned i = 1; i < count; ++i) for (unsigned axis = 0; axis < 3; ++axis) {
+        mins[axis] = min(mins[axis],vertices[i].position[axis]);
+        maxs[axis] = max(maxs[axis],vertices[i].position[axis]);
+    }
+}
+
+static gpu_kvx_mesh_t **GPU_KVXMeshSlot(const void *owner)
+{
+    gpu_kvx_mesh_t **link = &kvxmeshes[GPU_StaticHash(owner)];
+    while (*link && (*link)->owner != owner) link = &(*link)->next;
+    return link;
+}
+
+static void GPU_FreeKVXMesh(gpu_kvx_mesh_t *mesh)
+{
+    SDL_ReleaseGPUBuffer(gpu.device,mesh->vertices);
+    SDL_ReleaseGPUBuffer(gpu.device,mesh->indices);
+    kvxbytes -= mesh->vertexbytes+mesh->indexbytes;
+    BZ_Free(mesh->upload);
+    Z_Free(mesh);
+}
+
+static void GPU_FreeRetiredKVXMeshes(void)
+{
+    while (kvxretired) {
+        gpu_kvx_mesh_t *mesh = kvxretired;
+        kvxretired = mesh->next;
+        GPU_FreeKVXMesh(mesh);
+    }
+}
+
+static void GPU_RetireKVXMesh(const void *owner)
+{
+    if (!owner || !kvxbytes) return;
+    gpu_kvx_mesh_t **link = GPU_KVXMeshSlot(owner);
+    gpu_kvx_mesh_t *mesh = *link;
+    if (!mesh) return;
+    *link = mesh->next;
+    if (gpu.command) {
+        /* A queued draw may still need both the buffers and their upload. */
+        mesh->next = kvxretired;
+        kvxretired = mesh;
+    } else GPU_FreeKVXMesh(mesh);
+}
+
+static gpu_kvx_mesh_t *GPU_CacheKVXMesh(gpu_kvx_mesh_t **link, const void *owner,
+    const mesh_t *source, const gpu_vertex_t *vertices)
+{
+    SDL_GPUBufferCreateInfo info = {0};
+    size_t vbytes = (size_t)source->numvertexes*sizeof(*vertices);
+    size_t ibytes = (size_t)source->numindexes*sizeof(*source->indexes);
+    size_t total = vbytes+ibytes;
+    if (kvxbytes+total > 64u*1024*1024) return NULL;
+
+    info.usage = SDL_GPU_BUFFERUSAGE_VERTEX; info.size = vbytes;
+    SDL_GPUBuffer *vb = SDL_CreateGPUBuffer(gpu.device,&info);
+    if (!vb) return NULL;
+    info.usage = SDL_GPU_BUFFERUSAGE_INDEX; info.size = ibytes;
+    SDL_GPUBuffer *ib = SDL_CreateGPUBuffer(gpu.device,&info);
+    if (!ib) {
+        SDL_ReleaseGPUBuffer(gpu.device,vb);
+        return NULL;
+    }
+
+    gpu_kvx_mesh_t *mesh = Z_Malloc(sizeof(*mesh));
+    mesh->owner = owner; mesh->vertices = vb; mesh->indices = ib;
+    mesh->vertexbytes = vbytes; mesh->indexbytes = ibytes;
+    mesh->upload = BZ_Malloc(total);
+    memcpy(mesh->upload,vertices,vbytes);
+    memcpy(mesh->upload+vbytes,source->indexes,ibytes);
+    GPU_VertexBounds(vertices,source->numvertexes,mesh->mins,mesh->maxs);
+    mesh->nextupload = kvxuploads; kvxuploads = mesh;
+    mesh->next = *link; *link = mesh;
+    kvxbytes += total;
+    return mesh;
 }
 
 static gpu_static_mesh_t *GPU_StaticMesh(const mesh_t *mesh)
@@ -125,7 +221,7 @@ static gpu_static_mesh_t *GPU_CacheStaticMesh(const mesh_t *mesh, const gpu_vert
 {
     gpu_static_page_t *p = staticpages;
     gpu_static_mesh_t *m;
-    unsigned i, j, hash = GPU_StaticHash(mesh);
+    unsigned hash = GPU_StaticHash(mesh);
     if (!p || p->count + mesh->numvertexes > GPU_STATIC_VERTICES) {
         SDL_GPUBufferCreateInfo bi = {0};
         /* Bound storage even for pathological maps. Further surfaces stream. */
@@ -139,11 +235,7 @@ static gpu_static_mesh_t *GPU_CacheStaticMesh(const mesh_t *mesh, const gpu_vert
     }
     m = Z_Malloc(sizeof(*m)); m->mesh = mesh; m->page = p; m->first = p->count;
     memcpy(p->vertices+p->count, vertices, mesh->numvertexes*sizeof(*vertices));
-    for (j = 0; j < 3; ++j) m->mins[j] = m->maxs[j] = vertices[0].position[j];
-    for (i = 1; i < mesh->numvertexes; ++i) for (j = 0; j < 3; ++j) {
-        m->mins[j] = min(m->mins[j], vertices[i].position[j]);
-        m->maxs[j] = max(m->maxs[j], vertices[i].position[j]);
-    }
+    GPU_VertexBounds(vertices,mesh->numvertexes,m->mins,m->maxs);
     p->count += mesh->numvertexes;
     m->next = staticmeshes[hash]; staticmeshes[hash] = m;
     return m;
@@ -306,6 +398,13 @@ void GPU_PaniniInfo(void)
             view->rect.width, view->rect.height, view->width, view->height,
             r_panini_filter.ival == 1 ? "bicubic" : "bilinear",
             isfinite(r_panini_sharpen.value) ? bound(0, r_panini_sharpen.value, 1) : 0);
+}
+
+void GPU_KVXInfo(void)
+{
+    if (kvxbytes || gpu.kvxvertices)
+        Con_Printf("KVX cache: %zu vertex and %zu index references, %zu bytes uploaded, %zu bytes resident\n",
+            gpu.kvxvertices,gpu.kvxindices,gpu.kvxuploaded,kvxbytes);
 }
 
 /* Separate images per visible plane prevent a later water view from replacing
@@ -472,6 +571,7 @@ void GPU_BackendInit(void)
     SDL_GPUSamplerCreateInfo si = {0};
     if (Cvar_FindVar(gpu_occlusion.name) != &gpu_occlusion) Cvar_Register(&gpu_occlusion, "SDL GPU");
     if (Cvar_FindVar(gpu_staticgeometry.name) != &gpu_staticgeometry) Cvar_Register(&gpu_staticgeometry, "SDL GPU");
+    if (Cvar_FindVar(gpu_kvx_cache.name) != &gpu_kvx_cache) Cvar_Register(&gpu_kvx_cache, "SDL GPU");
     if (Cvar_FindVar(gpu_shadowcull.name) != &gpu_shadowcull) Cvar_Register(&gpu_shadowcull, "SDL GPU");
     if (Cvar_FindVar(gpu_shadowcache.name) != &gpu_shadowcache) Cvar_Register(&gpu_shadowcache, "SDL GPU");
     if (Cvar_FindVar(gpu_bloom_pyramid.name) != &gpu_bloom_pyramid) Cvar_Register(&gpu_bloom_pyramid, "SDL GPU");
@@ -568,6 +668,13 @@ void GPU_BackendShutdown(void)
     pipeline_t *p;
     size_t i;
     GPU_FreeStaticGeometry(); staticworld = NULL; staticsurfaces = NULL; staticinvalid = false;
+    kvxuploads = NULL;
+    GPU_FreeRetiredKVXMeshes();
+    for (i = 0; i < countof(kvxmeshes); ++i) while (kvxmeshes[i]) {
+        gpu_kvx_mesh_t *mesh = kvxmeshes[i];
+        kvxmeshes[i] = mesh->next;
+        GPU_FreeKVXMesh(mesh);
+    }
     Z_Free(shadowcasters); shadowcasters = NULL; maxshadowcasters = 0;
     Z_Free(shadowindices); shadowindices = NULL; maxshadowindices = 0;
     GPU_LightingShutdown();
@@ -628,6 +735,7 @@ void GPU_BeginFrame(void)
 {
     unsigned w, h;
     if (gpu.command) return;
+    GPU_FreeRetiredKVXMeshes();
     if (gpu.benchmarking) gpu.framebegin = Sys_DoubleTime();
     if (staticinvalid || staticworld != cl.worldmodel ||
         (cl.worldmodel && staticsurfaces != cl.worldmodel->surfaces)) {
@@ -636,6 +744,7 @@ void GPU_BeginFrame(void)
     }
     gpu.numvertices = gpu.numstreamvertices = gpu.numindices = gpu.numdraws = numtempbatches = numshadowlights = 0;
     gpu.cachedvertices = gpu.uploadedbytes = gpu.lightmapbytes = gpu.shadowdraws = gpu.shadowculled = 0;
+    gpu.kvxvertices = gpu.kvxindices = gpu.kvxuploaded = 0;
     gpu.shadowhits = 0;
     GPU_StreamFrame();
     GPU_LightingBeginFrame();
@@ -700,6 +809,12 @@ static void GPU_UploadGeometry(void)
     SDL_GPUCopyPass *copy;
     qbyte *map;
     for (p = staticpages; p; p = p->next) total += (p->count-p->uploaded)*sizeof(gpu_vertex_t);
+    size_t kvxoffset = (total+3) & ~(size_t)3;
+    if (kvxuploads) {
+        total = kvxoffset;
+        for (gpu_kvx_mesh_t *mesh = kvxuploads; mesh; mesh = mesh->nextupload)
+            total += mesh->vertexbytes+mesh->indexbytes;
+    }
     if (!total) return;
     if (vbytes > gpu.vertexcapacity || !gpu.vertices) {
         if (gpu.vertices) SDL_ReleaseGPUBuffer(gpu.device, gpu.vertices);
@@ -716,14 +831,21 @@ static void GPU_UploadGeometry(void)
         ti.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD; ti.size = gpu.transfercapacity = max(total, gpu.transfercapacity*2);
         gpu.transfer = SDL_CreateGPUTransferBuffer(gpu.device, &ti);
     }
-    if (!gpu.vertices || !gpu.indices || !gpu.transfer) GPU_Error("allocate frame geometry");
+    if (!gpu.vertices || (ibytes && !gpu.indices) || !gpu.transfer) GPU_Error("allocate frame geometry");
     map = SDL_MapGPUTransferBuffer(gpu.device, gpu.transfer, true);
     if (!map) GPU_Error("map frame geometry");
-    memcpy(map, gpu.cpuvertices, vbytes); memcpy(map+vbytes, gpu.cpuindices, ibytes);
+    if (vbytes) memcpy(map, gpu.cpuvertices, vbytes);
+    if (ibytes) memcpy(map+vbytes, gpu.cpuindices, ibytes);
     offset = vbytes+ibytes;
     for (p = staticpages; p; p = p->next) if (p->count > p->uploaded) {
         size_t bytes = (p->count-p->uploaded)*sizeof(gpu_vertex_t);
         memcpy(map+offset, p->vertices+p->uploaded, bytes); offset += bytes;
+    }
+    offset = kvxoffset;
+    for (gpu_kvx_mesh_t *mesh = kvxuploads; mesh; mesh = mesh->nextupload) {
+        size_t bytes = mesh->vertexbytes+mesh->indexbytes;
+        memcpy(map+offset,mesh->upload,bytes);
+        offset += bytes;
     }
     SDL_UnmapGPUTransferBuffer(gpu.device, gpu.transfer);
     copy = SDL_BeginGPUCopyPass(gpu.command);
@@ -740,13 +862,26 @@ static void GPU_UploadGeometry(void)
         SDL_UploadToGPUBuffer(copy, &src, &dst, false);
         offset += dst.size; p->uploaded = p->count;
     }
+    offset = kvxoffset;
+    while (kvxuploads) {
+        gpu_kvx_mesh_t *mesh = kvxuploads;
+        src.offset = offset; dst.buffer = mesh->vertices; dst.offset = 0; dst.size = mesh->vertexbytes;
+        SDL_UploadToGPUBuffer(copy,&src,&dst,false);
+        offset += mesh->vertexbytes;
+        src.offset = offset; dst.buffer = mesh->indices; dst.size = mesh->indexbytes;
+        SDL_UploadToGPUBuffer(copy,&src,&dst,false);
+        offset += mesh->indexbytes;
+        kvxuploads = mesh->nextupload;
+        BZ_Free(mesh->upload); mesh->upload = NULL; mesh->nextupload = NULL;
+        gpu.kvxuploaded += mesh->vertexbytes+mesh->indexbytes;
+    }
     gpu.uploadedbytes = total;
     SDL_EndGPUCopyPass(copy);
 }
 
 static qboolean GPU_StaticShadowCaster(const gpu_draw_t *d)
 {
-    return d->shadowonly && d->vertexbuffer && d->frag.material[2] == 0;
+    return d->shadowonly && d->vertexbuffer && !d->indexbuffer && d->frag.material[2] == 0;
 }
 
 /* World vertices on the immutable pages never change. Compare the exact
@@ -806,11 +941,25 @@ static qboolean GPU_ShadowCasterVisible(const gpu_draw_t *d, const gpu_shadow_li
         GPU_ShadowBoundsVisible(d->mins, d->maxs, light->origin, light->radius, vp);
 }
 
+static void GPU_BindDrawGeometry(SDL_GPURenderPass *pass, const gpu_draw_t *d,
+    SDL_GPUBufferBinding *vb, SDL_GPUBufferBinding *ib)
+{
+    SDL_GPUBuffer *vertices = d->vertexbuffer ? d->vertexbuffer : gpu.vertices;
+    SDL_GPUBuffer *indices = d->indexbuffer ? d->indexbuffer : gpu.indices;
+    if (vb->buffer != vertices) {
+        vb->buffer = vertices;
+        SDL_BindGPUVertexBuffers(pass,0,vb,1);
+    }
+    if (ib->buffer != indices) {
+        ib->buffer = indices;
+        SDL_BindGPUIndexBuffer(pass,ib,sizeof(index_t)==2 ? SDL_GPU_INDEXELEMENTSIZE_16BIT : SDL_GPU_INDEXELEMENTSIZE_32BIT);
+    }
+}
+
 static void GPU_DrawShadows(void)
 {
     static const vec3_t direction[6] = {{1,0,0},{-1,0,0},{0,1,0},{0,-1,0},{0,0,1},{0,0,-1}};
     static const vec3_t up[6] = {{0,-1,0},{0,-1,0},{0,0,1},{0,0,-1},{0,-1,0},{0,-1,0}};
-    SDL_GPUBufferBinding vb = {gpu.vertices,0}, ib = {gpu.indices,0};
     unsigned l, face;
     qboolean cache = gpu_shadowcache.ival && gpu_shadowcull.ival && gpu_staticgeometry.ival && !staticinvalid;
     qboolean casterschanged = cache && numshadowlights && GPU_ShadowCastersChanged();
@@ -862,9 +1011,8 @@ static void GPU_DrawShadows(void)
             pass = SDL_BeginGPURenderPass(gpu.command, NULL, 0, &depth);
             if (!pass) GPU_Error("begin shadow pass");
             if (l < numshadowlights && gpu.numdraws) {
+                SDL_GPUBufferBinding vb = {0}, ib = {0};
                 SDL_BindGPUGraphicsPipeline(pass, gpu.shadowpipeline);
-                SDL_BindGPUVertexBuffers(pass, 0, &vb, 1);
-                SDL_BindGPUIndexBuffer(pass, &ib, sizeof(index_t)==2 ? SDL_GPU_INDEXELEMENTSIZE_16BIT : SDL_GPU_INDEXELEMENTSIZE_32BIT);
                 for (i = 0; i < gpu.numdraws; ++i) {
                     gpu_draw_t *d = &gpu.draws[i];
                     float mvp[16], control[4] = {d->frag.material[2],d->frag.upper[3],0,0};
@@ -873,10 +1021,7 @@ static void GPU_DrawShadows(void)
                         ++gpu.shadowculled; continue;
                     }
                     if (reuse && !GPU_StaticShadowCaster(d)) dynamic = true;
-                    if (vb.buffer != (d->vertexbuffer ? d->vertexbuffer : gpu.vertices)) {
-                        vb.buffer = d->vertexbuffer ? d->vertexbuffer : gpu.vertices;
-                        SDL_BindGPUVertexBuffers(pass, 0, &vb, 1);
-                    }
+                    GPU_BindDrawGeometry(pass,d,&vb,&ib);
                     Matrix4_Multiply(vp, d->vert.model, mvp);
                     SDL_PushGPUVertexUniformData(gpu.command, 0, mvp, sizeof(mvp));
                     SDL_PushGPUFragmentUniformData(gpu.command, 0, control, sizeof(control));
@@ -939,14 +1084,10 @@ static void GPU_SnapshotOverlay(size_t index, gpu_overlay_snapshot_t **snapshots
 
 static void GPU_DrawCommands(SDL_GPURenderPass *pass, size_t first, size_t end, qboolean overlays, qboolean indirect)
 {
-    SDL_GPUBufferBinding vb = {gpu.vertices,0}, ib = {gpu.indices,0};
+    SDL_GPUBufferBinding vb = {0}, ib = {0};
     SDL_GPUGraphicsPipeline *boundpipeline = NULL;
     gpu_draw_t *previous = NULL;
     size_t i;
-    if (gpu.vertices && gpu.indices) {
-        SDL_BindGPUVertexBuffers(pass, 0, &vb, 1);
-        SDL_BindGPUIndexBuffer(pass, &ib, sizeof(index_t) == 2 ? SDL_GPU_INDEXELEMENTSIZE_16BIT : SDL_GPU_INDEXELEMENTSIZE_32BIT);
-    }
     for (i = first; i < end; ++i) {
         gpu_draw_t *d = &gpu.draws[i];
         SDL_GPUGraphicsPipeline *pipeline;
@@ -964,10 +1105,7 @@ static void GPU_DrawCommands(SDL_GPURenderPass *pass, size_t first, size_t end, 
          * world rendering used an HDR scene buffer. Blend after correction so
          * translucent UI retains its source colors and alpha. */
         pipeline = GPU_Pipeline(d, overlays ? gpu.colorformat : d->format);
-        if (vb.buffer != (d->vertexbuffer ? d->vertexbuffer : gpu.vertices)) {
-            vb.buffer = d->vertexbuffer ? d->vertexbuffer : gpu.vertices;
-            SDL_BindGPUVertexBuffers(pass, 0, &vb, 1);
-        }
+        GPU_BindDrawGeometry(pass,d,&vb,&ib);
         if (pipeline != boundpipeline) {
             SDL_BindGPUGraphicsPipeline(pass, pipeline);
             boundpipeline = pipeline;
@@ -1645,20 +1783,34 @@ static void GPU_DrawMesh(shader_t *shader, mesh_t *mesh, vbo_t *vbo, texnums_t *
          p->rgbgen == RGB_GEN_IDENTITY_OVERBRIGHT || p->rgbgen == RGB_GEN_LIGHTING_DIFFUSE) &&
         (p->alphagen == ALPHA_GEN_IDENTITY || p->alphagen == ALPHA_GEN_UNDEFINED) &&
         !(flags & (BEF_FORCECOLOURMOD|BEF_FORCETRANSPARENT|BEF_ENTITYCOLOURS));
+    /* KVX palette colors and local geometry are fixed. Materials with
+     * entity-dependent colors, generated coordinates or deforms still stream. */
+    const void *kvxowner = NULL;
+    if (gpu_kvx_cache.ival && !gpu.drawing2d && mode == BEM_STANDARD && entity != &r_worldentity &&
+        entity->model && (entity->model->engineflags & MDLF_KVX) && vbo && mesh->indexes &&
+        mesh->numindexes == vbo->indexcount && mesh->numvertexes == vbo->vertcount &&
+        !mesh->xyz2_array && !mesh->bones && !shader->numdeforms && program && !vertexlit &&
+        !p->numtcmods && p->tcgen == TC_GEN_BASE && p->texgen != T_GEN_LIGHTMAP &&
+        (p->rgbgen == RGB_GEN_VERTEX_EXACT || p->rgbgen == RGB_GEN_VERTEX_LIGHTING) &&
+        (p->alphagen == ALPHA_GEN_IDENTITY || p->alphagen == ALPHA_GEN_UNDEFINED || p->alphagen == ALPHA_GEN_VERTEX) &&
+        !(flags & (BEF_FORCECOLOURMOD|BEF_FORCETRANSPARENT|BEF_ENTITYCOLOURS)))
+        kvxowner = vbo->indicies.sysptr;
+    gpu_kvx_mesh_t **kvxslot = kvxowner ? GPU_KVXMeshSlot(kvxowner) : NULL;
+    gpu_kvx_mesh_t *kvx = kvxslot ? *kvxslot : NULL;
     gpu_static_mesh_t *cached = immutable ? GPU_StaticMesh(mesh) : NULL;
-    SDL_GPUBuffer *vertexbuffer = cached ? cached->page->buffer : NULL;
-    if (!cached && gpu.numstreamvertices + mesh->numvertexes > gpu.maxvertices) {
+    SDL_GPUBuffer *vertexbuffer = kvx ? kvx->vertices : cached ? cached->page->buffer : NULL;
+    if (!cached && !kvx && gpu.numstreamvertices + mesh->numvertexes > gpu.maxvertices) {
         gpu.maxvertices = max(gpu.numstreamvertices+mesh->numvertexes, max(4096, gpu.maxvertices*2));
         gpu.cpuvertices = BZ_Realloc(gpu.cpuvertices, gpu.maxvertices*sizeof(*gpu.cpuvertices));
     }
-    if (gpu.numindices + mesh->numindexes > gpu.maxindices) {
+    if (!kvx && gpu.numindices + mesh->numindexes > gpu.maxindices) {
         gpu.maxindices = max(gpu.numindices+mesh->numindexes, max(8192, gpu.maxindices*2));
         gpu.cpuindices = BZ_Realloc(gpu.cpuindices, gpu.maxindices*sizeof(*gpu.cpuindices));
     }
     /* Within a material pass, non-RT uniforms don't depend on the mesh.
      * Append geometry directly when the prepared state and index range match. */
     d = gpu.numdraws ? &gpu.draws[gpu.numdraws-1] : NULL;
-    if (prepared && d && (!immutable || cached) && d->vertexbuffer == vertexbuffer &&
+    if (!kvxslot && prepared && d && !d->indexbuffer && (!immutable || cached) && d->vertexbuffer == vertexbuffer &&
         d->firstindex+d->numindices == gpu.numindices &&
         (cached || sizeof(index_t)>2 || gpu.numstreamvertices-d->vertexoffset+mesh->numvertexes <= 65536) &&
         !memcmp(&d->bits,&prepared->bits,sizeof(*d)-offsetof(gpu_draw_t,bits))) {
@@ -1673,8 +1825,9 @@ static void GPU_DrawMesh(shader_t *shader, mesh_t *mesh, vbo_t *vbo, texnums_t *
         d = &gpu.draws[gpu.numdraws++];
         if (prepared) memcpy(d, prepared, sizeof(*d));
         else memset(d, 0, sizeof(*d));
-        d->firstindex = gpu.numindices; d->numindices = mesh->numindexes;
-        d->vertexoffset = cached ? 0 : gpu.numstreamvertices;
+        d->firstindex = kvx ? 0 : gpu.numindices; d->numindices = mesh->numindexes;
+        d->vertexoffset = cached || kvx ? 0 : gpu.numstreamvertices;
+        d->indexbuffer = kvx ? kvx->indices : NULL;
         d->vertexbuffer = vertexbuffer; d->boundsvalid = d->occlusion_bounds = false;
         if (cached) base = cached->first;
     }
@@ -1831,12 +1984,7 @@ static void GPU_DrawMesh(shader_t *shader, mesh_t *mesh, vbo_t *vbo, texnums_t *
         }
         if (!collectshadowonly) GPU_Lights(d, flags | (shader->flags & SHADER_NODLIGHT ? BEF_NODLIGHT : 0), mesh, coords);
     }
-    memcpy(gpu.cpuindices + gpu.numindices, indices, mesh->numindexes*sizeof(index_t));
-    if (base || (vbo && !mesh->indexes)) {
-        unsigned adjust = vbo && !mesh->indexes ? mesh->vbofirstvert : 0;
-        for (i = 0; i < mesh->numindexes; ++i) gpu.cpuindices[gpu.numindices+i] += base-adjust;
-    }
-    for (i = 0; !cached && i < mesh->numvertexes; ++i) {
+    for (i = 0; !cached && !kvx && i < mesh->numvertexes; ++i) {
         gpu_vertex_t *v = &gpu.cpuvertices[gpu.numstreamvertices+i];
         int j;
         memset(v, 0, sizeof(*v));
@@ -1954,8 +2102,21 @@ static void GPU_DrawMesh(shader_t *shader, mesh_t *mesh, vbo_t *vbo, texnums_t *
         cached = GPU_CacheStaticMesh(mesh, gpu.cpuvertices+gpu.numstreamvertices);
         if (cached) {
             d->vertexbuffer = cached->page->buffer; d->vertexoffset = 0;
-            for (i = 0; i < mesh->numindexes; ++i) gpu.cpuindices[gpu.numindices+i] += cached->first;
+            base = cached->first;
         }
+    }
+    if (!kvx && kvxslot) {
+        kvx = GPU_CacheKVXMesh(kvxslot,kvxowner,mesh,gpu.cpuvertices+gpu.numstreamvertices);
+        if (kvx) {
+            d->vertexbuffer = kvx->vertices; d->indexbuffer = kvx->indices;
+            d->firstindex = d->vertexoffset = 0;
+        }
+    }
+    if (!kvx) {
+        memcpy(gpu.cpuindices+gpu.numindices,indices,mesh->numindexes*sizeof(index_t));
+        unsigned adjust = vbo && !mesh->indexes ? mesh->vbofirstvert : 0;
+        if (base || adjust)
+            for (i = 0; i < mesh->numindexes; ++i) gpu.cpuindices[gpu.numindices+i] += base-adjust;
     }
     /* Bounds cover the final deformed/skinned positions. They are separate
      * from render state so combining draws unions bounds rather than disabling
@@ -1966,6 +2127,20 @@ static void GPU_DrawMesh(shader_t *shader, mesh_t *mesh, vbo_t *vbo, texnums_t *
             d->maxs[i] = d->boundsvalid ? max(d->maxs[i],cached->maxs[i]) : cached->maxs[i];
         }
         d->boundsvalid = true; gpu.cachedvertices += mesh->numvertexes;
+    } else if (kvx) {
+        for (unsigned axis = 0; axis < 3; ++axis) {
+            float lo = d->vert.model[12+axis], hi = lo;
+            for (unsigned k = 0; k < 3; ++k) {
+                float a = d->vert.model[4*k+axis]*kvx->mins[k];
+                float b = d->vert.model[4*k+axis]*kvx->maxs[k];
+                lo += min(a,b); hi += max(a,b);
+            }
+            d->mins[axis] = lo; d->maxs[axis] = hi;
+        }
+        d->boundsvalid = true;
+        gpu.cachedvertices += mesh->numvertexes;
+        gpu.kvxvertices += mesh->numvertexes;
+        gpu.kvxindices += mesh->numindexes;
     } else if (d->castshadow && gpu_shadowcull.ival &&
         (r_shadow_realtime_world.ival || r_shadow_realtime_dlight.ival)) {
         for (i = 0; i < mesh->numvertexes; ++i) {
@@ -1987,6 +2162,10 @@ static void GPU_DrawMesh(shader_t *shader, mesh_t *mesh, vbo_t *vbo, texnums_t *
                 d->occlusion_maxs[i] = d->occlusion_bounds ? max(d->occlusion_maxs[i], cached->maxs[i]) : cached->maxs[i];
             }
             d->occlusion_bounds = true;
+        } else if (kvx) {
+            VectorCopy(kvx->mins,d->occlusion_mins);
+            VectorCopy(kvx->maxs,d->occlusion_maxs);
+            d->occlusion_bounds = true;
         } else {
             for (i = 0; i < mesh->numvertexes; ++i) {
                 const float *position = gpu.cpuvertices[gpu.numstreamvertices+i].position;
@@ -2001,7 +2180,7 @@ static void GPU_DrawMesh(shader_t *shader, mesh_t *mesh, vbo_t *vbo, texnums_t *
     /* Combine adjacent geometry without changing triangle/blend order. The
      * zero-initialized draw record after vertexoffset contains all render
      * state, texture bindings and uniforms; differing state ends a batch. */
-    if (!appended && gpu.numdraws >= 2 && (gpu.batching || d->shadowonly)) {
+    if (!appended && !kvx && gpu.numdraws >= 2 && (gpu.batching || d->shadowonly)) {
         gpu_draw_t *prev = d-1;
         unsigned base = d->vertexoffset - prev->vertexoffset;
         qboolean same = !d->shadowonly && !prev->shadowonly &&
@@ -2032,8 +2211,8 @@ static void GPU_DrawMesh(shader_t *shader, mesh_t *mesh, vbo_t *vbo, texnums_t *
         }
     }
     gpu.numvertices += mesh->numvertexes;
-    if (!cached) gpu.numstreamvertices += mesh->numvertexes;
-    gpu.numindices += mesh->numindexes;
+    if (!cached && !kvx) gpu.numstreamvertices += mesh->numvertexes;
+    if (!kvx) gpu.numindices += mesh->numindexes;
 }
 
 void GPU_DrawMeshList(shader_t *shader, int count, mesh_t **meshes, vbo_t *vbo, texnums_t *tex, unsigned flags)
@@ -2274,7 +2453,12 @@ void GPU_VBOFinish(vbobctx_t *ctx, void *data, size_t size, vboarray_t *array, v
     *indices = array->sysptr = BZ_Malloc(size); memcpy(*indices, data, size);
     if (ctx) { *vertices = ctx->fallback; ctx->fallback = NULL; }
 }
-void GPU_VBODestroy(vboarray_t *array, void *memory) { Z_Free(memory); array->sysptr = NULL; }
+void GPU_VBODestroy(vboarray_t *array, void *memory)
+{
+    GPU_RetireKVXMesh(memory);
+    Z_Free(memory);
+    array->sysptr = NULL;
+}
 void GPU_RenderToTextureUpdate2D(qboolean changed)
 {
     if (!changed) return;

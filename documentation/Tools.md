@@ -80,6 +80,11 @@ engine uses the existing model renderer and mesh collision path. Rendering
 cost depends on the resulting mesh, so converting an equivalent mesh to MDL
 does not in itself improve frame rate.
 
+On SDL3 GPU, eligible KVX pose meshes keep their vertices and indices on the
+GPU after first use. Instances of the same model share the buffers. Use
+`gpu_info` to inspect KVX geometry uploads and resident memory, or set
+`gpu_kvx_cache 0` to compare against per-frame geometry streaming.
+
 Each KVX file supplies one pose. For an animated entity, precache the poses
 and switch models at the desired cadence. This supports frame changes with
 different mesh topology. The importer does not interpret Doom actor

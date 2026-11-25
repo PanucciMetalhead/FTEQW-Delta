@@ -76,6 +76,7 @@ typedef struct gpu_draw_s {
     unsigned bits, cull;
     polyoffset_t depthbias;
     SDL_GPUBuffer *vertexbuffer; /* NULL selects the frame's streamed vertices. */
+    SDL_GPUBuffer *indexbuffer; /* NULL selects the frame's streamed indices. */
     gpu_lightview_t *lighting;
     qboolean lines, castshadow, shadowonly, screenoverlay, composite, vertexlit;
     float projection[8]; /* Panini warp, source texel size, sharpening; filter, mips, water warp, time */
@@ -111,6 +112,7 @@ typedef struct {
     gpu_draw_t *draws;
     size_t numvertices, numstreamvertices, numindices, numdraws, maxvertices, maxindices, maxdraws;
     size_t cachedvertices, uploadedbytes, lightmapbytes, shadowdraws, shadowculled, shadowhits;
+    size_t kvxvertices, kvxindices, kvxuploaded;
     unsigned width, height;
     qboolean drawing2d, sceneonlygamma;
     qboolean benchmarking;
@@ -163,6 +165,7 @@ typedef struct gpu_composite_view_s gpu_composite_view_t;
 gpu_composite_view_t *GPU_BeginCompositeView(qboolean panini, float fovx);
 void GPU_EndCompositeView(gpu_composite_view_t *view, float waterwarp);
 void GPU_PaniniInfo(void);
+void GPU_KVXInfo(void);
 void GPU_SelectMode(backendmode_t);
 void GPU_DrawMeshList(shader_t *, int, mesh_t **, vbo_t *, texnums_t *, unsigned);
 void GPU_DrawMeshSingle(shader_t *, mesh_t *, vbo_t *, unsigned);
