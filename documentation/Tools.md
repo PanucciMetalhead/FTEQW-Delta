@@ -110,6 +110,13 @@ holds one pose. The Imp and Evil Eye face the entrance so you can see their
 Spawn poses from the starting view. The script generates the room locally and extracts its
 samples from the supplied PK3.
 
+Add `--stress` to launch the same room with 84 KVX props that share the eight
+poses. In the console, use `gpu_kvx_cache 0` to stream the meshes or
+`gpu_kvx_cache 1` to reuse resident buffers. Warm up for several animation
+cycles, then run `gpu_info` to compare uploads and `gpu_benchmark 5` to
+compare frame throughput. The [SDL3 GPU validation notes](SDL3-GPU.md#kvx-pose-cache)
+include the Metal stress-test results.
+
 # IQM Tool
 
 ### About:

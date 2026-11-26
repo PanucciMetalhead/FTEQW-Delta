@@ -66,7 +66,7 @@ def room():
     )
 
 
-def gamecode(animations, models):
+def gamecode(animations, models, stress_exhibits):
     return """
 #pragma target fte
 #pragma noref 1
@@ -124,6 +124,18 @@ void(string name, vector position, float yaw, float fullbright,
 void() worldspawn =
 {
 """ + models + """
+    if (cvar("kvx_stress"))
+    {
+        float x, y, exhibit_type;
+        vector spot;
+        for (x = 0; x < 8; x = x + 1)
+        for (y = 0; y < 10; y = y + 1)
+        {
+            spot = [-30 + x*35, -156 + y*35, 0];
+            exhibit_type = (x+y) % 4;
+""" + stress_exhibits + """
+        }
+    }
     bprint("KVX exhibits loaded\\n");
 };
 
@@ -149,7 +161,8 @@ void() PutClientInServer =
     self.angles = '9 0 0';
     self.fixangle = 1;
     setsize(self, '-16 -16 -24', '16 16 32');
-    setorigin(self, '-108 0 52');
+    if (cvar("kvx_stress")) setorigin(self, '-208 0 68');
+    else setorigin(self, '-108 0 52');
     if (cvar("kvx_capture"))
     {
         localcmd("defer 2 screenshot kvx-preview.png\\n");
@@ -168,6 +181,7 @@ def main():
     parser.add_argument("--qcc", type=Path, default=ROOT/"build/fteqcc")
     parser.add_argument("--engine", type=Path, default=ROOT/"build/fteqw")
     parser.add_argument("--out", type=Path, default=ROOT/"build/kvx-preview")
+    parser.add_argument("--stress", action="store_true", help="Launch with 84 KVX models for cache testing")
     args = parser.parse_args()
     pak = args.quake_data.resolve()/"id1/pak0.pak"
     if not pak.is_file():
@@ -180,9 +194,10 @@ def main():
     (game/"pak0.pak").symlink_to(pak)
     precache = []
     exhibits = []
+    stress_exhibits = []
     animations = []
     with zipfile.ZipFile(args.pk3) as source:
-        for sprite, poses, tics, bright, y, yaw in EXHIBITS:
+        for i, (sprite, poses, tics, bright, y, yaw) in enumerate(EXHIBITS):
             paths = {pose: f"models/{sprite.lower()}{pose.lower()}.kvx" for pose in poses}
             for pose, model in paths.items():
                 (game/model).write_bytes(source.read(f"voxels/{sprite}{pose}.kvx"))
@@ -205,13 +220,18 @@ def main():
 """)
             exhibits.append(f'    exhibit("{paths[poses[0]]}", \'72 {y} 16\', '
                             f'{yaw}, {int(bright)}, {callback}, {tics});')
+            stress_yaw = "x*33" if i % 2 == 0 else "y*35"
+            stress_exhibits.append(f'            if (exhibit_type == {i}) '
+                                   f'exhibit("{paths[poses[0]]}", spot, {stress_yaw}, '
+                                   f'{int(bright)}, {callback}, {tics});')
     (out/"kvx_grid.wad").write_bytes(grid_wad())
     (out/"kvx_grid.map").write_text(room())
     subprocess.run([str(args.qbsp.resolve()), "kvx_grid.map", str(game/"maps/kvx_grid.bsp")],
                    cwd=out, check=True)
     if args.light:
         subprocess.run([str(args.light.resolve()), str(game/"maps/kvx_grid.bsp")], cwd=out, check=True)
-    (game/"preview.qc").write_text(gamecode("\n".join(animations), "\n".join(precache + exhibits)))
+    (game/"preview.qc").write_text(gamecode("\n".join(animations), "\n".join(precache + exhibits),
+                                          "\n".join(stress_exhibits)))
     subprocess.run([str(args.qcc.resolve()), "-srcfile", "preview.qc", "-o", "kvx-preview.dat"],
                    cwd=game, check=True)
     (game/"kvx-preview.cfg").write_text(f"""cfg_save_auto 0
@@ -225,6 +245,7 @@ bind w +forward
 bind s +back
 bind a +moveleft
 bind d +moveright
+set kvx_stress {int(args.stress)}
 map kvx_grid
 """)
     command = shlex.join([str(args.engine.resolve()), "-basedir", str(out), "-nohome", "-quake",

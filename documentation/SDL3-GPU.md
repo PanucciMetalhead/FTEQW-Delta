@@ -425,9 +425,10 @@ reference mode. Each render pass reuses unchanged uniforms,
 samplers and pipeline bindings, and frames without shadow lights skip repeated
 clears after the fallback shadow resource has been initialized.
 
-Immutable world vertices now remain in GPU buffer pages after their first use.
-The frame still streams visibility-dependent indices and animated/model/UI
-vertices. Materials with deformations, generated or animated UVs, entity colour,
+Immutable world vertices remain in GPU buffer pages after their first use.
+The frame streams visibility-dependent world indices, UI geometry and most model
+geometry. Eligible KVX poses keep both vertices and indices resident. Materials
+with deformations, generated or animated UVs, entity colour,
 or vertex lighting use the streaming path. Pages preserve adjacent batching and
 16-bit index limits; map/mesh rebuilds and video shutdown invalidate the cache.
 Shadow caster bounds cover final deformed/skinned positions and are tested
@@ -442,7 +443,8 @@ These non-archived diagnostic settings apply immediately and default to one:
 
 | Control | Reference mode | Default mode |
 | --- | --- | --- |
-| `gpu_staticgeometry` | 0: stream all vertices | 1: cache immutable world vertices |
+| `gpu_staticgeometry` | 0: stream world vertices | 1: cache immutable world vertices |
+| `gpu_kvx_cache` | 0: stream KVX meshes | 1: share resident KVX mesh buffers across instances |
 | `gpu_shadowcull` | 0: submit all shadow casters | 1: light/face bounds culling |
 | `gpu_shadowcache` | 0: redraw every shadow face (default) | 1: reuse eligible realtime world shadow faces |
 | `gpu_bloom_pyramid` | 0: original full-resolution bloom | 1: downsample/upsample pyramid |
@@ -543,6 +545,22 @@ Each run writes `renderer.log`, screenshots and `results.json`. Run performance
 measurements without `--debug` and without another engine or build running.
 The data-free math test checks shadow clip planes/sphere boundaries and
 conservative cluster coverage under off-centre/flipped projections.
+
+### KVX pose cache
+
+The KVX cache keeps each eligible pose surface's vertices and indices in shared
+GPU buffers. Entity transforms and lighting still apply per instance. Buffer
+ownership follows the model and the cache is rebuilt after a video restart.
+The cache is limited to 64 MiB. A surface uses streamed geometry when its
+material needs per-entity vertex attributes or its buffers cannot be cached.
+
+The [KVX preview stress test](Tools.md#animated-grid-room) draws 84 props from
+eight KVX poses. On macOS arm64 with Metal, at 2940×1846 fullscreen with GPU
+validation enabled and VSync disabled, two animated runs per mode measured
+59–61 FPS with streaming and 324–350 FPS with the cache. After warmup, total
+geometry uploads dropped from 92–95 MB per frame to 726 bytes, with 9.6 MB of
+resident KVX data. The cached and streamed captures matched pixel for pixel
+in the preview room, with realtime shadows, and with GPU occlusion enabled.
 
 ### Experimental GPU occlusion culling
 
